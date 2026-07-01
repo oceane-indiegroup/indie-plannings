@@ -302,6 +302,37 @@ const Store = {
   },
 };
 
+// ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
+// Robustesse V2 : chaque confirmation n'écrit qu'UNE ligne, donc deux salariés
+// qui pointent en même temps ne s'écrasent plus. La forme rendue en mémoire est
+// identique à l'ancienne ({ idSalarie: { 0..6: {...}, semaine: {...} } }) pour
+// que le reste de l'application reste inchangé. jour = -1 => signature semaine.
+const SEM_SLOT = -1;
+const Pointages = {
+  async load(resto, sem) {
+    const { data, error } = await supabase
+      .from("pointages").select("salarie_id, jour, data").eq("resto", resto).eq("sem", sem);
+    if (error) { console.error("Pointages.load:", error.message); return {}; }
+    const out = {};
+    for (const row of data || []) {
+      const o = out[row.salarie_id] || (out[row.salarie_id] = {});
+      if (row.jour === SEM_SLOT) o.semaine = row.data;
+      else o[row.jour] = row.data;
+    }
+    return out;
+  },
+  async setJour(resto, sem, salarie_id, jour, data) {
+    const { error } = await supabase
+      .from("pointages").upsert({ resto, sem, salarie_id, jour, data }, { onConflict: "resto,sem,salarie_id,jour" });
+    if (error) console.error("Pointages.setJour:", error.message);
+  },
+  async setSemaine(resto, sem, salarie_id, data) {
+    const { error } = await supabase
+      .from("pointages").upsert({ resto, sem, salarie_id, jour: SEM_SLOT, data }, { onConflict: "resto,sem,salarie_id,jour" });
+    if (error) console.error("Pointages.setSemaine:", error.message);
+  },
+};
+
 // Assainit un fragment de clé : les clés de storage interdisent espaces, slashs et guillemets.
 // On remplace tout caractère non alphanumérique par "-" (les accents sont d'abord retirés).
 function slugKey(s) {
@@ -1037,7 +1068,7 @@ function ManagerView({ resto, onBack }) {
     setLoading(true);
     Promise.all([
       Store.get(kPlanning(resto, sem)),
-      Store.get(kPointages(resto, sem)),
+      Pointages.load(resto, sem),
       Store.get(kRoster(resto)),
       Store.get(kModele(resto)),
       Store.get(kValidation(resto, sem)),
@@ -1087,7 +1118,7 @@ function ManagerView({ resto, onBack }) {
     const hier = ajouterJours(new Date(), -1);
     const semHier = cleSemaine(hier);
     const jHier = (hier.getDay() + 6) % 7; // 0 = lundi
-    Promise.all([Store.get(kPlanning(resto, semHier)), Store.get(kPointages(resto, semHier))]).then(([plH, ptH]) => {
+    Promise.all([Store.get(kPlanning(resto, semHier)), Pointages.load(resto, semHier)]).then(([plH, ptH]) => {
       if (!on) return;
       const planningH = plH || {};
       const pointagesH = ptH || {};
@@ -1442,7 +1473,7 @@ function EmployeeView({ resto, emp, onBack }) {
 
   useEffect(() => {
     let on = true;
-    Promise.all([Store.get(kPlanning(resto, sem)), Store.get(kPointages(resto, sem)), Store.get(kValidation(resto, sem))]).then(([pl, pt, vd]) => {
+    Promise.all([Store.get(kPlanning(resto, sem)), Pointages.load(resto, sem), Store.get(kValidation(resto, sem))]).then(([pl, pt, vd]) => {
       if (!on) return;
       setPlanning(pl && pl[id] ? pl[id] : null);
       setPointages(pt || {});
@@ -1469,7 +1500,7 @@ function EmployeeView({ resto, emp, onBack }) {
     const nextJour = { confirme: hhmm, debut: planJour.debut, fin: planJour.fin, pause: planJour.pause || 0 };
     const next = { ...pointages, [id]: { ...cur, [jourCourant]: nextJour } };
     setPointages(next);
-    Store.set(kPointages(resto, sem), next);
+    Pointages.setJour(resto, sem, id, jourCourant, nextJour);
   }
 
   // Jours travaillés de la semaine et avancement des confirmations.
@@ -1497,7 +1528,7 @@ function EmployeeView({ resto, emp, onBack }) {
     const nextJour = { confirme: "rattrapé", debut: p.debut, fin: p.fin, pause: p.pause || 0 };
     const next = { ...pointages, [id]: { ...cur, [j]: nextJour } };
     setPointages(next);
-    Store.set(kPointages(resto, sem), next);
+    Pointages.setJour(resto, sem, id, j, nextJour);
   }
 
   // La validation n'est possible qu'à partir du dimanche : soit on est dimanche dans la
@@ -1510,7 +1541,7 @@ function EmployeeView({ resto, emp, onBack }) {
     const cur = pointages[id] || {};
     const next = { ...pointages, [id]: { ...cur, semaine: { signee: true } } };
     setPointages(next);
-    Store.set(kPointages(resto, sem), next);
+    Pointages.setSemaine(resto, sem, id, { signee: true });
   }
 
   return (
