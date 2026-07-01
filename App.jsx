@@ -1037,6 +1037,9 @@ function ManagerView({ resto, onBack }) {
   const [filtreUnite, setFiltreUnite] = useState("TOUS"); // TOUS | SALLE | CUISINE
   const [valide, setValide] = useState(false);    // planning de la semaine validé/publié
   const [alerteHier, setAlerteHier] = useState([]); // noms des salariés non confirmés hier
+  const [modeSelect, setModeSelect] = useState(false); // mode nettoyage (sélection multiple)
+  const [selection, setSelection] = useState(() => new Set()); // ids salariés cochés
+  const [confirmLot, setConfirmLot] = useState(false); // confirmation du retrait en lot
   const sem = cleSemaine(semDate);
 
   // Équipe effective : salariés du fichier + ajouts, moins ceux dont le contrat est terminé.
@@ -1306,6 +1309,30 @@ function ManagerView({ resto, onBack }) {
     setGestion(null);
   }
 
+  // Retrait EN LOT de l'effectif (nettoyage de fin de saison). Les fiches du fichier
+  // sont ajoutées aux "supprimés", les salariés créés dans l'app sont retirés des ajouts.
+  // L'historique (plannings/pointages des semaines passées) reste intact. 1 seule écriture.
+  function retirerEnLot(ids) {
+    const set = new Set(ids);
+    const ajoutsIds = new Set((roster.ajouts || []).map((a) => idSalarie(a)));
+    const nouvAjouts = (roster.ajouts || []).filter((a) => !set.has(idSalarie(a)));
+    const nouvSupprimes = [...(roster.supprimes || [])];
+    const nouvDeparts = { ...(roster.departs || {}) };
+    ids.forEach((id) => {
+      delete nouvDeparts[id];
+      if (!ajoutsIds.has(id) && !nouvSupprimes.includes(id)) nouvSupprimes.push(id);
+    });
+    persistRoster({ ...roster, ajouts: nouvAjouts, departs: nouvDeparts, supprimes: nouvSupprimes });
+    const n = set.size;
+    setSelection(new Set());
+    setConfirmLot(false);
+    setModeSelect(false);
+    montrerFlash(`${n} salarié${n>1?'s':''} retiré${n>1?'s':''} de l'effectif de ${resto}. L'historique des semaines passées est conservé.`);
+  }
+  function toggleSelection(id) {
+    setSelection((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  }
+
   const lundi = lundiDeLaSemaine(semDate);
   const aGenere = Object.keys(planning).length > 0;
 
@@ -1336,6 +1363,7 @@ function ManagerView({ resto, onBack }) {
           <div className="ig-noprint" style={{display:'flex',gap:10,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
             <button className="ig-btn ig-btn-primary" onClick={genererTout}><Icon.Wand/> Générer le planning automatique</button>
             <button className="ig-btn ig-btn-ghost" onClick={()=>setAjout(true)}>+ Ajouter un salarié</button>
+            <button className="ig-btn ig-btn-ghost" onClick={()=>{ setModeSelect((v)=>!v); setSelection(new Set()); setConfirmLot(false); }} style={modeSelect?{borderColor:'var(--coral-d)',color:'var(--coral-d)'}:undefined}>🧹 {modeSelect?"Terminer le nettoyage":"Nettoyer l'effectif"}</button>
             <button className="ig-btn ig-btn-ghost" onClick={enregistrerModele} disabled={Object.keys(planning).length===0} title="Mémoriser les horaires de cette semaine comme modèle">★ Enregistrer comme modèle</button>
             <button className="ig-btn ig-btn-ghost" onClick={appliquerModele} disabled={!modele} title="Reprendre les horaires du modèle pour les salariés sans planning">⤵ Appliquer le modèle</button>
             <button className="ig-btn ig-btn-ink" onClick={imprimerPlanning} disabled={Object.keys(planning).length===0}><Icon.Print/> Télécharger le planning en PDF</button>
@@ -1363,6 +1391,25 @@ function ManagerView({ resto, onBack }) {
             </div>
             <span className="ig-muted">{(recherche||filtreUnite!=="TOUS") ? `${teamFiltre.length} sur ${team.length}` : `${team.length} salariés`} · cliquez une case pour ajuster un créneau.{modele?'':' Aucun modèle enregistré pour le moment.'}</span>
           </div>
+          {modeSelect && (
+            <div className="ig-noprint ig-card" style={{padding:'12px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',borderColor:'var(--coral)'}}>
+              <b>Mode nettoyage de l'effectif</b>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setSelection(new Set(teamFiltre.map((e)=>idSalarie(e))))}>Tout sélectionner ({teamFiltre.length})</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setSelection(new Set())}>Tout désélectionner</button>
+              <span className="ig-muted">{selection.size} sélectionné{selection.size>1?'s':''}</span>
+              <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                {!confirmLot ? (
+                  <button className="ig-btn ig-btn-sm" style={{background:'var(--coral-d)',color:'#fff'}} disabled={selection.size===0} onClick={()=>setConfirmLot(true)}>Retirer de l'effectif</button>
+                ) : (
+                  <>
+                    <span style={{fontSize:13,fontWeight:600,color:'var(--coral-d)'}}>Retirer {selection.size} salarié{selection.size>1?'s':''} ? (historique conservé)</span>
+                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setConfirmLot(false)}>Annuler</button>
+                    <button className="ig-btn ig-btn-sm" style={{background:'var(--coral-d)',color:'#fff'}} onClick={()=>retirerEnLot([...selection])}>Confirmer le retrait</button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           {loading ? <div className="ig-muted" style={{padding:20}}>Chargement…</div> : (
           <div className="ig-card" style={{padding:'6px 10px',overflowX:'auto'}}>
             <div className="ig-print-only" style={{textAlign:'center',padding:'4px 0 12px'}}>
@@ -1384,11 +1431,16 @@ function ManagerView({ resto, onBack }) {
                   return (
                     <tr key={idSalarie(e)}>
                       <td className="who">
-                        <div className="nm">{e.p} {e.n}{e._ajout && <span className="ig-badge" style={{marginLeft:6}}>nouveau</span>}</div>
-                        <div className="po">{e.po} · <b>{e.h}h</b></div>
-                        <div className="ig-noprint" style={{display:'flex',gap:8,marginTop:2}}>
-                          {!pl && <button className="ig-editbtn" onClick={()=>genererUn(e)}>générer</button>}
-                          <button className="ig-editbtn" onClick={()=>setGestion(e)}>gestion</button>
+                        <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+                          {modeSelect && <input type="checkbox" checked={selection.has(idSalarie(e))} onChange={()=>toggleSelection(idSalarie(e))} style={{width:16,height:16,marginTop:3,cursor:'pointer',flexShrink:0}} />}
+                          <div>
+                            <div className="nm">{e.p} {e.n}{e._ajout && <span className="ig-badge" style={{marginLeft:6}}>nouveau</span>}</div>
+                            <div className="po">{e.po} · <b>{e.h}h</b></div>
+                            <div className="ig-noprint" style={{display:'flex',gap:8,marginTop:2}}>
+                              {!pl && <button className="ig-editbtn" onClick={()=>genererUn(e)}>générer</button>}
+                              <button className="ig-editbtn" onClick={()=>setGestion(e)}>gestion</button>
+                            </div>
+                          </div>
                         </div>
                       </td>
                       {JOURS.map((j,i)=>(
