@@ -1293,10 +1293,21 @@ function ManagerView({ resto, onBack }) {
     persistRoster({ ...roster, departs: deps });
   }
   // Début de contrat : ajoute un salarié au restaurant.
+  // IMPORTANT : si ce salarié avait été retiré (présent dans "supprimes" ou "departs"),
+  // on l'en enlève — sinon le filtre d'effectif le masquerait aussitôt. Et si c'est une
+  // fiche du fichier de base, on la réactive au lieu de créer un doublon.
   function ajouterSalarie(data) {
     const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true };
-    persistRoster({ ...roster, ajouts: [...(roster.ajouts || []), nouveau] });
+    const id = idSalarie(nouveau);
+    const supprimes = (roster.supprimes || []).filter((x) => x !== id);
+    const departs = { ...(roster.departs || {}) };
+    delete departs[id];
+    const estFichier = EMPLOYEES.some((e) => e.r === resto && idSalarie(e) === id);
+    let ajouts = (roster.ajouts || []).filter((a) => idSalarie(a) !== id);
+    if (!estFichier) ajouts = [...ajouts, nouveau]; // vraie nouvelle personne
+    persistRoster({ ...roster, ajouts, supprimes, departs });
     setAjout(false);
+    montrerFlash(`${nouveau.p} ${nouveau.n} ajouté à l'effectif de ${resto}.`);
   }
   // Suppression définitive d'un salarié AJOUTÉ dans l'app : le retire de l'effectif.
   // Ses plannings/pointages des semaines passées ne sont pas effacés (historique conservé).
