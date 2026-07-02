@@ -1045,7 +1045,11 @@ function ManagerView({ resto, onBack }) {
   // Équipe effective : salariés du fichier + ajouts, moins ceux dont le contrat est terminé.
   const team = useMemo(() => {
     const base = EMPLOYEES.filter((e) => e.r === resto);
-    const tous = base.concat(roster.ajouts || []);
+    const ajouts = roster.ajouts || [];
+    const ajoutIds = new Set(ajouts.map((a) => idSalarie(a)));
+    // Une fiche "ajoutée" a priorité sur la fiche du fichier de même identifiant
+    // (permet de corriger ses heures / son poste sans créer de doublon).
+    const tous = base.filter((e) => !ajoutIds.has(idSalarie(e))).concat(ajouts);
     const supprimes = new Set(roster.supprimes || []);
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
@@ -1302,12 +1306,12 @@ function ManagerView({ resto, onBack }) {
     const supprimes = (roster.supprimes || []).filter((x) => x !== id);
     const departs = { ...(roster.departs || {}) };
     delete departs[id];
-    const estFichier = EMPLOYEES.some((e) => e.r === resto && idSalarie(e) === id);
-    let ajouts = (roster.ajouts || []).filter((a) => idSalarie(a) !== id);
-    if (!estFichier) ajouts = [...ajouts, nouveau]; // vraie nouvelle personne
+    // On enregistre TOUJOURS la fiche saisie (heures/poste inclus) ; elle prime sur une
+    // éventuelle fiche du fichier de même nom (priorité gérée dans le calcul de "team").
+    const ajouts = [...(roster.ajouts || []).filter((a) => idSalarie(a) !== id), nouveau];
     persistRoster({ ...roster, ajouts, supprimes, departs });
     setAjout(false);
-    montrerFlash(`${nouveau.p} ${nouveau.n} ajouté à l'effectif de ${resto}.`);
+    montrerFlash(`${nouveau.p} ${nouveau.n} ajouté à l'effectif de ${resto} (${nouveau.h}h).`);
   }
   // Suppression définitive d'un salarié AJOUTÉ dans l'app : le retire de l'effectif.
   // Ses plannings/pointages des semaines passées ne sont pas effacés (historique conservé).
