@@ -1003,6 +1003,9 @@ function AjoutModal({ resto, onAjouter, onClose }) {
           <div className="ig-field" style={{margin:0}}>
             <label>Heures / semaine</label>
             <select value={heures} onChange={(e)=>setHeures(e.target.value)}>
+              <option value={20}>20h</option>
+              <option value={24}>24h</option>
+              <option value={30}>30h</option>
               <option value={35}>35h</option>
               <option value={39}>39h</option>
               <option value={42}>42h</option>
