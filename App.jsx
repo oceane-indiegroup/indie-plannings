@@ -1746,6 +1746,26 @@ function RestoPicker({ restaurants, onPick, onAdd }) {
   const [form, setForm] = useState(false);
   const [nom, setNom] = useState("");
   const [err, setErr] = useState("");
+  const [counts, setCounts] = useState({}); // effectif RÉEL par restaurant (fiches + ajouts − retirés)
+
+  useEffect(() => {
+    let on = true;
+    Promise.all(restaurants.map((r) => Store.get(kRoster(r)).then((rs) => [r, rs]))).then((paires) => {
+      if (!on) return;
+      const res = {};
+      paires.forEach(([r, rs]) => {
+        const roster = rs || {};
+        const ajouts = roster.ajouts || [];
+        const ajoutIds = new Set(ajouts.map((a) => idSalarie(a)));
+        const supprimes = new Set(roster.supprimes || []);
+        const base = EMPLOYEES.filter((e) => e.r === r);
+        const tous = base.filter((e) => !ajoutIds.has(idSalarie(e))).concat(ajouts);
+        res[r] = tous.filter((e) => !supprimes.has(idSalarie(e))).length;
+      });
+      setCounts(res);
+    });
+    return () => { on = false; };
+  }, [restaurants]);
 
   function valider() {
     const propre = nom.trim();
@@ -1765,7 +1785,7 @@ function RestoPicker({ restaurants, onPick, onAdd }) {
           <button key={r} className="ig-resto" onClick={() => onPick(r)}>
             <div>
               <div className="nm">{r}</div>
-              <div className="ct">{EMPLOYEES.filter((e)=>e.r===r).length} salariés</div>
+              <div className="ct">{counts[r] != null ? counts[r] : EMPLOYEES.filter((e)=>e.r===r).length} salariés</div>
             </div>
             <Icon.Chevron />
           </button>
