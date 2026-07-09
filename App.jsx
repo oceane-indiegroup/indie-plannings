@@ -19,6 +19,7 @@ const STATUTS = {
   CP: "CP",
   DEMI_CP: "demi-CP",
   AM: "AM",
+  SANS_SOLDE: "CSS",
   REPOS: "Repos",
   FIN: "Fin",
 };
@@ -280,6 +281,7 @@ function celluleHTML(p, { signe } = {}) {
   if (!p || p.statut === STATUTS.OFF || p.statut === STATUTS.REPOS) return '<b>OFF</b>';
   if (p.statut === STATUTS.CP) return '<b>CP</b>';
   if (p.statut === STATUTS.AM) return '<b>AM</b>';
+  if (p.statut === STATUTS.SANS_SOLDE) return '<b>CSS</b>';
   if (p.statut === STATUTS.FIN) return '';
   let s = `<div class="hrs">${esc(p.debut)} – ${esc(p.fin)}</div>`;
   if (p.coupure && p.debut2 && p.fin2) s += `<div class="hrs">${esc(p.debut2)} – ${esc(p.fin2)}</div>`;
@@ -480,6 +482,7 @@ const CSS = `
 .ig-cell.demicp { background:#EAF0F5; color:#3A6EA5; }
 .ig-cell.fin { background:#D9D9D9; min-height:38px; }
 .ig-cell.am { background:#FCE5D6; color:#C2702A; font-weight:700; }
+.ig-cell.sanssolde { background:#ECE4F3; color:#6B5B95; font-weight:700; }
 .ig-cell .pz { font-size:10px; opacity:.7; font-weight:500; }
 .ig-tot { font-family:'Inter',system-ui,sans-serif; font-weight:700; font-size:15px; }
 .ig-tot small { font-family:'Inter'; font-size:11px; color:var(--ink-soft); font-weight:500; display:block; }
@@ -623,6 +626,9 @@ function PlanningCell({ p, editable, onClick }) {
   if (p.statut === STATUTS.AM) {
     return <div className={"ig-cell am" + (editable ? " ig-cell-edit" : "")} onClick={onClick}>AM</div>;
   }
+  if (p.statut === STATUTS.SANS_SOLDE) {
+    return <div className={"ig-cell sanssolde" + (editable ? " ig-cell-edit" : "")} onClick={onClick}>CSS</div>;
+  }
   if (p.statut === STATUTS.DEMI_CP) {
     return (
       <div className={"ig-cell demicp" + (editable ? " ig-cell-edit" : "")} onClick={onClick}>
@@ -686,6 +692,7 @@ function EditModal({ jour, jourLabel, emp, p, onSave, onClose }) {
             <option value={STATUTS.CP}>CP (congé payé)</option>
             <option value={STATUTS.DEMI_CP}>Demi-CP (demi-journée)</option>
             <option value={STATUTS.AM}>AM (arrêt maladie)</option>
+            <option value={STATUTS.SANS_SOLDE}>Congé sans solde (CSS)</option>
           </select>
         </div>
         {statut === STATUTS.DEMI_CP && (
@@ -843,6 +850,7 @@ function EmargementSheet({ resto, semDate, planning, pointages, team }) {
                     if (!p || p.statut===STATUTS.OFF) return <td key={i} className="daycell"><b>OFF</b></td>;
                     if (p.statut===STATUTS.CP) return <td key={i} className="daycell"><b>CP</b></td>;
                     if (p.statut===STATUTS.AM) return <td key={i} className="daycell"><b>AM</b></td>;
+                    if (p.statut===STATUTS.SANS_SOLDE) return <td key={i} className="daycell"><b>CSS</b></td>;
                     if (p.statut===STATUTS.FIN) return <td key={i} className="daycell" style={{background:'#D9D9D9'}}></td>;
                     return (
                       <td key={i} className="daycell">
@@ -904,6 +912,7 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
           <div style={{display:'flex',flexDirection:'column',gap:10,marginTop:18}}>
             <button className="ig-btn ig-btn-ghost" onClick={()=>{ setMode('cp'); setJours([]); }} style={{justifyContent:'flex-start'}}>🌴 Marquer des jours en CP (congé payé)</button>
             <button className="ig-btn ig-btn-ghost" onClick={()=>{ setMode('am'); setJours([]); }} style={{justifyContent:'flex-start'}}>🏥 Marquer des jours en AM (arrêt maladie)</button>
+            <button className="ig-btn ig-btn-ghost" onClick={()=>{ setMode('css'); setJours([]); }} style={{justifyContent:'flex-start'}}>💼 Marquer des jours en congé sans solde</button>
             <button className="ig-btn ig-btn-ghost" onClick={()=>setMode('suppr')} style={{justifyContent:'flex-start',color:'var(--coral-d)',borderColor:'#f0c9c2'}}>✕ Fin de contrat (retirer le salarié)</button>
             {peutSupprimerDef && (
               <button className="ig-btn ig-btn-ghost" onClick={()=>setMode('supprdef')} style={{justifyContent:'flex-start',color:'#fff',background:'var(--coral-d)',borderColor:'var(--coral-d)'}}>🗑 Supprimer définitivement (contrat terminé)</button>
@@ -912,7 +921,7 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
           </div>
         )}
 
-        {(mode === 'cp' || mode === 'am') && (
+        {(mode === 'cp' || mode === 'am' || mode === 'css') && (
           <div style={{marginTop:16}}>
             <div className="ig-field">
               <label>Jours concernés — semaine du {fmtDate(lundi)}</label>
@@ -921,8 +930,8 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
                   <button key={i} onClick={()=>toggleJour(i)}
                     style={{padding:'8px 2px',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',
                       border:'1.5px solid '+(jours.includes(i)?'var(--sea)':'var(--line)'),
-                      background:jours.includes(i)?(mode==='cp'?'#DCEAF5':'#FCE5D6'):'#fff',
-                      color:jours.includes(i)?(mode==='cp'?'#3A6EA5':'#C2702A'):'var(--ink-soft)'}}>
+                      background:jours.includes(i)?(mode==='cp'?'#DCEAF5':(mode==='am'?'#FCE5D6':'#ECE4F3')):'#fff',
+                      color:jours.includes(i)?(mode==='cp'?'#3A6EA5':(mode==='am'?'#C2702A':'#6B5B95')):'var(--ink-soft)'}}>
                     {JOURS_COURT[i]}<br/><span style={{fontWeight:400,opacity:.7}}>{fmtJour(ajouterJours(lundi,i))}</span>
                   </button>
                 ))}
@@ -931,8 +940,8 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
             <div style={{display:'flex',gap:10,marginTop:14}}>
               <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={()=>setMode(null)}>Retour</button>
               <button className="ig-btn ig-btn-primary" style={{flex:1}} disabled={jours.length===0}
-                onClick={()=>onMarquer(jours, mode==='cp'?STATUTS.CP:STATUTS.AM)}>
-                Marquer en {mode==='cp'?'CP':'AM'}
+                onClick={()=>onMarquer(jours, mode==='cp'?STATUTS.CP:(mode==='am'?STATUTS.AM:STATUTS.SANS_SOLDE))}>
+                Marquer en {mode==='cp'?'CP':(mode==='am'?'AM':'congé sans solde')}
               </button>
             </div>
           </div>
@@ -1663,7 +1672,7 @@ function EmployeeView({ resto, emp, onBack }) {
               </div>
             )}
           </>
-        ) : planJour && (planJour.statut===STATUTS.OFF||planJour.statut===STATUTS.CP||planJour.statut===STATUTS.AM) ? (
+        ) : planJour && (planJour.statut===STATUTS.OFF||planJour.statut===STATUTS.CP||planJour.statut===STATUTS.AM||planJour.statut===STATUTS.SANS_SOLDE) ? (
           <div className="ig-muted">Vous n'êtes pas en service aujourd'hui ({planJour.statut}).</div>
         ) : (
           <div className="ig-muted">Aucun service planifié aujourd'hui pour le moment.</div>
@@ -1701,6 +1710,8 @@ function EmployeeView({ resto, emp, onBack }) {
           <div style={{fontSize:16,fontWeight:600,color:'#3A6EA5'}}>Congé payé (CP)</div>
         ) : planJour.statut===STATUTS.AM ? (
           <div style={{fontSize:16,fontWeight:600,color:'#C2702A'}}>Arrêt maladie (AM)</div>
+        ) : planJour.statut===STATUTS.SANS_SOLDE ? (
+          <div style={{fontSize:16,fontWeight:600,color:'#6B5B95'}}>Congé sans solde (CSS)</div>
         ) : planJour.statut===STATUTS.DEMI_CP ? (
           <div>
             <div style={{fontSize:24,fontFamily:"'Inter',system-ui,sans-serif",fontWeight:600}}>{planJour.debut} – {planJour.fin}</div>
