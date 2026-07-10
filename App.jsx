@@ -1998,20 +1998,22 @@ export default function App() {
     content = <CodeGate onOk={()=>{ setAskCode(false); setRole('manager'); }} onCancel={()=>setAskCode(false)} />;
   } else if (!role) {
     content = (
-      <div className="ig-hero">
-        <div className="ig-eyebrow">Indie Group · Plannings &amp; émargement</div>
-        <h1 className="ig-display">Le planning de vos<br/>restaurants, au clair.</h1>
-        <p>Générez les plannings de la semaine selon les contrats de chacun, ajustez-les à la main, et laissez vos équipes pointer leurs heures. Une feuille d'émargement prête à imprimer pour chaque restaurant.</p>
-        <div className="ig-roles">
-          <button className="ig-role" onClick={()=> session ? setRole('manager') : setAskCode(true)}>
-            <div className="ig-ic" style={{background:'var(--ink)',color:'var(--sand)'}}><Icon.Shield/></div>
-            <h3>Je suis manager</h3>
-            <p>Générer et modifier les plannings, suivre les pointages, imprimer les feuilles d'émargement.</p>
+      <div className="ig-hero" style={{textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',paddingTop:40}}>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14,marginBottom:36}}>
+          <svg width="84" height="84" viewBox="0 0 64 64" aria-label="Indie Group">
+            <rect width="64" height="64" rx="14" fill="#111111"/>
+            <text x="32" y="33" textAnchor="middle" dominantBaseline="central" fontFamily="'Inter',system-ui,sans-serif" fontWeight="800" fontSize="31" letterSpacing="-1.5" fill="#ffffff">IG</text>
+          </svg>
+          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:700,fontSize:30,letterSpacing:'-.5px'}}>Indie Group</div>
+        </div>
+        <div className="ig-roles" style={{width:'100%',maxWidth:720,margin:0}}>
+          <button className="ig-role" onClick={()=> session ? setRole('manager') : setAskCode(true)} style={{textAlign:'center'}}>
+            <div className="ig-ic" style={{background:'var(--ink)',color:'var(--sand)',margin:'0 auto 16px'}}><Icon.Shield/></div>
+            <h3 style={{margin:0}}>Je suis manager</h3>
           </button>
-          <button className="ig-role" onClick={()=>setRole('salarie')}>
-            <div className="ig-ic" style={{background:'var(--coral)',color:'#fff'}}><Icon.User/></div>
-            <h3>Je suis salarié</h3>
-            <p>Voir mon planning de la semaine et pointer mes arrivées, pauses et départs.</p>
+          <button className="ig-role" onClick={()=>setRole('salarie')} style={{textAlign:'center'}}>
+            <div className="ig-ic" style={{background:'var(--coral)',color:'#fff',margin:'0 auto 16px'}}><Icon.User/></div>
+            <h3 style={{margin:0}}>Je suis salarié</h3>
           </button>
         </div>
       </div>
