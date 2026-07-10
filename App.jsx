@@ -1658,16 +1658,15 @@ function EmployeeView({ resto, emp, onBack }) {
           <div className="ig-muted">Le pointage n'est possible que pour la semaine en cours.</div>
         ) : planJour && estJourTravaille(planJour.statut) ? (
           <>
-            <div className="ig-muted" style={{marginBottom:18}}>{planJour.statut===STATUTS.DEMI_CP?'Demi-journée travaillée : ':'Service prévu aujourd’hui : '}<b>{planJour.debut} – {planJour.fin}{planJour.coupure && planJour.debut2 && planJour.fin2 ? ` puis ${planJour.debut2} – ${planJour.fin2}` : ''}</b>{planJour.statut===STATUTS.DEMI_CP?` · ½ CP`:(planJour.coupure?' · coupure':(planJour.pause?` · ${planJour.pause}h de pause`:''))}</div>
             {monPt.confirme ? (
               <div className="ig-status-line" style={{background:'#EAF3F3'}}>
-                <span className="ig-stamp" style={{borderColor:'var(--sea)'}}><Icon.Check width={15} height={15}/> Présence confirmée</span>
-                <div className="ig-muted" style={{marginTop:8}}>Horaires validés : {monPt.debut} – {monPt.fin}. À demain !</div>
+                <span className="ig-stamp" style={{borderColor:'var(--sea)'}}><Icon.Check width={15} height={15}/> Journée validée</span>
+                <div className="ig-muted" style={{marginTop:8}}>À demain !</div>
               </div>
             ) : (
               <div className="ig-clock-actions">
                 <button className="ig-clock-btn" style={{background:'var(--sea)',color:'#fff',minWidth:240}} onClick={confirmerJour}>
-                  Je confirme ma présence
+                  Valider ma journée
                 </button>
               </div>
             )}
