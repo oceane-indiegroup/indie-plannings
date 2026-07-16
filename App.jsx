@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "./supabaseClient";
+import fondAccueil from "./22.jpeg";
 // N'utiliser QUE les fonctions d'écriture de xlsx (aoa_to_sheet, book_new, write) sur des
 // données internes à l'appli — jamais XLSX.read()/readFile() sur un fichier externe : les
 // failles connues de ce paquet concernent la lecture de fichiers xlsx non fiables.
@@ -465,6 +466,10 @@ const CSS = `
 .ig-role .ig-ic { width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; margin-bottom:16px; }
 .ig-role h3 { font-family:'Inter', system-ui, sans-serif; font-size:21px; margin:0 0 6px; font-weight:700; letter-spacing:-.2px; }
 .ig-role p { color:var(--ink-soft); font-size:14px; margin:0; line-height:1.5; }
+.ig-hero-bg { position:relative; border-radius:28px; overflow:hidden; background-size:cover; background-position:center 30%; isolation:isolate; }
+.ig-hero-bg::before { content:''; position:absolute; inset:0; background:linear-gradient(180deg, rgba(10,8,10,.5) 0%, rgba(10,8,10,.72) 55%, rgba(10,8,10,.92) 100%); z-index:-1; }
+.ig-hero-bg .ig-role { background:rgba(255,255,255,.95); backdrop-filter:blur(6px); }
+@media (max-width:640px) { .ig-hero-bg { border-radius:20px; } }
 
 .ig-card { background:var(--white); border:1.5px solid var(--line); border-radius:16px; }
 .ig-section-title { font-family:'Inter',system-ui,sans-serif; font-size:26px; font-weight:600; margin:0 0 4px; }
@@ -3078,13 +3083,13 @@ export default function App() {
     }} onCancel={()=>setAskCode(false)} />;
   } else if (!role) {
     content = (
-      <div className="ig-hero" style={{textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',paddingTop:40}}>
+      <div className="ig-hero ig-hero-bg" style={{textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',padding:'56px 20px 40px',backgroundImage:`url(${fondAccueil})`}}>
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14,marginBottom:36}}>
           <svg width="84" height="84" viewBox="0 0 64 64" aria-label="Indie Group">
             <rect width="64" height="64" rx="14" fill="#111111"/>
             <text x="32" y="33" textAnchor="middle" dominantBaseline="central" fontFamily="'Inter',system-ui,sans-serif" fontWeight="800" fontSize="31" letterSpacing="-1.5" fill="#ffffff">IG</text>
           </svg>
-          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:700,fontSize:30,letterSpacing:'-.5px'}}>Indie Group RH</div>
+          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:700,fontSize:30,letterSpacing:'-.5px',color:'#fff'}}>Indie Group RH</div>
         </div>
         <div className="ig-roles" style={{width:'100%',maxWidth:720,margin:0}}>
           <button className="ig-role" onClick={()=> session ? setRole('manager') : setAskCode(true)} style={{textAlign:'center'}}>
@@ -3115,7 +3120,6 @@ export default function App() {
         <div className="ig-wrap">
           <button className="ig-brand" style={{background:'none',border:'none',color:'inherit',cursor:'pointer',padding:0}} onClick={reset}>
             🌊 Indie Group RH
-            <small>Plannings</small>
           </button>
           {role && (
             <div className="ig-tag">
