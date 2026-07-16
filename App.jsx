@@ -392,9 +392,6 @@ const kExtras = (mois) => `extras:${mois}`;
 // Fiche juridique de chaque établissement (raison sociale, SIRET...) : nécessaire pour
 // générer les contrats de prêt. Clé unique, valeur = { [resto]: {...} }.
 const kEtablissementsJuridique = "etablissements_juridique";
-// Informations légales des salariés (naissance, adresse, n° sécu...), saisies une seule
-// fois par un manager puis réutilisées pour tous les contrats suivants du même salarié.
-const kSalariesLegal = "salaries_legal";
 function cleMois(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 
 // ---------- Icônes (SVG inline, pas de dépendance) ----------
@@ -906,13 +903,26 @@ const Extras = {
     return tout;
   },
 };
-const EtablissementsJuridique = {
-  async load() { return (await Store.get(kEtablissementsJuridique)) || {}; },
-  async save(tous) { await Store.set(kEtablissementsJuridique, tous); },
+// Fiches juridiques connues des établissements du groupe (raison sociale, SIRET, adresse...),
+// fournies par la direction — pré-remplies pour que les managers n'aient jamais à les ressaisir.
+// Une fiche enregistrée manuellement (Store, ex: nouvel établissement) reste prioritaire.
+const ETABLISSEMENTS_JURIDIQUE_DEFAUT = {
+  "INDIE BEACH": { raisonSociale: "SAS INDIE BEACH", adresse: "Plage de Pampelonne", cp: "83350", ville: "RAMATUELLE", capital: "7 600 €", rcs: "Fréjus 451 201 875", siret: "45120187500023", ape: "5610A" },
+  "CAFE DE L ORMEAU": { raisonSociale: "SAS CAFE DE L'ORMEAU", adresse: "4 Place de l'Ormeau", cp: "83350", ville: "RAMATUELLE", capital: "10 000 €", rcs: "Fréjus 904 440 971", siret: "90444097100029", ape: "5630Z" },
+  "CAT CLUB": { raisonSociale: "SAS CLUB 5 - CAT CLUB", adresse: "168 Rue Park City", cp: "73120", ville: "COURCHEVEL 1850", capital: "10 000 €", rcs: "Fréjus 933 084 667", siret: "93308466700023", ape: "5630Z" },
+  "CHERRY": { raisonSociale: "SAS CHERRY", adresse: "22 Rue du Portalet", cp: "83990", ville: "SAINT TROPEZ", capital: "2 310 000 €", rcs: "Fréjus 952 030 427", siret: "95203042700027", ape: "5610A" },
+  "CHERRY PARIS": { raisonSociale: "SAS CHERRY PARIS", adresse: "1 Rue du Sabot", cp: "75006", ville: "PARIS", capital: "10 000 €", rcs: "Fréjus 924 949 563", siret: "92494956300036", ape: "5510Z" },
+  "JCP LA SAUVAGEONNE MEGEVE": { raisonSociale: "SAS JCP LA SAUVAGEONNE", adresse: "170 Route Edmond de Rothschild", cp: "74120", ville: "MEGEVE", capital: "8 000 €", rcs: "Annecy 843 540 634", siret: "84354063400014", ape: "5610A" },
+  "LA SAUVAGEONNE": { raisonSociale: "SAS LA SAUVAGEONNE", adresse: "Route de Bonne Terasse", cp: "83350", ville: "RAMATUELLE", capital: "2 500 €", rcs: "Fréjus 899 054 480", siret: "89905448000020", ape: "5610A" },
+  "PABLO": { raisonSociale: "SAS PABLO", adresse: "5 Place Carnot", cp: "83990", ville: "SAINT TROPEZ", capital: "2 000 €", rcs: "Fréjus 793 263 146", siret: "79326314600037", ape: "5610A" },
+  "PLAYAMIGOS": { raisonSociale: "SARL SOLIFER - PLAYAMIGOS", adresse: "Plage de Pampelonne", cp: "83350", ville: "RAMATUELLE", capital: "10 000 €", rcs: "Fréjus 844 621 284", siret: "84462128400018", ape: "5610A" },
+  "INDIE GROUP BUREAU": { raisonSociale: "SAS INDIE GROUP", adresse: "104 Rue du Tibouren", cp: "83350", ville: "RAMATUELLE", capital: "921 800 €", rcs: "Fréjus 898 682 307", siret: "89868230700035", ape: "7010Z" },
+  "PABLO SAINT BARTH": { raisonSociale: "SAS 2H-PABLO", adresse: "15 Rue du bord de mer", cp: "97133", ville: "GUSTAVIA", capital: "1 000 €", rcs: "Basse Terre 897 849 915", siret: "89784991500037", ape: "5610A" },
+  "CAFE FLORA": { raisonSociale: "SARL LAKICLAC - CAFE FLORA", adresse: "Toison d'Or, chemin des tamaris", cp: "83350", ville: "RAMATUELLE", capital: "1 000 €", rcs: "Fréjus 898 332 242", siret: "89833224200020", ape: "5610A" },
 };
-const SalariesLegal = {
-  async load() { return (await Store.get(kSalariesLegal)) || {}; },
-  async save(tous) { await Store.set(kSalariesLegal, tous); },
+const EtablissementsJuridique = {
+  async load() { return { ...ETABLISSEMENTS_JURIDIQUE_DEFAUT, ...((await Store.get(kEtablissementsJuridique)) || {}) }; },
+  async save(tous) { await Store.set(kEtablissementsJuridique, tous); },
 };
 
 // Charge l'effectif actuel de plusieurs établissements (fichier + salariés ajoutés dans
@@ -938,8 +948,6 @@ async function chargerEffectifGlobal(restaurants) {
   return tous;
 }
 
-const TYPES_CONTRAT = ["CDI", "CDD", "Extra / Saisonnier", "Apprentissage"];
-
 // Style commun aux documents juridiques imprimés (contrat + avenant).
 const STYLE_CONTRAT = `
   h1 { font-size:16px; letter-spacing:.5px; }
@@ -959,7 +967,7 @@ function valEtab(j, champ) { return (j && j[champ]) ? esc(j[champ]) : `<span cla
 
 // Construit le corps HTML du contrat de prêt de main-d'œuvre (entre les deux sociétés),
 // conforme aux articles L.8241-1 et suivants du Code du travail (prêt à but non lucratif).
-function construireContratPretHTML({ origineJ, destJ, salarie, salarieLegal, poste, date, heures, tauxNet, dateGeneration }) {
+function construireContratPretHTML({ origineJ, destJ, salarie, poste, date, heures, tauxNet, dateGeneration }) {
   const dateFr = fmtDate(new Date(date + "T00:00:00"));
   const genFr = fmtDate(dateGeneration);
   return `
@@ -979,12 +987,8 @@ function construireContratPretHTML({ origineJ, destJ, salarie, salarieLegal, pos
     <h2>Article 1 – Cadre juridique</h2>
     <p>Le présent contrat est conclu conformément aux articles L.8241-1 et suivants du Code du travail, dans le cadre d'un prêt de main-d'œuvre à but non lucratif. L'Entreprise prêteuse met temporairement à disposition de l'Entreprise utilisatrice un de ses salariés, sans facturation de marge bénéficiaire.</p>
     <h2>Article 2 – Salarié concerné</h2>
-    <p>Le salarié mis à disposition est : <b>${esc(salarie.p)} ${esc(salarie.n)}</b><br>
-    Né(e) le ${salarieLegal.naissance ? esc(salarieLegal.naissance) : '<span class="manque">[date de naissance à compléter]</span>'} à ${salarieLegal.lieuNaissance ? esc(salarieLegal.lieuNaissance) : '<span class="manque">[lieu à compléter]</span>'}, de nationalité ${salarieLegal.nationalite ? esc(salarieLegal.nationalite) : '<span class="manque">[à compléter]</span>'}.<br>
-    Demeurant : ${salarieLegal.adresse ? esc(salarieLegal.adresse) : '<span class="manque">[adresse à compléter]</span>'}<br>
-    Numéro de sécurité sociale : ${salarieLegal.secu ? esc(salarieLegal.secu) : '<span class="manque">[n° sécu à compléter]</span>'}<br>
-    Contrat de travail : ${salarieLegal.typeContrat ? esc(salarieLegal.typeContrat) : '<span class="manque">[type de contrat à compléter]</span>'}</p>
-    <p>Le salarié a donné son accord préalable à la présente mise à disposition.</p>
+    <p>Le salarié mis à disposition est : <b>${esc(salarie.p)} ${esc(salarie.n)}</b>.<br>
+    Le salarié a donné son accord préalable à la présente mise à disposition.</p>
     <h2>Article 3 – Objet de la mise à disposition</h2>
     <p>La mise à disposition a pour objet de permettre au salarié d'exécuter une mission temporaire au sein de l'Entreprise utilisatrice afin de répondre à un besoin ponctuel d'activité. Le salarié exercera les fonctions suivantes : <b>${esc(poste)}</b>.</p>
     <h2>Article 4 – Durée de la mission</h2>
@@ -1040,12 +1044,12 @@ function construireAvenantHTML({ origineNom, destNom, salarie, poste, date, date
 
 // Génère et enregistre (dans l'enregistrement extra lui-même) le contrat + l'avenant,
 // horodatés au moment de la création de l'extra — donc avant la soirée, comme l'exige la loi.
-function genererDocumentsExtra(extra, etabsJ, salarieLegal) {
+function genererDocumentsExtra(extra, etabsJ) {
   const origineJ = etabsJ[extra.restoOrigine] || null;
   const destJ = etabsJ[extra.resto] || null;
   const dateGeneration = new Date();
   const salarie = { n: extra.salarieNom, p: extra.salariePrenom };
-  const contratHTML = construireContratPretHTML({ origineJ, destJ, salarie, salarieLegal: salarieLegal || {}, poste: extra.poste, date: extra.date, heures: extra.heuresEstimees, tauxNet: extra.tauxHoraireNet, dateGeneration });
+  const contratHTML = construireContratPretHTML({ origineJ, destJ, salarie, poste: extra.poste, date: extra.date, heures: extra.heuresEstimees, tauxNet: extra.tauxHoraireNet, dateGeneration });
   const avenantHTML = construireAvenantHTML({ origineNom: (origineJ && origineJ.raisonSociale) || extra.restoOrigine, destNom: (destJ && destJ.raisonSociale) || extra.resto, salarie, poste: extra.poste, date: extra.date, dateGeneration });
   return { contratHTML, avenantHTML, contratGenereAt: dateGeneration.toISOString() };
 }
@@ -1517,16 +1521,13 @@ function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
 }
 
 // ---------- Modal Ajout d'un extra (choix du salarié + génération immédiate du contrat) ----------
-function AjoutExtraModal({ resto, effectif, salariesLegal, onValider, onClose }) {
+function AjoutExtraModal({ resto, effectif, onValider, onClose }) {
   const [recherche, setRecherche] = useState("");
   const [selection, setSelection] = useState(null);
-  const [poste, setPoste] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [heuresEstimees, setHeuresEstimees] = useState("");
   const [tauxHoraireNet, setTauxHoraireNet] = useState("");
   const [surHeuresOrigine, setSurHeuresOrigine] = useState(false);
-  const [accord, setAccord] = useState(false);
-  const [legal, setLegal] = useState({ naissance: "", lieuNaissance: "", nationalite: "", adresse: "", secu: "", typeContrat: "" });
   const [err, setErr] = useState("");
 
   const candidats = useMemo(() => {
@@ -1538,27 +1539,23 @@ function AjoutExtraModal({ resto, effectif, salariesLegal, onValider, onClose })
   function choisir(e) {
     setSelection(e);
     setRecherche(`${e.p} ${e.n}`);
-    setPoste(e.po || "");
-    setLegal({ naissance: "", lieuNaissance: "", nationalite: "", adresse: "", secu: "", typeContrat: "", ...(salariesLegal[idSalarie(e)] || {}) });
   }
 
   function valider() {
     if (!selection) { setErr("Choisissez un salarié dans la liste (établissement d'origine différent du vôtre)."); return; }
-    if (!poste.trim()) { setErr("Indiquez le poste occupé pendant l'extra."); return; }
     if (!date) { setErr("Indiquez la date de la soirée."); return; }
     if (!surHeuresOrigine && (!tauxHoraireNet || Number(tauxHoraireNet) <= 0)) { setErr("Indiquez le taux horaire net (ou cochez « sur ses heures d'origine »)."); return; }
-    if (!accord) { setErr("Confirmez que le salarié est d'accord pour cet extra."); return; }
     onValider({
-      salarieId: idSalarie(selection), salarie: selection, poste: poste.trim(), date,
+      salarieId: idSalarie(selection), salarie: selection, poste: selection.po || "", date,
       heuresEstimees: heuresEstimees === "" ? null : Number(heuresEstimees),
-      tauxHoraireNet: Number(tauxHoraireNet) || 0, surHeuresOrigine, legal,
+      tauxHoraireNet: Number(tauxHoraireNet) || 0, surHeuresOrigine,
     });
   }
 
   return (
     <div className="ig-overlay" onClick={onClose}>
-      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:520}}>
-        <h3>Ajouter un extra</h3>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:480}}>
+        <h3>Contrat de prêt</h3>
         <div className="ig-muted" style={{marginBottom:10}}>Choisissez un salarié d'un autre établissement du groupe : le contrat de prêt de main-d'œuvre est généré immédiatement, prêt à signer avant la soirée.</div>
 
         <div className="ig-field" style={{position:'relative'}}>
@@ -1582,10 +1579,6 @@ function AjoutExtraModal({ resto, effectif, salariesLegal, onValider, onClose })
 
         {selection && (
           <>
-            <div className="ig-field">
-              <label>Poste occupé pendant l'extra</label>
-              <input value={poste} onChange={(e)=>setPoste(e.target.value)} placeholder="Ex : Runner" />
-            </div>
             <div className="ig-times">
               <div className="ig-field" style={{margin:0}}>
                 <label>Date de la soirée</label>
@@ -1608,37 +1601,13 @@ function AjoutExtraModal({ resto, effectif, salariesLegal, onValider, onClose })
                 </label>
               </div>
             </div>
-
-            <div style={{fontWeight:600,fontSize:13,marginTop:14,marginBottom:4}}>Informations légales du salarié (pour le contrat)</div>
-            <div className="ig-muted" style={{fontSize:12,marginBottom:8}}>Saisies une seule fois, réutilisées pour ses prochains extras.</div>
-            <div className="ig-times">
-              <div className="ig-field" style={{margin:0}}><label>Né(e) le</label><input type="date" value={legal.naissance} onChange={(e)=>setLegal({...legal,naissance:e.target.value})} /></div>
-              <div className="ig-field" style={{margin:0}}><label>Lieu de naissance</label><input value={legal.lieuNaissance} onChange={(e)=>setLegal({...legal,lieuNaissance:e.target.value})} /></div>
-            </div>
-            <div className="ig-times">
-              <div className="ig-field" style={{margin:0}}><label>Nationalité</label><input value={legal.nationalite} onChange={(e)=>setLegal({...legal,nationalite:e.target.value})} /></div>
-              <div className="ig-field" style={{margin:0}}>
-                <label>Type de contrat</label>
-                <select value={legal.typeContrat} onChange={(e)=>setLegal({...legal,typeContrat:e.target.value})}>
-                  <option value="">—</option>
-                  {TYPES_CONTRAT.map((t)=>(<option key={t} value={t}>{t}</option>))}
-                </select>
-              </div>
-            </div>
-            <div className="ig-field"><label>Adresse</label><input value={legal.adresse} onChange={(e)=>setLegal({...legal,adresse:e.target.value})} /></div>
-            <div className="ig-field"><label>Numéro de sécurité sociale</label><input value={legal.secu} onChange={(e)=>setLegal({...legal,secu:e.target.value})} /></div>
-
-            <label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,marginTop:10}}>
-              <input type="checkbox" checked={accord} onChange={(e)=>setAccord(e.target.checked)} />
-              Le salarié est d'accord pour effectuer cet extra
-            </label>
           </>
         )}
 
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
-          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Créer l'extra et générer le contrat</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Générer le contrat de prêt</button>
         </div>
       </div>
     </div>
@@ -1650,7 +1619,6 @@ function ExtraTab({ resto, superviseur }) {
   const [restaurants, setRestaurants] = useState([...RESTAURANTS]);
   const [effectif, setEffectif] = useState([]);
   const [etabsJ, setEtabsJ] = useState({});
-  const [salariesLegal, setSalariesLegal] = useState({});
   const [moisDate, setMoisDate] = useState(new Date());
   const [liste, setListe] = useState(null);
   const [ajout, setAjout] = useState(false);
@@ -1668,9 +1636,9 @@ function ExtraTab({ resto, superviseur }) {
 
   useEffect(() => {
     let on = true;
-    Promise.all([chargerEffectifGlobal(restaurants), EtablissementsJuridique.load(), SalariesLegal.load(), Extras.load(mois)]).then(([eff, ej, sl, ex]) => {
+    Promise.all([chargerEffectifGlobal(restaurants), EtablissementsJuridique.load(), Extras.load(mois)]).then(([eff, ej, ex]) => {
       if (!on) return;
-      setEffectif(eff); setEtabsJ(ej); setSalariesLegal(sl); setListe(ex);
+      setEffectif(eff); setEtabsJ(ej); setListe(ex);
     });
     return () => { on = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1683,20 +1651,14 @@ function ExtraTab({ resto, superviseur }) {
     await Extras.save(moisCible, nouvelleListe);
   }
 
-  async function creerExtra({ salarieId, salarie, poste, date, heuresEstimees, tauxHoraireNet, surHeuresOrigine, legal }) {
-    const legalPropre = Object.fromEntries(Object.entries(legal).filter(([, v]) => v));
-    if (Object.keys(legalPropre).length) {
-      const nextLegal = { ...salariesLegal, [salarieId]: { ...(salariesLegal[salarieId] || {}), ...legalPropre } };
-      setSalariesLegal(nextLegal);
-      await SalariesLegal.save(nextLegal);
-    }
+  async function creerExtra({ salarieId, salarie, poste, date, heuresEstimees, tauxHoraireNet, surHeuresOrigine }) {
     const nouveau = {
       id: (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`),
       resto, restoOrigine: salarie.r, salarieId, salarieNom: salarie.n, salariePrenom: salarie.p,
       poste, date, heuresEstimees, tauxHoraireNet, surHeuresOrigine,
       statut: "a_valider", heuresReelles: null, payfitStatut: "a_faire", creeLe: new Date().toISOString(),
     };
-    Object.assign(nouveau, genererDocumentsExtra(nouveau, etabsJ, { ...(salariesLegal[salarieId] || {}), ...legalPropre }));
+    Object.assign(nouveau, genererDocumentsExtra(nouveau, etabsJ));
     const moisExtra = cleMois(new Date(date + "T00:00:00"));
     const base = moisExtra === mois ? (liste || []) : await Extras.load(moisExtra);
     await persisterDans(moisExtra, [...base, nouveau]);
@@ -1739,7 +1701,7 @@ function ExtraTab({ resto, superviseur }) {
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
-        <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Ajouter un extra</button>
+        <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Contrat de prêt</button>
         <button className="ig-btn ig-btn-ghost" onClick={()=>setFiche(true)}>Fiche juridique de {resto}</button>
         {!ficheOk && <span style={{color:'var(--coral-d)',fontSize:13,fontWeight:600}}>⚠ à compléter avant de générer des contrats valides</span>}
       </div>
@@ -1788,7 +1750,7 @@ function ExtraTab({ resto, superviseur }) {
 
       {superviseur && <VueGlobaleExtras />}
 
-      {ajout && <AjoutExtraModal resto={resto} effectif={effectif} salariesLegal={salariesLegal} onValider={creerExtra} onClose={()=>setAjout(false)} />}
+      {ajout && <AjoutExtraModal resto={resto} effectif={effectif} onValider={creerExtra} onClose={()=>setAjout(false)} />}
       {fiche && <FicheJuridiqueModal resto={resto} valeurs={etabsJ[resto]} onSave={enregistrerFiche} onClose={()=>setFiche(false)} />}
     </div>
   );
