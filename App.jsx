@@ -814,12 +814,16 @@ function exporterCongesPayFit(lignesAbsences, nomFichier) {
     row[2] = pf ? pf[1] : "";
     row[3] = `${emp.p} ${emp.n}`;
     if (!pf) manquants.add(`${emp.p} ${emp.n}`);
+    // PayFit exige une date de fin même pour une seule journée (contrairement à ce que
+    // dit l'étiquette du modèle "ne pas remplir pour...") : on remplit donc Fin = Début.
     const dateStr = fmtDatePayFit(date);
     if (type === "CP") {
-      row[4] = dateStr; row[5] = choix; // Début CP (date) / (choix)
+      row[4] = dateStr; row[5] = choix;   // Début CP (date) / (choix)
+      row[6] = dateStr; row[7] = choix;   // Fin CP (date) / (choix)
     } else if (type === "CSS") {
       row[12] = "Congé sans solde"; row[13] = "Non"; // Type d'absence / Absence injustifiée
       row[14] = dateStr; row[15] = "Journée entière"; // Début CSS (date) / (choix)
+      row[16] = dateStr; row[17] = "Journée entière"; // Fin CSS (date) / (choix)
     }
     aoa.push(row);
   });
