@@ -1586,6 +1586,7 @@ function ExtraTab({ resto, superviseur }) {
   const [ajout, setAjout] = useState(false);
   const [fiche, setFiche] = useState(false);
   const [flash, setFlash] = useState("");
+  const [recherche, setRecherche] = useState("");
 
   const mois = cleMois(moisDate);
 
@@ -1665,7 +1666,11 @@ function ExtraTab({ resto, superviseur }) {
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
 
-  const mesDemandes = liste.filter((x) => x.resto === resto).sort((a, b) => b.date.localeCompare(a.date));
+  const q = normTxt(recherche);
+  const mesDemandes = liste
+    .filter((x) => x.resto === resto)
+    .filter((x) => !q || normTxt(`${x.salariePrenom} ${x.salarieNom}`).includes(q))
+    .sort((a, b) => b.date.localeCompare(a.date));
   const monEquipeAilleurs = liste.filter((x) => x.restoOrigine === resto && x.resto !== resto).sort((a, b) => b.date.localeCompare(a.date));
   const ficheOk = etabsJ[resto] && etabsJ[resto].siret && etabsJ[resto].raisonSociale;
 
@@ -1684,8 +1689,9 @@ function ExtraTab({ resto, superviseur }) {
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMoisDate(new Date(moisDate.getFullYear(), moisDate.getMonth()-1, 1))}><Icon.Back width={14} height={14}/></button>
           <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600}}>Extras chez {resto} — {MOIS_NOMS[moisDate.getMonth()]} {moisDate.getFullYear()}</div>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMoisDate(new Date(moisDate.getFullYear(), moisDate.getMonth()+1, 1))}><Icon.Chevron width={14} height={14}/></button>
+          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{marginLeft:'auto',minWidth:200}} />
         </div>
-        {mesDemandes.length === 0 ? <div className="ig-muted">Aucun extra ce mois-ci.</div> : (
+        {mesDemandes.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun extra ce mois-ci."}</div> : (
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {mesDemandes.map((x) => (
               <div key={x.id} style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',padding:'10px 0',borderTop:'1px solid var(--sand-2)'}}>
