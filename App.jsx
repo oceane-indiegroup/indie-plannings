@@ -20,6 +20,7 @@ const PAYFIT_IDS = {"BENECKO_Alin":["69ddf8f996c38711f2319d79",""],"BILLERY_Él�
 // en écriture (seuls les utilisateurs connectés peuvent écrire). Le manager ne tape que le code.
 // -> Créez ce compte dans Supabase (Authentication → Users) avec EXACTEMENT cet e-mail et ce mot de passe.
 const CODE_MANAGER = "1942";                       // code tapé par le manager (modifiable ici)
+const CODE_SUPERVISEUR = "5804";                   // code superviseur (accès étendu, à réserver à Océane) — modifiable ici
 const MANAGER_EMAIL = "manager@indiegroup.fr";     // compte partagé (à créer dans Supabase)
 const MANAGER_SECRET = "IndieGroup-Manager-2026";  // mot de passe du compte partagé (>= 6 caractères)
 const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
@@ -1151,7 +1152,7 @@ function AjoutModal({ resto, onAjouter, onClose }) {
 }
 
 // ---------- Vue Manager ----------
-function ManagerView({ resto, onBack }) {
+function ManagerView({ resto, onBack, superviseur }) {
   const [semDate, setSemDate] = useState(new Date());
   const [planning, setPlanning] = useState({}); // { idSalarie: { 0..6 } }
   const [pointages, setPointages] = useState({});
@@ -1580,7 +1581,7 @@ function ManagerView({ resto, onBack }) {
       <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:14,marginBottom:6}}>
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> Restaurants</button>
         <div>
-          <div className="ig-eyebrow" style={{margin:0}}>Espace manager</div>
+          <div className="ig-eyebrow" style={{margin:0}}>Espace manager{superviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{resto}</h2>
         </div>
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
@@ -1605,15 +1606,21 @@ function ManagerView({ resto, onBack }) {
             <button className="ig-btn ig-btn-ghost" onClick={()=>{ setModeSelect((v)=>!v); setSelection(new Set()); setConfirmLot(false); }} style={modeSelect?{borderColor:'var(--coral-d)',color:'var(--coral-d)'}:undefined}>🧹 {modeSelect?"Terminer le nettoyage":"Nettoyer l'effectif"}</button>
             <button className="ig-btn ig-btn-ghost" onClick={enregistrerModele} disabled={Object.keys(planning).length===0} title="Mémoriser les horaires de cette semaine comme modèle">★ Enregistrer comme modèle</button>
             <button className="ig-btn ig-btn-ghost" onClick={appliquerModele} disabled={!modele} title="Reprendre les horaires du modèle pour les salariés sans planning">⤵ Appliquer le modèle</button>
-            <button className="ig-btn ig-btn-ghost" onClick={()=>setConfirmForceModele(true)} disabled={!modele} title="Écrase aussi les horaires déjà saisis cette semaine" style={{borderColor:'var(--coral-d)',color:'var(--coral-d)'}}>⚠ Forcer le modèle sur toute la semaine</button>
+            {superviseur && (
+              <button className="ig-btn ig-btn-ghost" onClick={()=>setConfirmForceModele(true)} disabled={!modele} title="Écrase aussi les horaires déjà saisis cette semaine" style={{borderColor:'var(--coral-d)',color:'var(--coral-d)'}}>⚠ Forcer le modèle sur toute la semaine</button>
+            )}
             <button className="ig-btn ig-btn-ink" onClick={imprimerPlanning} disabled={Object.keys(planning).length===0}><Icon.Print/> Télécharger le planning en PDF</button>
-            <select value={moisExport.mois} onChange={(e)=>setMoisExport((m)=>({...m, mois:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-              {MOIS_NOMS.map((nom,i)=>(<option key={i} value={i+1}>{nom}</option>))}
-            </select>
-            <select value={moisExport.annee} onChange={(e)=>setMoisExport((m)=>({...m, annee:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-              {[moisExport.annee-1, moisExport.annee, moisExport.annee+1].filter((a,i,arr)=>arr.indexOf(a)===i).sort((a,b)=>a-b).map((a)=>(<option key={a} value={a}>{a}</option>))}
-            </select>
-            <button className="ig-btn ig-btn-ghost" onClick={()=>exporterPayFitMois(moisExport.annee, moisExport.mois)} disabled={exportEnCours} title="Export des CP / demi-CP / congés sans solde du mois choisi (1er au dernier jour), au format d'import PayFit">⬇ {exportEnCours ? "Génération…" : "Export PayFit (congés)"}</button>
+            {superviseur && (
+              <>
+                <select value={moisExport.mois} onChange={(e)=>setMoisExport((m)=>({...m, mois:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
+                  {MOIS_NOMS.map((nom,i)=>(<option key={i} value={i+1}>{nom}</option>))}
+                </select>
+                <select value={moisExport.annee} onChange={(e)=>setMoisExport((m)=>({...m, annee:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
+                  {[moisExport.annee-1, moisExport.annee, moisExport.annee+1].filter((a,i,arr)=>arr.indexOf(a)===i).sort((a,b)=>a-b).map((a)=>(<option key={a} value={a}>{a}</option>))}
+                </select>
+                <button className="ig-btn ig-btn-ghost" onClick={()=>exporterPayFitMois(moisExport.annee, moisExport.mois)} disabled={exportEnCours} title="Export des CP / demi-CP / congés sans solde du mois choisi (1er au dernier jour), au format d'import PayFit">⬇ {exportEnCours ? "Génération…" : "Export PayFit (congés)"}</button>
+              </>
+            )}
             {valide ? (
               <button className="ig-btn ig-btn-ghost" onClick={devaliderPlanning} style={{borderColor:'var(--sea)',color:'var(--sea)'}}><Icon.Check/> Planning validé — repasser en préparation</button>
             ) : (
@@ -1725,7 +1732,7 @@ function ManagerView({ resto, onBack }) {
       )}
 
       {vue === "emargement" && (
-        <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={toggleSignatureManuelle} onToggleJour={toggleJourManuel} />
+        <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
       )}
 
       {edit && (
@@ -2221,13 +2228,14 @@ function CodeGate({ onOk, onCancel }) {
 
   async function valider() {
     if (busy) return;
-    if (code !== CODE_MANAGER) { setErreur("Code incorrect. Réessayez."); setCode(""); return; }
+    const estSuperviseur = code === CODE_SUPERVISEUR;
+    if (!estSuperviseur && code !== CODE_MANAGER) { setErreur("Code incorrect. Réessayez."); setCode(""); return; }
     setErreur("");
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({ email: MANAGER_EMAIL, password: MANAGER_SECRET });
     setBusy(false);
     if (error) { setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
-    onOk();
+    onOk(estSuperviseur);
   }
   function onKey(e) { if (e.key === "Enter") valider(); }
 
@@ -2264,6 +2272,9 @@ export default function App() {
   const [emp, setEmp] = useState(null);
   const [etabsAjoutes, setEtabsAjoutes] = useState([]);
   const [session, setSession] = useState(null); // session manager (Supabase Auth)
+  // Accès étendu (export PayFit, validations à la place du salarié, forcer le modèle...),
+  // réservé à Océane. Mémorisé sur cet appareil pour ne pas retaper le code à chaque visite.
+  const [superviseur, setSuperviseur] = useState(() => localStorage.getItem("ig_superviseur") === "1");
 
   useEffect(() => {
     let on = true;
@@ -2296,11 +2307,22 @@ export default function App() {
   }
 
   function reset() { setRole(null); setAskCode(false); setResto(null); setEmp(null); }
-  async function deconnexion() { await supabase.auth.signOut(); reset(); }
+  async function deconnexion() {
+    await supabase.auth.signOut();
+    localStorage.removeItem("ig_superviseur");
+    setSuperviseur(false);
+    reset();
+  }
 
   let content;
   if (askCode) {
-    content = <CodeGate onOk={()=>{ setAskCode(false); setRole('manager'); }} onCancel={()=>setAskCode(false)} />;
+    content = <CodeGate onOk={(estSuperviseur)=>{
+      setAskCode(false);
+      setRole('manager');
+      setSuperviseur(estSuperviseur);
+      if (estSuperviseur) localStorage.setItem("ig_superviseur", "1");
+      else localStorage.removeItem("ig_superviseur");
+    }} onCancel={()=>setAskCode(false)} />;
   } else if (!role) {
     content = (
       <div className="ig-hero" style={{textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',paddingTop:40}}>
@@ -2326,7 +2348,7 @@ export default function App() {
   } else if (role === "manager" && !resto) {
     content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} />;
   } else if (role === "manager") {
-    content = <ManagerView resto={resto} onBack={()=>setResto(null)} />;
+    content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "salarie" && !emp) {
     content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setRole(null)} />;
   } else {
