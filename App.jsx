@@ -1686,7 +1686,6 @@ function ExtraTab({ resto, superviseur }) {
     .filter((x) => x.resto === resto)
     .filter((x) => !q || normTxt(`${x.salariePrenom} ${x.salarieNom}`).includes(q))
     .sort((a, b) => b.date.localeCompare(a.date));
-  const monEquipeAilleurs = liste.filter((x) => x.restoOrigine === resto && x.resto !== resto).sort((a, b) => b.date.localeCompare(a.date));
   const ficheOk = etabsJ[resto] && etabsJ[resto].siret && etabsJ[resto].raisonSociale;
 
   return (
@@ -1740,18 +1739,6 @@ function ExtraTab({ resto, superviseur }) {
         )}
       </div>
 
-      {monEquipeAilleurs.length > 0 && (
-        <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}>
-          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600,marginBottom:10}}>Salariés de {resto} en extra ailleurs</div>
-          <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            {monEquipeAilleurs.map((x) => (
-              <div key={x.id} style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',padding:'8px 0',borderTop:'1px solid var(--sand-2)',fontSize:13}}>
-                <b>{x.salariePrenom} {x.salarieNom}</b><span className="ig-muted">→ {x.resto} · {fmtDate(new Date(x.date+"T00:00:00"))} · {x.statut === 'realisee' ? `${x.heuresReelles}h validées` : 'en attente des heures'}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {superviseur && <VueGlobaleExtras />}
 
