@@ -471,7 +471,8 @@ const CSS = `
 .ig-hero-bg { position:relative; border-radius:28px; overflow:hidden; background-size:cover; background-position:center 30%; isolation:isolate; }
 .ig-hero-bg::before { content:''; position:absolute; inset:0; background:linear-gradient(180deg, rgba(10,8,10,.5) 0%, rgba(10,8,10,.72) 55%, rgba(10,8,10,.92) 100%); z-index:-1; }
 .ig-hero-bg .ig-role { background:rgba(255,255,255,.95); backdrop-filter:blur(6px); }
-@media (max-width:640px) { .ig-hero-bg { border-radius:20px; } }
+.ig-hero-bg.ig-fullbleed { width:100vw; position:relative; left:50%; right:50%; margin-left:-50vw; margin-right:-50vw; border-radius:0; min-height:calc(100vh - 64px); display:flex; flex-direction:column; align-items:center; justify-content:center; }
+@media (max-width:640px) { .ig-hero-bg { border-radius:20px; } .ig-hero-bg.ig-fullbleed { border-radius:0; min-height:calc(100svh - 64px); } }
 
 .ig-card { background:var(--white); border:1.5px solid var(--line); border-radius:16px; }
 .ig-section-title { font-family:'Inter',system-ui,sans-serif; font-size:26px; font-weight:600; margin:0 0 4px; }
@@ -3085,7 +3086,7 @@ export default function App() {
     }} onCancel={()=>setAskCode(false)} />;
   } else if (!role) {
     content = (
-      <div className="ig-hero ig-hero-bg" style={{textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',padding:'56px 20px 40px',backgroundImage:`url(${fondAccueil})`}}>
+      <div className="ig-hero ig-hero-bg ig-fullbleed" style={{textAlign:'center',padding:'40px 20px',backgroundImage:`url(${fondAccueil})`}}>
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14,marginBottom:36}}>
           <svg width="84" height="84" viewBox="0 0 64 64" aria-label="Indie Group">
             <rect width="64" height="64" rx="14" fill="#111111"/>
