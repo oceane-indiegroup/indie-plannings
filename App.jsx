@@ -1031,12 +1031,28 @@ function genererDocumentsExtra(extra, etabsJ) {
 // Export du récap mensuel des extras : une feuille "Détail" (une ligne par extra, mêmes
 // colonnes que l'ancien formulaire) + une feuille "Récap par salarié" (totaux du mois),
 // pour reprendre le travail d'intégration des primes en variables PayFit.
+// Colonnes A à J identiques (nom, ordre, format de date) à celles de l'ancien Google Sheet
+// "Réponses au formulaire", pour que les lignes exportées puissent être collées telles
+// quelles dedans. Les colonnes K à N (calculs) reprennent aussi ses noms de colonnes.
 function exporterRecapExtras(liste, mois, nomFichier) {
   const realises = liste.filter((x) => x.statut === "realisee");
-  const enteteDetail = ["Établissement", "Date", "Nom", "Prénom", "Établissement d'origine", "Poste", "Heures", "Taux horaire net", "Sur heures d'origine", "Taux horaire brut", "Prime Net", "Prime Brute", "Prime Coût Total", "Mois"];
+  const enteteDetail = [
+    "Horodateur", "Adresse e-mail", "Etablissement où est effectué l'extra", "DATE",
+    "NOM  (SI FACTURE INDIQUER LE NOM SOCIETE)", "PRENOM", "Etablissement d'origine de l'extra",
+    "1Nombre d'heures effectuées (mettre 1 si FORFAIT)",
+    "Taux horaire net (utiliser Autre pour FORFAIT et remplir le montant du forfait)",
+    "Extra fait sur ses heures de l'établissement d'origine ? (donc non rémunéré en EXTRA - Mettre oui si facture)",
+    "Taux Horaire Brut", "Prime Net", "Prime Brute", "Prime Cout Total",
+  ];
   const aoaDetail = [enteteDetail];
   realises.forEach((x) => {
-    aoaDetail.push([x.resto, x.date, x.salarieNom, x.salariePrenom, x.restoOrigine, x.poste, x.heuresReelles, x.tauxHoraireNet, x.surHeuresOrigine ? "OUI" : "NON", x.tauxBrut, x.primeNet, x.primeBrute, x.primeCoutTotal, mois]);
+    const horodateur = x.valideLe ? new Date(x.valideLe) : new Date(x.creeLe);
+    aoaDetail.push([
+      `${fmtDate(horodateur)} ${horodateur.toLocaleTimeString("fr-FR")}`, "",
+      x.resto, fmtDate(new Date(x.date + "T00:00:00")), x.salarieNom, x.salariePrenom, x.restoOrigine,
+      x.heuresReelles, x.tauxHoraireNet, x.surHeuresOrigine ? "OUI" : "NON",
+      x.tauxBrut, x.primeNet, x.primeBrute, x.primeCoutTotal,
+    ]);
   });
   const parSalarie = {};
   realises.forEach((x) => {
@@ -1629,7 +1645,7 @@ function ExtraTab({ resto, superviseur }) {
     if (!x.heuresEstimees || Number(x.heuresEstimees) <= 0) { montrerFlash("Indiquez le nombre d'heures avant de valider."); return; }
     if (!x.surHeuresOrigine && (!x.tauxHoraireNet || Number(x.tauxHoraireNet) <= 0)) { montrerFlash("Indiquez le taux horaire net avant de valider (ou cochez « sur ses heures d'origine »)."); return; }
     const calc = calculExtra(x.heuresEstimees, x.tauxHoraireNet, x.surHeuresOrigine);
-    const next = (liste || []).map((it) => (it.id === id ? { ...it, heuresReelles: Number(it.heuresEstimees), statut: "realisee", ...calc } : it));
+    const next = (liste || []).map((it) => (it.id === id ? { ...it, heuresReelles: Number(it.heuresEstimees), statut: "realisee", valideLe: new Date().toISOString(), ...calc } : it));
     await persisterDans(mois, next);
     montrerFlash("Heures validées.");
   }
