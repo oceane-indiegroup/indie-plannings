@@ -561,10 +561,25 @@ const CSS = `
   body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
 .ig-print-only { display:none; }
+.ig-extra-row { padding:14px 0; border-top:1px solid var(--sand-2); }
+.ig-extra-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.ig-extra-saisie { display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; background:var(--sand-2); border-radius:14px; padding:14px; margin-top:10px; }
+.ig-extra-champ { display:flex; flex-direction:column; gap:6px; }
+.ig-extra-champ label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); }
+.ig-extra-champ input[type=number] { width:110px; font-size:22px; font-weight:800; text-align:center; padding:12px 8px; border:2px solid var(--line); border-radius:12px; font-family:'Inter'; color:var(--ink); background:#fff; }
+.ig-extra-champ input[type=number]:focus { outline:none; border-color:var(--sea); }
+.ig-extra-champ input[type=number]:disabled { opacity:.4; }
+.ig-extra-check { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:400; padding-bottom:13px; }
+.ig-extra-check input { width:20px; height:20px; }
 @media (max-width:760px) {
   .ig-roles { grid-template-columns:1fr; }
   .ig-planning { font-size:11px; }
   .ig-planning th.who, .ig-planning td.who { min-width:110px; }
+}
+@media (max-width:640px) {
+  .ig-extra-saisie { flex-direction:column; align-items:stretch; }
+  .ig-extra-champ input[type=number] { width:100%; }
+  .ig-extra-saisie .ig-btn { width:100%; justify-content:center; }
 }
 `;
 
@@ -1685,31 +1700,38 @@ function ExtraTab({ resto, superviseur }) {
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
 
       <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}>
-        <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+        <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMoisDate(new Date(moisDate.getFullYear(), moisDate.getMonth()-1, 1))}><Icon.Back width={14} height={14}/></button>
           <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600}}>Extras chez {resto} — {MOIS_NOMS[moisDate.getMonth()]} {moisDate.getFullYear()}</div>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMoisDate(new Date(moisDate.getFullYear(), moisDate.getMonth()+1, 1))}><Icon.Chevron width={14} height={14}/></button>
-          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{marginLeft:'auto',minWidth:200}} />
+          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{marginLeft:'auto',flex:'1 1 200px',minWidth:0}} />
         </div>
         {mesDemandes.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun extra ce mois-ci."}</div> : (
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {mesDemandes.map((x) => (
-              <div key={x.id} style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',padding:'10px 0',borderTop:'1px solid var(--sand-2)'}}>
-                <div style={{minWidth:180}}><b>{x.salariePrenom} {x.salarieNom}</b><br /><span className="ig-muted" style={{fontSize:12}}>{x.restoOrigine === resto ? "cet établissement" : x.restoOrigine} · {x.poste} · {fmtDate(new Date(x.date+"T00:00:00"))}</span></div>
-                <span className="ig-pill" style={{background: x.statut==='realisee' ? '#EAF3F3' : '#FCE5D6'}}>{x.statut === 'realisee' ? '✓ heures validées' : 'à valider'}</span>
-                {x.contratHTML && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>voirContrat(x)}>Contrat de prêt</button>}
-                {x.statut !== 'realisee' ? (
-                  <>
-                    <input type="number" min="0" step="0.25" style={{width:80}} placeholder="Heures" value={x.heuresEstimees ?? ""} onChange={(e)=>modifierChamp(x.id,'heuresEstimees', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamps(x.id,'heuresEstimees', x.heuresEstimees)} />
-                    <input type="number" min="0" step="0.5" style={{width:90}} placeholder="Taux net €" disabled={x.surHeuresOrigine} value={x.tauxHoraireNet ?? ""} onChange={(e)=>modifierChamp(x.id,'tauxHoraireNet', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamps(x.id,'tauxHoraireNet', x.tauxHoraireNet)} />
-                    <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,fontWeight:400}}>
+              <div key={x.id} className="ig-extra-row">
+                <div className="ig-extra-head">
+                  <div style={{minWidth:180}}><b>{x.salariePrenom} {x.salarieNom}</b><br /><span className="ig-muted" style={{fontSize:12}}>{x.restoOrigine === resto ? "cet établissement" : x.restoOrigine} · {x.poste} · {fmtDate(new Date(x.date+"T00:00:00"))}</span></div>
+                  <span className="ig-pill" style={{background: x.statut==='realisee' ? '#EAF3F3' : '#FCE5D6'}}>{x.statut === 'realisee' ? '✓ heures validées' : 'à valider'}</span>
+                  {x.contratHTML && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>voirContrat(x)}>Contrat de prêt</button>}
+                  {x.statut === 'realisee' && <span className="ig-muted" style={{fontSize:13,fontWeight:600}}>{x.heuresReelles}h · {fmtEuro(x.primeNet)} net</span>}
+                </div>
+                {x.statut !== 'realisee' && (
+                  <div className="ig-extra-saisie">
+                    <div className="ig-extra-champ">
+                      <label>Heures</label>
+                      <input type="number" min="0" step="0.25" inputMode="decimal" placeholder="0" value={x.heuresEstimees ?? ""} onChange={(e)=>modifierChamp(x.id,'heuresEstimees', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamps(x.id,'heuresEstimees', x.heuresEstimees)} />
+                    </div>
+                    <div className="ig-extra-champ">
+                      <label>Taux net €</label>
+                      <input type="number" min="0" step="0.5" inputMode="decimal" placeholder="0" disabled={x.surHeuresOrigine} value={x.tauxHoraireNet ?? ""} onChange={(e)=>modifierChamp(x.id,'tauxHoraireNet', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamps(x.id,'tauxHoraireNet', x.tauxHoraireNet)} />
+                    </div>
+                    <label className="ig-extra-check">
                       <input type="checkbox" checked={!!x.surHeuresOrigine} onChange={(e)=>sauverChamps(x.id,'surHeuresOrigine', e.target.checked)} />
                       sur heures d'origine
                     </label>
-                    <button className="ig-btn ig-btn-sm" style={{background:'var(--sea)',color:'#fff'}} onClick={()=>validerExtra(x.id)}>Valider</button>
-                  </>
-                ) : (
-                  <span className="ig-muted" style={{fontSize:12}}>{x.heuresReelles}h · {fmtEuro(x.primeNet)} net</span>
+                    <button className="ig-btn ig-btn-primary" style={{marginLeft:'auto'}} onClick={()=>validerExtra(x.id)}>✓ Valider</button>
+                  </div>
                 )}
               </div>
             ))}
