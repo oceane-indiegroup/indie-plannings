@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "./supabaseClient";
-import fondAccueil from "./22.jpeg";
+// Photo de fond de l'écran d'accueil : chargée en chemin public (pas un import), pour que le
+// build ne casse jamais si le fichier est absent ou pas encore uploadé — au pire, pas de photo.
+const fondAccueil = "/22.jpeg";
 // N'utiliser QUE les fonctions d'écriture de xlsx (aoa_to_sheet, book_new, write) sur des
 // données internes à l'appli — jamais XLSX.read()/readFile() sur un fichier externe : les
 // failles connues de ce paquet concernent la lecture de fichiers xlsx non fiables.
