@@ -385,6 +385,11 @@ const kPointages = (resto, sem) => `pointages:${slugKey(resto)}:${sem}`;
 const kRoster = (resto) => `roster:${slugKey(resto)}`;
 // Modèle de planning enregistré pour le restaurant : { idSalarie: { 0..6 } }
 const kModele = (resto) => `modele:${slugKey(resto)}`;
+// Correspondance PayFit (identifiant + matricule) tenue à jour par le superviseur, en plus
+// de PAYFIT_IDS codé en dur. Une clé PAR ÉTABLISSEMENT : chaque resto a son propre fichier
+// PayFit, on évite ainsi tout mélange entre établissements (homonymes, etc.).
+// { idSalarie: [identifiant, matricule] }.
+const kPayfitMapping = (resto) => `payfit_mapping:${slugKey(resto)}`;
 // Établissements ajoutés dans l'app (au-delà de ceux du fichier) : [nom, ...]
 const kEtablissements = "etablissements";
 // Validation du planning d'une semaine (booléen) : publie le planning aux salariés.
@@ -835,9 +840,12 @@ function fmtDatePayFit(d) {
   return `${jj}/${mm}/${d.getFullYear()}`;
 }
 // Construit et déclenche le téléchargement du fichier d'import PayFit pour une liste
-// d'absences [{ emp, date (Date), type: 'CP'|'CSS', choix }]. Retourne les noms des
-// salariés sans identifiant PayFit connu (à compléter à la main avant import).
-function exporterCongesPayFit(lignesAbsences, nomFichier) {
+// d'absences [{ emp, date (Date), type: 'CP'|'CSS', choix }]. "mapping" (idSalarie ->
+// [identifiant, matricule]) : PAYFIT_IDS par défaut, mais l'appelant peut passer la
+// correspondance tenue à jour dans l'appli (Store "payfit_mapping"), qui prime dessus.
+// Retourne les noms des salariés sans identifiant PayFit connu (à compléter à la main).
+function exporterCongesPayFit(lignesAbsences, nomFichier, mapping) {
+  const table = mapping || PAYFIT_IDS;
   const aoa = [];
   const ligne1 = [];
   PAYFIT_ENTETES_GROUPES.forEach(([label, n]) => { ligne1.push(label); for (let i = 1; i < n; i++) ligne1.push(""); });
@@ -848,7 +856,7 @@ function exporterCongesPayFit(lignesAbsences, nomFichier) {
   lignesAbsences.forEach(({ emp, date, type, choix }) => {
     const row = new Array(33).fill("");
     const id = idSalarie(emp);
-    const pf = PAYFIT_IDS[id];
+    const pf = table[id];
     row[0] = pf ? pf[0] : "";
     row[2] = pf ? pf[1] : "";
     row[3] = `${emp.p} ${emp.n}`;
@@ -1197,6 +1205,64 @@ function parseSemaineDepuisFeuille(grille, resto, ajouts) {
     }
   }
   return { sem, lundi: lundiDate, entries, nonReconnus, approximatifs };
+}
+
+// ---------- Mise à jour de la correspondance PayFit (identifiant + matricule) ----------
+// Le manager peut réexporter, chaque mois, le modèle d'import vierge de PayFit (une ligne
+// par salarié : Identifiant, Matricule, Collaborateur = "Prénom NOM"). On le relit ici pour
+// tenir PAYFIT_IDS à jour sans repasser par du code — les nouveaux embauchés PayFit
+// apparaissent, les identifiants changés sont corrigés.
+// Ne cherche que PARMI LES SALARIÉS DU RESTAURANT choisi (fiche de base + ajouts) : évite
+// tout mélange entre établissements (deux homonymes dans deux restos différents, etc.).
+function matcherCollaborateurPayFit(nomComplet, resto, ajouts) {
+  const cible = normTxt(nomComplet);
+  const bassin = EMPLOYEES.concat(ajouts || []).filter((e) => normTxt(e.r) === normTxt(resto));
+  const exact = bassin.find((e) => normTxt(e.p + " " + e.n) === cible || normTxt(e.n + " " + e.p) === cible);
+  if (exact) return exact;
+  const tokensSaisie = new Set(cible.split(" ").filter(Boolean));
+  const candidats = bassin.filter((e) => {
+    const nomTokens = normTxt(e.n).split(" ").filter(Boolean);
+    const tousTokens = new Set(normTxt(e.p + " " + e.n).split(" ").filter(Boolean));
+    const nomOk = nomTokens.length > 0 && nomTokens.every((t) => tokensSaisie.has(t));
+    const saisieSousEnsemble = [...tokensSaisie].every((t) => tousTokens.has(t));
+    return nomOk && saisieSousEnsemble && tokensSaisie.size >= nomTokens.length;
+  });
+  return candidats.length === 1 ? candidats[0] : null;
+}
+// Lit un ou plusieurs fichiers "import_conges_absences" PayFit (mêmes fichiers vierges que
+// ceux déjà fournis), pour UN SEUL établissement à la fois. Repère la ligne d'en-têtes
+// ("Collaborateur"/"Identifiant"/"Matricule") sur chaque feuille, quelle que soit sa position.
+async function analyserMappingPayFit(files, resto, ajouts) {
+  const trouves = {}; // idSalarie -> [identifiant, matricule]
+  const nonReconnus = new Set();
+  for (const file of files) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    for (const nomFeuille of wb.SheetNames) {
+      const grille = feuilleEnGrille(wb.Sheets[nomFeuille]);
+      let ligneEntete = -1, colId = -1, colMat = -1, colNom = -1;
+      for (let r = 0; r < Math.min(grille.length, 6); r++) {
+        const ligne = grille[r] || [];
+        const idx = ligne.findIndex((v) => String(v || "").trim() === "Collaborateur");
+        if (idx >= 0) {
+          ligneEntete = r; colNom = idx;
+          colId = ligne.findIndex((v) => String(v || "").includes("Identifiant"));
+          colMat = ligne.findIndex((v) => String(v || "").trim() === "Matricule");
+          break;
+        }
+      }
+      if (ligneEntete < 0) continue; // pas une feuille de ce format, on l'ignore
+      for (let r = ligneEntete + 1; r < grille.length; r++) {
+        const ligne = grille[r] || [];
+        const collaborateur = ligne[colNom];
+        if (!collaborateur) continue;
+        const emp = matcherCollaborateurPayFit(String(collaborateur), resto, ajouts);
+        if (!emp) { nonReconnus.add(String(collaborateur)); continue; }
+        trouves[idSalarie(emp)] = [colId >= 0 ? String(ligne[colId] || "") : "", colMat >= 0 ? String(ligne[colMat] || "") : ""];
+      }
+    }
+  }
+  return { trouves, nonReconnus: [...nonReconnus] };
 }
 
 // ---------- Feuille d'émargement (format du modèle papier) ----------
@@ -1918,7 +1984,36 @@ function ManagerView({ resto, onBack, superviseur }) {
   const [importPreview, setImportPreview] = useState(null); // aperçu avant confirmation d'un import Excel
   const [importEnCours, setImportEnCours] = useState(false);
   const fileImportRef = useRef(null);
+  const [mappingPayfit, setMappingPayfit] = useState({}); // correspondance PayFit de CET établissement (Store), fusionnée avec PAYFIT_IDS
+  const [majMappingEnCours, setMajMappingEnCours] = useState(false);
+  const fileMappingRef = useRef(null);
   const sem = cleSemaine(semDate);
+
+  // Correspondance PayFit : propre à l'établissement affiché — rechargée si on change de resto.
+  useEffect(() => {
+    let on = true;
+    Store.get(kPayfitMapping(resto)).then((m) => { if (on) setMappingPayfit(m || {}); });
+    return () => { on = false; };
+  }, [resto]);
+  async function majMappingPayFit(files) {
+    setMajMappingEnCours(true);
+    try {
+      const { trouves, nonReconnus } = await analyserMappingPayFit(files, resto, roster.ajouts || []);
+      const nb = Object.keys(trouves).length;
+      if (nb === 0) {
+        montrerFlash(`Aucune correspondance PayFit trouvée pour l'effectif de ${resto} dans ce ou ces fichiers (vérifiez que ce sont bien les fichiers d'import PayFit avec les colonnes Identifiant/Matricule/Collaborateur, et qu'ils concernent bien cet établissement).`);
+        return;
+      }
+      const next = { ...mappingPayfit, ...trouves };
+      await Store.set(kPayfitMapping(resto), next);
+      setMappingPayfit(next);
+      montrerFlash(`Correspondance PayFit de ${resto} mise à jour : ${nb} salarié${nb > 1 ? 's' : ''}.` + (nonReconnus.length > 0 ? ` ⚠ Non reconnu${nonReconnus.length > 1 ? 's' : ''} (pas dans l'effectif de ${resto} ou nom trop différent) : ${nonReconnus.join(", ")}.` : ""));
+    } catch (err) {
+      montrerFlash("Impossible de lire ce fichier : " + err.message);
+    } finally {
+      setMajMappingEnCours(false);
+    }
+  }
 
   // Équipe effective : salariés du fichier + ajouts, moins ceux dont le contrat est terminé.
   const team = useMemo(() => {
@@ -2122,7 +2217,7 @@ function ManagerView({ resto, onBack, superviseur }) {
       }
       lignes.sort((a, b) => a.date - b.date || a.emp.n.localeCompare(b.emp.n));
       const nomFichier = `PayFit_Conges_${slugKey(resto)}_${String(mois).padStart(2,"0")}-${annee}.xlsx`;
-      const manquants = exporterCongesPayFit(lignes, nomFichier);
+      const manquants = exporterCongesPayFit(lignes, nomFichier, { ...PAYFIT_IDS, ...mappingPayfit });
       montrerFlash(manquants.length > 0
         ? `Fichier téléchargé : ${MOIS_NOMS[mois-1]} ${annee}, ${lignes.length} ligne${lignes.length>1?'s':''}. ⚠ Identifiant PayFit introuvable pour : ${manquants.join(", ")} — à compléter à la main avant import.`
         : `Fichier téléchargé : ${MOIS_NOMS[mois-1]} ${annee}, ${lignes.length} ligne${lignes.length>1?'s':''} prête${lignes.length>1?'s':''} pour l'import PayFit.`);
@@ -2431,6 +2526,8 @@ function ManagerView({ resto, onBack, superviseur }) {
                   {[moisExport.annee-1, moisExport.annee, moisExport.annee+1].filter((a,i,arr)=>arr.indexOf(a)===i).sort((a,b)=>a-b).map((a)=>(<option key={a} value={a}>{a}</option>))}
                 </select>
                 <button className="ig-btn ig-btn-ghost" onClick={()=>exporterPayFitMois(moisExport.annee, moisExport.mois)} disabled={exportEnCours} title="Export des CP / demi-CP / congés sans solde du mois choisi (1er au dernier jour), au format d'import PayFit">⬇ {exportEnCours ? "Génération…" : "Export PayFit (congés)"}</button>
+                <input ref={fileMappingRef} type="file" accept=".xlsx" multiple style={{display:'none'}} onChange={(e)=>{ const fs=[...e.target.files]; if (fs.length) majMappingPayFit(fs); e.target.value=""; }} />
+                <button className="ig-btn ig-btn-ghost" onClick={()=>fileMappingRef.current && fileMappingRef.current.click()} disabled={majMappingEnCours} title={`Recharger le(s) modèle(s) d'import PayFit pour l'effectif de ${resto} uniquement (Identifiant/Matricule/Collaborateur)`}>🔄 {majMappingEnCours ? "Analyse…" : `Mettre à jour PayFit — ${resto}`}</button>
                 <input ref={fileImportRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={(e)=>{ const f=e.target.files[0]; if (f) analyserImportPlanning(f); e.target.value=""; }} />
                 <button className="ig-btn ig-btn-ghost" onClick={()=>fileImportRef.current && fileImportRef.current.click()} disabled={importEnCours} title="Importer un planning existant au format PLANNING N / PLANNING CUISINE N (fichier Excel)">📥 {importEnCours ? "Analyse…" : "Importer un planning (Excel)"}</button>
               </>
