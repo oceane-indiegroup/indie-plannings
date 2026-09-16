@@ -340,6 +340,27 @@ const Store = {
   },
 };
 
+// ---------- RH : fiches salariés (table dédiée, cloisonnée par établissement + unité) ----------
+const RhSalaries = {
+  async list(resto, unite) {
+    let q = supabase.from("rh_salaries").select("*").eq("resto", resto);
+    if (unite) q = q.eq("unite", unite);
+    const { data, error } = await q.order("nom", { ascending: true });
+    if (error) { console.error("RhSalaries.list:", error.message); return []; }
+    return data || [];
+  },
+  async creer(row) {
+    const { data, error } = await supabase.from("rh_salaries").insert(row).select().single();
+    if (error) { console.error("RhSalaries.creer:", error.message); return null; }
+    return data;
+  },
+  async maj(id, patch) {
+    const { data, error } = await supabase.from("rh_salaries").update(patch).eq("id", id).select().single();
+    if (error) { console.error("RhSalaries.maj:", error.message); return null; }
+    return data;
+  },
+};
+
 // ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
 // Robustesse V2 : chaque confirmation n'écrit qu'UNE ligne, donc deux salariés
 // qui pointent en même temps ne s'écrasent plus. La forme rendue en mémoire est
@@ -3272,10 +3293,241 @@ function CodeGate({ onOk, onCancel }) {
   );
 }
 
+// ---------- Connexion Espace RH (compte individuel, séparé du code manager) ----------
+function RHLoginForm({ onOk, onCancel }) {
+  const [email, setEmail] = useState("");
+  const [motDePasse, setMotDePasse] = useState("");
+  const [erreur, setErreur] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function valider() {
+    if (busy) return;
+    if (!email.trim() || !motDePasse) { setErreur("Renseignez votre email et votre mot de passe."); return; }
+    setErreur("");
+    setBusy(true);
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: motDePasse });
+    if (error) { setBusy(false); setErreur("Email ou mot de passe incorrect."); return; }
+    const { data: acces, error: errAcces } = await supabase.from("rh_acces").select("resto, unite, superviseur").eq("user_id", data.user.id);
+    setBusy(false);
+    if (errAcces || !acces || acces.length === 0) {
+      setErreur("Ce compte n'a pas encore d'accès RH configuré. Contactez Océane.");
+      await supabase.auth.signOut();
+      return;
+    }
+    onOk(acces);
+  }
+  function onKey(e) { if (e.key === "Enter") valider(); }
+
+  return (
+    <div className="ig-hero" style={{maxWidth:420}}>
+      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onCancel} style={{marginBottom:20}}><Icon.Back/> Retour</button>
+      <div className="ig-ic" style={{background:'var(--ink)',color:'var(--sand)',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16}}><Icon.Shield/></div>
+      <h1 className="ig-display" style={{fontSize:32,marginBottom:8}}>Espace RH</h1>
+      <p style={{marginBottom:20}}>Connectez-vous avec votre compte personnel (différent du code manager).</p>
+      <div className="ig-field">
+        <label>Email</label>
+        <input type="email" value={email} autoFocus onChange={(e)=>{ setEmail(e.target.value); setErreur(""); }} onKeyDown={onKey} placeholder="prenom@indiegroup.fr" />
+      </div>
+      <div className="ig-field">
+        <label>Mot de passe</label>
+        <input type="password" value={motDePasse} onChange={(e)=>{ setMotDePasse(e.target.value); setErreur(""); }} onKeyDown={onKey} placeholder="••••••••" />
+      </div>
+      {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:8,fontWeight:600}}>{erreur}</div>}
+      <button className="ig-btn ig-btn-primary" onClick={valider} disabled={busy} style={{marginTop:6}}>{busy ? "Connexion…" : "Se connecter"}</button>
+    </div>
+  );
+}
+
+// Champs "de base" éditables par un directeur/chef ; les autres (sensibles) sont réservés
+// au superviseur — et de toute façon verrouillés en base par rh_salaries_guard côté serveur.
+const RH_CHAMPS_BASE = [
+  { cle: "nom", label: "Nom" },
+  { cle: "prenom", label: "Prénom" },
+  { cle: "telephone", label: "Téléphone" },
+  { cle: "email", label: "Email" },
+  { cle: "poste", label: "Poste" },
+  { cle: "date_debut", label: "Date de début de contrat", type: "date" },
+  { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
+  { cle: "salaire_net", label: "Salaire net", type: "number" },
+  { cle: "loge", label: "Logé", type: "bool" },
+];
+const RH_CHAMPS_SENSIBLES = [
+  { cle: "civilite", label: "Civilité" },
+  { cle: "date_naissance", label: "Date de naissance", type: "date" },
+  { cle: "lieu_naissance", label: "Lieu de naissance" },
+  { cle: "nationalite", label: "Nationalité" },
+  { cle: "adresse", label: "Adresse" },
+  { cle: "code_postal", label: "Code postal" },
+  { cle: "ville", label: "Ville" },
+  { cle: "secu", label: "Numéro de sécurité sociale" },
+  { cle: "mutuelle", label: "Mutuelle de l'établissement", type: "bool" },
+  { cle: "affiliation_mutuelle", label: "Affiliation mutuelle" },
+  { cle: "iban", label: "IBAN" },
+  { cle: "bic", label: "BIC" },
+  { cle: "salaire_brut", label: "Salaire brut de base", type: "number" },
+  { cle: "vehicule", label: "Véhicule" },
+  { cle: "promesse_embauche", label: "Promesse d'embauche" },
+  { cle: "periode_essai_jours", label: "Période d'essai (jours)", type: "number" },
+  { cle: "date_fin_periode_essai", label: "Fin de période d'essai", type: "date" },
+  { cle: "type_contrat", label: "Type de contrat" },
+  { cle: "heures_semaine", label: "Heures / semaine", type: "number" },
+  { cle: "heures_sup", label: "Heures sup", type: "number" },
+  { cle: "niveau", label: "Niveau" },
+  { cle: "echelon", label: "Échelon" },
+  { cle: "code_pcs", label: "Code PCS" },
+  { cle: "due", label: "DUE" },
+  { cle: "statut_payfit", label: "Statut PayFit" },
+  { cle: "contact_urgence", label: "Contact d'urgence (nom et n°)" },
+];
+
+// ---------- Modal fiche salarié RH (création / édition) ----------
+function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose }) {
+  const [f, setF] = useState(() => {
+    const base = {};
+    RH_CHAMPS_BASE.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
+    if (superviseur) RH_CHAMPS_SENSIBLES.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
+    return base;
+  });
+  const [err, setErr] = useState("");
+
+  function champ(c) {
+    const valeur = f[c.cle] ?? (c.type === "bool" ? false : "");
+    if (c.type === "bool") {
+      return (
+        <label key={c.cle} style={{display:'flex',alignItems:'center',gap:8,fontSize:14,margin:'14px 0'}}>
+          <input type="checkbox" checked={!!valeur} onChange={(e)=>setF({ ...f, [c.cle]: e.target.checked })} />
+          {c.label}
+        </label>
+      );
+    }
+    return (
+      <div className="ig-field" key={c.cle}>
+        <label>{c.label}</label>
+        <input type={c.type === "date" ? "date" : c.type === "number" ? "number" : "text"} value={valeur} onChange={(e)=>setF({ ...f, [c.cle]: c.type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value })} />
+      </div>
+    );
+  }
+
+  function valider() {
+    if (!String(f.nom || "").trim() || !String(f.prenom || "").trim()) { setErr("Nom et prénom sont obligatoires."); return; }
+    const patch = { ...f };
+    Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
+    onSave(patch);
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:520}}>
+        <h3>{salarie ? "Modifier la fiche" : "Nouveau salarié"}</h3>
+        <div className="ig-muted" style={{marginBottom:10}}>{resto} · {unite === "SALLE" ? "Salle" : "Cuisine"}</div>
+        {RH_CHAMPS_BASE.map(champ)}
+        {superviseur && (
+          <>
+            <div style={{fontWeight:600,fontSize:13,marginTop:16,marginBottom:4}}>Informations complémentaires (superviseur)</div>
+            {RH_CHAMPS_SENSIBLES.map(champ)}
+          </>
+        )}
+        {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Liste des salariés RH d'un établissement + unité ----------
+function ListeSalariesRH({ resto, unite, superviseur }) {
+  const [liste, setListe] = useState(null);
+  const [ajout, setAjout] = useState(false);
+  const [edition, setEdition] = useState(null);
+  const [flash, setFlash] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    setListe(null);
+    RhSalaries.list(resto, unite).then((l) => { if (on) setListe(l); });
+    return () => { on = false; };
+  }, [resto, unite]);
+
+  function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 5000); }
+
+  async function creer(patch) {
+    const salarieId = idSalarie({ n: patch.nom, p: patch.prenom });
+    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, ...patch });
+    if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté."); }
+  }
+  async function modifier(patch) {
+    const maj = await RhSalaries.maj(edition.id, patch);
+    if (maj) { setListe(liste.map((s) => (s.id === maj.id ? maj : s))); setEdition(null); montrerFlash("Fiche mise à jour."); }
+  }
+
+  if (liste === null) return <div className="ig-muted">Chargement…</div>;
+
+  return (
+    <div>
+      <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
+        <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
+      </div>
+      {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
+      {liste.length === 0 ? <div className="ig-muted">Aucun salarié pour l'instant.</div> : (
+        <div style={{display:'flex',flexDirection:'column',gap:0}}>
+          {liste.map((s) => (
+            <div key={s.id} style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',padding:'12px 0',borderTop:'1px solid var(--sand-2)',cursor:'pointer'}} onClick={()=>setEdition(s)}>
+              <div style={{minWidth:180}}><b>{s.prenom} {s.nom}</b><br /><span className="ig-muted" style={{fontSize:12}}>{s.poste || '—'}</span></div>
+              <span className="ig-muted" style={{fontSize:13}}>{s.telephone || '—'} · {s.email || '—'}</span>
+              <span className="ig-muted" style={{fontSize:13}}>{s.date_debut ? fmtDate(new Date(s.date_debut+"T00:00:00")) : '—'} → {s.date_fin ? fmtDate(new Date(s.date_fin+"T00:00:00")) : '—'}</span>
+              <span className="ig-muted" style={{fontSize:13}}>{s.salaire_net ? fmtEuro(s.salaire_net) + ' net' : '—'}{s.loge ? ' · logé' : ''}</span>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto'}} onClick={(e)=>{ e.stopPropagation(); setEdition(s); }}>Modifier</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {ajout && <RhSalarieModal resto={resto} unite={unite} superviseur={superviseur} onSave={creer} onClose={()=>setAjout(false)} />}
+      {edition && <RhSalarieModal resto={resto} unite={unite} salarie={edition} superviseur={superviseur} onSave={modifier} onClose={()=>setEdition(null)} />}
+    </div>
+  );
+}
+
+// ---------- Espace RH : point d'entrée après connexion individuelle ----------
+function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
+  const estSuperviseur = acces.some((a) => a.superviseur);
+  const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
+  const [restoActif, setRestoActif] = useState(estSuperviseur ? null : scopes[0].resto);
+  const [uniteActive, setUniteActive] = useState(estSuperviseur ? null : scopes[0].unite);
+
+  if (estSuperviseur && !restoActif) {
+    return <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={()=>{}} />;
+  }
+
+  return (
+    <div>
+      <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:14,marginBottom:14,flexWrap:'wrap'}}>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={estSuperviseur ? ()=>setRestoActif(null) : onBack}><Icon.Back/> {estSuperviseur ? "Établissements" : "Retour"}</button>
+        <div>
+          <div className="ig-eyebrow" style={{margin:0}}>Espace RH{estSuperviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
+          <h2 className="ig-section-title">{restoActif}</h2>
+        </div>
+        {estSuperviseur && (
+          <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+            <button className={"ig-btn ig-btn-sm "+(uniteActive==='SALLE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('SALLE')}>Salle</button>
+            <button className={"ig-btn ig-btn-sm "+(uniteActive==='CUISINE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('CUISINE')}>Cuisine</button>
+          </div>
+        )}
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion}>Déconnexion</button>
+      </div>
+      <ListeSalariesRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+    </div>
+  );
+}
+
 // ---------- Application principale ----------
 export default function App() {
-  const [role, setRole] = useState(null);     // 'manager' | 'salarie'
+  const [role, setRole] = useState(null);     // 'manager' | 'salarie' | 'rh'
   const [askCode, setAskCode] = useState(false);
+  const [askRH, setAskRH] = useState(false);
+  const [rhAcces, setRhAcces] = useState(null); // droits RH de la personne connectée
   const [resto, setResto] = useState(null);
   const [emp, setEmp] = useState(null);
   const [etabsAjoutes, setEtabsAjoutes] = useState([]);
@@ -3314,11 +3566,15 @@ export default function App() {
     Store.set(kEtablissements, next);
   }
 
-  function reset() { setRole(null); setAskCode(false); setResto(null); setEmp(null); }
+  function reset() { setRole(null); setAskCode(false); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); }
   async function deconnexion() {
     await supabase.auth.signOut();
     localStorage.removeItem("ig_superviseur");
     setSuperviseur(false);
+    reset();
+  }
+  async function deconnexionRH() {
+    await supabase.auth.signOut();
     reset();
   }
 
@@ -3331,6 +3587,8 @@ export default function App() {
       if (estSuperviseur) localStorage.setItem("ig_superviseur", "1");
       else localStorage.removeItem("ig_superviseur");
     }} onCancel={()=>setAskCode(false)} />;
+  } else if (askRH) {
+    content = <RHLoginForm onOk={(acces)=>{ setAskRH(false); setRole('rh'); setRhAcces(acces); }} onCancel={()=>setAskRH(false)} />;
   } else if (!role) {
     content = (
       <div className="ig-hero ig-hero-bg ig-fullbleed" style={{textAlign:'center',padding:'40px 20px',backgroundImage:`url(${fondAccueil})`}}>
@@ -3350,6 +3608,10 @@ export default function App() {
             <div className="ig-ic" style={{background:'var(--coral)',color:'#fff',margin:'0 auto 16px'}}><Icon.User/></div>
             <h3 style={{margin:0}}>Je suis salarié</h3>
           </button>
+          <button className="ig-role" onClick={()=>setAskRH(true)} style={{textAlign:'center'}}>
+            <div className="ig-ic" style={{background:'var(--sea)',color:'#fff',margin:'0 auto 16px'}}><Icon.Shield/></div>
+            <h3 style={{margin:0}}>Espace RH</h3>
+          </button>
         </div>
       </div>
     );
@@ -3357,6 +3619,8 @@ export default function App() {
     content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} />;
   } else if (role === "manager") {
     content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
+  } else if (role === "rh") {
+    content = <EspaceRH acces={rhAcces} restaurants={restaurants} onBack={reset} onDeconnexion={deconnexionRH} />;
   } else if (role === "salarie" && !emp) {
     content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setRole(null)} />;
   } else {
@@ -3373,10 +3637,13 @@ export default function App() {
           </button>
           {role && (
             <div className="ig-tag">
-              <span className="ig-pill">{role==='manager'?<Icon.Shield width={15} height={15}/>:<Icon.User width={15} height={15}/>}{role==='manager'?'Manager':'Salarié'}</span>
+              <span className="ig-pill">{role==='manager'?<Icon.Shield width={15} height={15}/>:role==='rh'?<Icon.Shield width={15} height={15}/>:<Icon.User width={15} height={15}/>}{role==='manager'?'Manager':role==='rh'?'Espace RH':'Salarié'}</span>
               {resto && <span className="ig-pill">{resto}</span>}
               {role==='manager' && (
                 <button onClick={deconnexion} style={{background:'rgba(243,236,224,.12)',color:'var(--sand)',border:'none',padding:'6px 12px',borderRadius:999,cursor:'pointer',fontSize:13,fontFamily:'Inter',fontWeight:600}}>Déconnexion</button>
+              )}
+              {role==='rh' && (
+                <button onClick={deconnexionRH} style={{background:'rgba(243,236,224,.12)',color:'var(--sand)',border:'none',padding:'6px 12px',borderRadius:999,cursor:'pointer',fontSize:13,fontFamily:'Inter',fontWeight:600}}>Déconnexion</button>
               )}
             </div>
           )}

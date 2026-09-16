@@ -111,8 +111,138 @@ create policy managers_read_history on public.kv_history
   using (true);
 
 -- ============================================================================
+--  Module RH — comptes individuels cloisonnés par établissement + unité
+-- ============================================================================
+--  Contrairement au reste de l'appli (code manager partagé), le RH utilise un
+--  vrai compte (email + mot de passe) par personne, créé manuellement dans
+--  Supabase → Authentication → Users. Cette table dit à quel établissement et
+--  quelle unité (SALLE / CUISINE) chaque compte a droit ; superviseur = true
+--  donne accès à tout, tous établissements et unités confondus.
+create table if not exists public.rh_acces (
+  id          bigint generated always as identity primary key,
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  resto       text not null,
+  unite       text not null check (unite in ('SALLE','CUISINE','TOUS')),
+  superviseur boolean not null default false,
+  created_at  timestamptz not null default now(),
+  unique (user_id, resto, unite)
+);
+alter table public.rh_acces enable row level security;
+
+-- Chacun ne peut lire que SES PROPRES droits (pour que l'appli sache quoi afficher).
+drop policy if exists self_read_acces on public.rh_acces;
+create policy self_read_acces on public.rh_acces
+  for select to authenticated using (user_id = auth.uid());
+
+-- Fiches RH des salariés. Champs "de base" (nom, prénom, téléphone, email,
+-- poste, dates de contrat, salaire net, logé) : modifiables par le
+-- directeur/chef concerné. Champs sensibles (état civil, sécu, IBAN, salaire
+-- brut, pièces jointes...) : réservés au superviseur, verrouillés en base
+-- pour tout autre compte par le déclencheur rh_salaries_guard ci-dessous.
+create table if not exists public.rh_salaries (
+  id                    bigint generated always as identity primary key,
+  resto                 text not null,
+  unite                 text not null check (unite in ('SALLE','CUISINE')),
+  salarie_id            text not null,
+  -- champs modifiables par le directeur/chef
+  nom text, prenom text, telephone text, email text, poste text,
+  date_debut date, date_fin date, salaire_net numeric, loge boolean,
+  -- champs réservés au superviseur
+  civilite text, date_naissance date, lieu_naissance text, nationalite text,
+  adresse text, code_postal text, ville text, secu text,
+  mutuelle boolean, affiliation_mutuelle text, iban text, bic text,
+  salaire_brut numeric, vehicule text, promesse_embauche text,
+  periode_essai_jours int, date_fin_periode_essai date, type_contrat text,
+  heures_semaine numeric, heures_sup numeric, niveau text, echelon text,
+  code_pcs text, due text, statut_payfit text,
+  piece_identite_url text, carte_sejour_url text, carte_vitale_url text, carte_mutuelle_url text,
+  contact_urgence text,
+  cree_le timestamptz not null default now(),
+  maj_le  timestamptz not null default now(),
+  unique (resto, salarie_id)
+);
+create index if not exists rh_salaries_scope_idx on public.rh_salaries (resto, unite);
+
+create or replace function public.rh_salaries_touch()
+returns trigger language plpgsql as $$
+begin
+  new.maj_le = now();
+  return new;
+end;
+$$;
+drop trigger if exists rh_salaries_touch_trg on public.rh_salaries;
+create trigger rh_salaries_touch_trg before update on public.rh_salaries
+  for each row execute function public.rh_salaries_touch();
+
+-- Verrouille les champs sensibles pour tout compte qui n'est pas superviseur,
+-- quoi que le client envoie (protection en base, pas seulement dans l'écran).
+create or replace function public.rh_salaries_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare est_superviseur boolean;
+begin
+  select coalesce(bool_or(superviseur), false) into est_superviseur
+    from public.rh_acces where user_id = auth.uid();
+  if not est_superviseur then
+    if tg_op = 'UPDATE' then
+      new.civilite := old.civilite; new.date_naissance := old.date_naissance;
+      new.lieu_naissance := old.lieu_naissance; new.nationalite := old.nationalite;
+      new.adresse := old.adresse; new.code_postal := old.code_postal; new.ville := old.ville;
+      new.secu := old.secu; new.mutuelle := old.mutuelle; new.affiliation_mutuelle := old.affiliation_mutuelle;
+      new.iban := old.iban; new.bic := old.bic; new.salaire_brut := old.salaire_brut;
+      new.vehicule := old.vehicule; new.promesse_embauche := old.promesse_embauche;
+      new.periode_essai_jours := old.periode_essai_jours; new.date_fin_periode_essai := old.date_fin_periode_essai;
+      new.type_contrat := old.type_contrat; new.heures_semaine := old.heures_semaine; new.heures_sup := old.heures_sup;
+      new.niveau := old.niveau; new.echelon := old.echelon; new.code_pcs := old.code_pcs; new.due := old.due;
+      new.statut_payfit := old.statut_payfit;
+      new.piece_identite_url := old.piece_identite_url; new.carte_sejour_url := old.carte_sejour_url;
+      new.carte_vitale_url := old.carte_vitale_url; new.carte_mutuelle_url := old.carte_mutuelle_url;
+      new.contact_urgence := old.contact_urgence;
+    else
+      new.civilite := null; new.date_naissance := null; new.lieu_naissance := null; new.nationalite := null;
+      new.adresse := null; new.code_postal := null; new.ville := null; new.secu := null;
+      new.mutuelle := null; new.affiliation_mutuelle := null; new.iban := null; new.bic := null;
+      new.salaire_brut := null; new.vehicule := null; new.promesse_embauche := null;
+      new.periode_essai_jours := null; new.date_fin_periode_essai := null; new.type_contrat := null;
+      new.heures_semaine := null; new.heures_sup := null; new.niveau := null; new.echelon := null;
+      new.code_pcs := null; new.due := null; new.statut_payfit := null;
+      new.piece_identite_url := null; new.carte_sejour_url := null;
+      new.carte_vitale_url := null; new.carte_mutuelle_url := null; new.contact_urgence := null;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists rh_salaries_guard_trg on public.rh_salaries;
+create trigger rh_salaries_guard_trg before insert or update on public.rh_salaries
+  for each row execute function public.rh_salaries_guard();
+
+alter table public.rh_salaries enable row level security;
+
+-- Superviseur : accès complet, tous établissements.
+drop policy if exists superviseur_all_rh on public.rh_salaries;
+create policy superviseur_all_rh on public.rh_salaries
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur));
+
+-- Directeur / chef : uniquement leur établissement + leur unité.
+drop policy if exists directeur_scope_rh on public.rh_salaries;
+create policy directeur_scope_rh on public.rh_salaries
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_salaries.resto and a.unite = rh_salaries.unite))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_salaries.resto and a.unite = rh_salaries.unite));
+
+-- ============================================================================
 --  Rappel : les comptes managers se créent dans
 --  Supabase → Authentication → Users → "Add user".
 --  Et pensez à désactiver l'inscription libre :
 --  Authentication → Providers → Email → décochez "Enable sign-ups".
+--
+--  Pour le RH : créez un compte (email + mot de passe) par directeur/chef de
+--  la même façon, puis ajoutez sa ligne dans rh_acces, par exemple :
+--    insert into public.rh_acces (user_id, resto, unite, superviseur)
+--    values ('<uuid de l'utilisateur>', 'INDIE BEACH', 'SALLE', false);
+--  Pour votre propre compte superviseur :
+--    insert into public.rh_acces (user_id, resto, unite, superviseur)
+--    values ('<votre uuid>', 'TOUS', 'TOUS', true);
 -- ============================================================================
