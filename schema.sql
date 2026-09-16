@@ -261,6 +261,43 @@ create policy anon_onboarding_insert on public.rh_salaries
 drop policy if exists anon_onboarding_update on public.rh_salaries;
 
 -- ============================================================================
+--  Documents RH : dossier par salarié, archivé par établissement/unité/année
+-- ============================================================================
+--  Bucket privé (jamais public). Chemin de chaque fichier :
+--    <établissement>/<SALLE ou CUISINE>/<année>/<identifiant salarié>/<nom du fichier>
+--  Rien n'est jamais écrasé d'une année sur l'autre : les documents d'une année
+--  passée restent accessibles, exactement comme demandé.
+insert into storage.buckets (id, name, public)
+values ('rh-documents', 'rh-documents', false)
+on conflict (id) do nothing;
+
+drop policy if exists rh_documents_access on storage.objects;
+create policy rh_documents_access on storage.objects
+  for all to authenticated
+  using (
+    bucket_id = 'rh-documents'
+    and exists (
+      select 1 from public.rh_acces a
+      where a.user_id = auth.uid()
+        and (
+          a.superviseur
+          or (a.resto = (storage.foldername(name))[1] and a.unite = (storage.foldername(name))[2])
+        )
+    )
+  )
+  with check (
+    bucket_id = 'rh-documents'
+    and exists (
+      select 1 from public.rh_acces a
+      where a.user_id = auth.uid()
+        and (
+          a.superviseur
+          or (a.resto = (storage.foldername(name))[1] and a.unite = (storage.foldername(name))[2])
+        )
+    )
+  );
+
+-- ============================================================================
 --  Rappel : les comptes managers se créent dans
 --  Supabase → Authentication → Users → "Add user".
 --  Et pensez à désactiver l'inscription libre :
