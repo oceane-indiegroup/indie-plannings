@@ -583,7 +583,7 @@ const CSS = `
 
 /* Edition manager modal */
 .ig-overlay { position:fixed; inset:0; background:rgba(21,48,59,.45); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px; }
-.ig-modal { background:var(--white); border-radius:18px; padding:24px; max-width:440px; width:100%; }
+.ig-modal { background:var(--white); border-radius:18px; padding:24px; max-width:440px; width:100%; max-height:90vh; overflow-y:auto; }
 .ig-modal h3 { font-family:'Inter',system-ui,sans-serif; font-size:22px; margin:0 0 4px; }
 .ig-field { margin:14px 0; }
 .ig-field label { display:block; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); margin-bottom:6px; }
@@ -3563,6 +3563,9 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [ajout, setAjout] = useState(false);
   const [edition, setEdition] = useState(null);
   const [flash, setFlash] = useState("");
+  const [erreur, setErreur] = useState("");
+  const [recherche, setRecherche] = useState("");
+  const [tri, setTri] = useState("alpha"); // alpha | date_debut
 
   useEffect(() => {
     let on = true;
@@ -3571,27 +3574,44 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     return () => { on = false; };
   }, [resto, unite]);
 
-  function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 5000); }
+  function montrerFlash(msg) { setFlash(msg); setErreur(""); setTimeout(() => setFlash(""), 5000); }
+  function montrerErreur(msg) { setErreur(msg); setTimeout(() => setErreur(""), 8000); }
 
   async function creer(patch) {
     const salarieId = idSalarie({ n: patch.nom, p: patch.prenom });
     const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, ...patch });
     if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté."); }
+    else montrerErreur("Impossible d'ajouter ce salarié (peut-être une fiche existe déjà pour ce nom). Vérifiez et réessayez.");
   }
   async function modifier(patch) {
     const maj = await RhSalaries.maj(edition.id, patch);
     if (maj) { setListe(liste.map((s) => (s.id === maj.id ? maj : s))); setEdition(null); montrerFlash("Fiche mise à jour."); }
+    else montrerErreur("La sauvegarde a échoué. Réessayez, ou contactez le support si ça persiste.");
   }
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
+
+  const q = normTxt(recherche);
+  const listeAffichee = liste
+    .filter((s) => !q || normTxt(`${s.prenom} ${s.nom}`).includes(q))
+    .sort((a, b) => {
+      if (tri === "date_debut") return (a.date_debut || "").localeCompare(b.date_debut || "");
+      return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+    });
 
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
+        <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{flex:'1 1 200px',minWidth:0}} />
+        <select value={tri} onChange={(e)=>setTri(e.target.value)} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
+          <option value="alpha">Ordre alphabétique</option>
+          <option value="date_debut">Date de début de contrat</option>
+        </select>
       </div>
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
-      {liste.length === 0 ? <div className="ig-muted">Aucun salarié pour l'instant.</div> : (
+      {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
+      {listeAffichee.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun salarié pour l'instant."}</div> : (
         <div className="ig-card" style={{padding:'6px 10px',overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,whiteSpace:'nowrap'}}>
             <thead>
@@ -3612,7 +3632,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
               </tr>
             </thead>
             <tbody>
-              {liste.map((s) => (
+              {listeAffichee.map((s) => (
                 <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',cursor:'pointer'}} onClick={()=>setEdition(s)}>
                   <td style={{padding:'8px 10px'}}>{s.staff_party ? 'Oui' : 'Non'}</td>
                   <td style={{padding:'8px 10px'}}>{s.heures_contrat ?? '—'}</td>
