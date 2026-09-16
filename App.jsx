@@ -3357,14 +3357,17 @@ function RHLoginForm({ onOk, onCancel }) {
 // Champs "de base" éditables par un directeur/chef ; les autres (sensibles) sont réservés
 // au superviseur — et de toute façon verrouillés en base par rh_salaries_guard côté serveur.
 const RH_CHAMPS_BASE = [
+  { cle: "staff_party", label: "Staff Party", type: "bool" },
+  { cle: "heures_contrat", label: "Heure CT", type: "number" },
   { cle: "nom", label: "Nom" },
   { cle: "prenom", label: "Prénom" },
   { cle: "telephone", label: "Téléphone" },
   { cle: "email", label: "Email" },
   { cle: "poste", label: "Poste" },
   { cle: "date_debut", label: "Date de début de contrat", type: "date" },
-  { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
   { cle: "salaire_net", label: "Salaire net", type: "number" },
+  { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
+  { cle: "date_prolongation_fin", label: "Date de prolongation de fin de contrat", type: "date" },
   { cle: "loge", label: "Logé", type: "bool" },
 ];
 const RH_CHAMPS_SENSIBLES = [
@@ -3589,16 +3592,45 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
       </div>
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {liste.length === 0 ? <div className="ig-muted">Aucun salarié pour l'instant.</div> : (
-        <div style={{display:'flex',flexDirection:'column',gap:0}}>
-          {liste.map((s) => (
-            <div key={s.id} style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',padding:'12px 0',borderTop:'1px solid var(--sand-2)',cursor:'pointer'}} onClick={()=>setEdition(s)}>
-              <div style={{minWidth:180}}><b>{s.prenom} {s.nom}</b><br /><span className="ig-muted" style={{fontSize:12}}>{s.poste || '—'}</span></div>
-              <span className="ig-muted" style={{fontSize:13}}>{s.telephone || '—'} · {s.email || '—'}</span>
-              <span className="ig-muted" style={{fontSize:13}}>{s.date_debut ? fmtDate(new Date(s.date_debut+"T00:00:00")) : '—'} → {s.date_fin ? fmtDate(new Date(s.date_fin+"T00:00:00")) : '—'}</span>
-              <span className="ig-muted" style={{fontSize:13}}>{s.salaire_net ? fmtEuro(s.salaire_net) + ' net' : '—'}{s.loge ? ' · logé' : ''}</span>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto'}} onClick={(e)=>{ e.stopPropagation(); setEdition(s); }}>Modifier</button>
-            </div>
-          ))}
+        <div className="ig-card" style={{padding:'6px 10px',overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,whiteSpace:'nowrap'}}>
+            <thead>
+              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)'}}>
+                <th style={{padding:'8px 10px'}}>Staff Party</th>
+                <th style={{padding:'8px 10px'}}>Heure CT</th>
+                <th style={{padding:'8px 10px'}}>Nom</th>
+                <th style={{padding:'8px 10px'}}>Prénom</th>
+                <th style={{padding:'8px 10px'}}>Tél</th>
+                <th style={{padding:'8px 10px'}}>Mail</th>
+                <th style={{padding:'8px 10px'}}>Poste occupé</th>
+                <th style={{padding:'8px 10px'}}>Date début contrat</th>
+                <th style={{padding:'8px 10px'}}>Salaire net</th>
+                <th style={{padding:'8px 10px'}}>Date de fin de CT</th>
+                <th style={{padding:'8px 10px'}}>Date de prolongation</th>
+                <th style={{padding:'8px 10px'}}>Logement</th>
+                <th style={{padding:'8px 10px'}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {liste.map((s) => (
+                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',cursor:'pointer'}} onClick={()=>setEdition(s)}>
+                  <td style={{padding:'8px 10px'}}>{s.staff_party ? 'Oui' : 'Non'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.heures_contrat ?? '—'}</td>
+                  <td style={{padding:'8px 10px',fontWeight:600}}>{s.nom || '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.prenom || '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.telephone || '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.email || '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.poste || '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.date_debut ? fmtDate(new Date(s.date_debut+"T00:00:00")) : '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.salaire_net ? fmtEuro(s.salaire_net) : '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.date_fin ? fmtDate(new Date(s.date_fin+"T00:00:00")) : '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.date_prolongation_fin ? fmtDate(new Date(s.date_prolongation_fin+"T00:00:00")) : '—'}</td>
+                  <td style={{padding:'8px 10px'}}>{s.loge ? 'Oui' : 'Non'}</td>
+                  <td style={{padding:'8px 10px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={(e)=>{ e.stopPropagation(); setEdition(s); }}>Modifier</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       {ajout && <RhSalarieModal resto={resto} unite={unite} superviseur={superviseur} onSave={creer} onClose={()=>setAjout(false)} />}
