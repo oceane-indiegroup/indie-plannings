@@ -2060,6 +2060,11 @@ function ManagerView({ resto, onBack, superviseur }) {
       // - salariés AJOUTÉS : retirés de la liste des ajouts ;
       // - salariés du FICHIER : ajoutés à la liste des supprimés (le fichier n'est pas touché).
       // Dans les deux cas, l'historique des semaines passées est conservé.
+      // Ce nettoyage reste LOCAL à cet affichage (jamais réécrit en base) : l'écrire ici en
+      // arrière-plan pouvait entrer en course avec une modification manuelle plus récente du
+      // même salarié et l'effacer silencieusement. Le filtrage par date de fin (plus bas)
+      // fonctionne de toute façon directement sur "departs", sans avoir besoin de cette
+      // conversion en base — elle est donc recalculée à chaque chargement, sans être persistée.
       let rosterUtilise = rs || { ajouts: [], departs: {} };
       const aujourdHui = new Date().toISOString().slice(0, 10);
       const ajoutsR = rosterUtilise.ajouts || [];
@@ -2081,7 +2086,6 @@ function ManagerView({ resto, onBack, superviseur }) {
           }
         });
         rosterUtilise = { ...rosterUtilise, ajouts: nouvAjouts, departs: nouvDeparts, supprimes: nouvSupprimes };
-        Store.set(kRoster(resto), rosterUtilise);
       }
       setRoster(rosterUtilise);
       setModele(md || null);
