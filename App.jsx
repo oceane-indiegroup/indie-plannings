@@ -377,6 +377,38 @@ const RhSalaries = {
   },
 };
 
+// ---------- Documents RH : dossier par salarié, classé par établissement/unité/année ----------
+// Bucket privé "rh-documents", chemin <resto>/<unite>/<année>/<salarie_id>/<fichier> — les
+// documents des années précédentes restent accessibles (rien n'est jamais écrasé par année).
+const RhDocuments = {
+  dossier(resto, unite, annee, salarieId) {
+    return `${resto}/${unite}/${annee}/${salarieId}`;
+  },
+  async lister(resto, unite, annee, salarieId) {
+    const { data, error } = await supabase.storage.from("rh-documents").list(this.dossier(resto, unite, annee, salarieId));
+    if (error) { console.error("RhDocuments.lister:", error.message); return []; }
+    return (data || []).filter((f) => f.name && !f.name.startsWith("."));
+  },
+  async uploader(resto, unite, annee, salarieId, fichier) {
+    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${fichier.name}`;
+    const { error } = await supabase.storage.from("rh-documents").upload(chemin, fichier, { upsert: true });
+    if (error) { console.error("RhDocuments.uploader:", error.message); return false; }
+    return true;
+  },
+  async lienTelechargement(resto, unite, annee, salarieId, nomFichier) {
+    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${nomFichier}`;
+    const { data, error } = await supabase.storage.from("rh-documents").createSignedUrl(chemin, 60);
+    if (error) { console.error("RhDocuments.lienTelechargement:", error.message); return null; }
+    return data.signedUrl;
+  },
+  async supprimer(resto, unite, annee, salarieId, nomFichier) {
+    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${nomFichier}`;
+    const { error } = await supabase.storage.from("rh-documents").remove([chemin]);
+    if (error) { console.error("RhDocuments.supprimer:", error.message); return false; }
+    return true;
+  },
+};
+
 // ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
 // Robustesse V2 : chaque confirmation n'écrit qu'UNE ligne, donc deux salariés
 // qui pointent en même temps ne s'écrasent plus. La forme rendue en mémoire est
@@ -628,6 +660,9 @@ const CSS = `
 .ig-extra-champ input[type=number]:disabled { opacity:.4; }
 .ig-extra-check { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:400; padding-bottom:13px; }
 .ig-extra-check input { width:20px; height:20px; }
+.ig-cell { border:1px solid transparent; border-radius:6px; padding:5px 7px; font-family:'Inter'; font-size:13px; background:transparent; color:var(--ink); }
+.ig-cell:hover { border-color:var(--line); background:#fff; }
+.ig-cell:focus { outline:none; border-color:var(--sea); background:#fff; }
 @media (max-width:760px) {
   .ig-roles { grid-template-columns:1fr; }
   .ig-planning { font-size:11px; }
@@ -3501,6 +3536,70 @@ function OnboardingForm({ restaurants }) {
 }
 
 // ---------- Modal fiche salarié RH (création / édition) ----------
+// ---------- Documents du salarié (dossier archivé par année) ----------
+function DocumentsSalarie({ resto, unite, salarieId }) {
+  const anneesDisponibles = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i);
+  const [annee, setAnnee] = useState(anneesDisponibles[0]);
+  const [fichiers, setFichiers] = useState(null);
+  const [enCours, setEnCours] = useState(false);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    let on = true;
+    setFichiers(null);
+    RhDocuments.lister(resto, unite, annee, salarieId).then((f) => { if (on) setFichiers(f); });
+    return () => { on = false; };
+  }, [resto, unite, annee, salarieId]);
+
+  async function ajouterFichier(e) {
+    const fichier = e.target.files[0];
+    if (!fichier) return;
+    setEnCours(true);
+    await RhDocuments.uploader(resto, unite, annee, salarieId, fichier);
+    const f = await RhDocuments.lister(resto, unite, annee, salarieId);
+    setFichiers(f);
+    setEnCours(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function ouvrir(nom) {
+    const url = await RhDocuments.lienTelechargement(resto, unite, annee, salarieId, nom);
+    if (url) window.open(url, "_blank");
+  }
+
+  async function supprimer(nom) {
+    const ok = await RhDocuments.supprimer(resto, unite, annee, salarieId, nom);
+    if (ok) setFichiers(fichiers.filter((f) => f.name !== nom));
+  }
+
+  return (
+    <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid var(--sand-2)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+        <div style={{fontWeight:600,fontSize:13}}>Documents</div>
+        <select value={annee} onChange={(e)=>setAnnee(Number(e.target.value))} style={{padding:'5px 8px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:13}}>
+          {anneesDisponibles.map((a) => (<option key={a} value={a}>{a}</option>))}
+        </select>
+      </div>
+      {fichiers === null ? (
+        <div className="ig-muted" style={{fontSize:13}}>Chargement…</div>
+      ) : fichiers.length === 0 ? (
+        <div className="ig-muted" style={{fontSize:13,marginBottom:8}}>Aucun document pour {annee}.</div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
+          {fichiers.map((f) => (
+            <div key={f.name} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
+              <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>ouvrir(f.name)}>Ouvrir</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={()=>supprimer(f.name)}>Suppr.</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <input ref={fileRef} type="file" onChange={ajouterFichier} disabled={enCours} style={{fontSize:13}} />
+    </div>
+  );
+}
+
 function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose }) {
   const [f, setF] = useState(() => {
     const base = {};
@@ -3548,6 +3647,7 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
           </>
         )}
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
+        {salarie && <DocumentsSalarie resto={resto} unite={unite} salarieId={salarie.salarie_id} />}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
           <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
@@ -3587,6 +3687,17 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     const maj = await RhSalaries.maj(edition.id, patch);
     if (maj) { setListe(liste.map((s) => (s.id === maj.id ? maj : s))); setEdition(null); montrerFlash("Fiche mise à jour."); }
     else montrerErreur("La sauvegarde a échoué. Réessayez, ou contactez le support si ça persiste.");
+  }
+
+  // Édition directe dans le tableau (comme un tableur) : met à jour l'affichage tout de
+  // suite, puis enregistre la seule case modifiée.
+  function majCellule(id, cle, valeur) {
+    setListe(liste.map((s) => (s.id === id ? { ...s, [cle]: valeur } : s)));
+  }
+  async function sauverCellule(id, cle, valeur) {
+    majCellule(id, cle, valeur);
+    const maj = await RhSalaries.maj(id, { [cle]: valeur });
+    if (!maj) montrerErreur("La sauvegarde a échoué pour cette case. Réessayez.");
   }
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
@@ -3633,20 +3744,20 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
             </thead>
             <tbody>
               {listeAffichee.map((s) => (
-                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',cursor:'pointer'}} onClick={()=>setEdition(s)}>
-                  <td style={{padding:'8px 10px'}}>{s.staff_party ? 'Oui' : 'Non'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.heures_contrat ?? '—'}</td>
-                  <td style={{padding:'8px 10px',fontWeight:600}}>{s.nom || '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.prenom || '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.telephone || '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.email || '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.poste || '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.date_debut ? fmtDate(new Date(s.date_debut+"T00:00:00")) : '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.salaire_net ? fmtEuro(s.salaire_net) : '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.date_fin ? fmtDate(new Date(s.date_fin+"T00:00:00")) : '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.date_prolongation_fin ? fmtDate(new Date(s.date_prolongation_fin+"T00:00:00")) : '—'}</td>
-                  <td style={{padding:'8px 10px'}}>{s.loge ? 'Oui' : 'Non'}</td>
-                  <td style={{padding:'8px 10px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={(e)=>{ e.stopPropagation(); setEdition(s); }}>Modifier</button></td>
+                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)'}}>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.staff_party} onChange={(e)=>sauverCellule(s.id,'staff_party',e.target.checked)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:100}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:110}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:170}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:130}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:80}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.loge} onChange={(e)=>sauverCellule(s.id,'loge',e.target.checked)} /></td>
+                  <td style={{padding:'4px 6px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button></td>
                 </tr>
               ))}
             </tbody>
