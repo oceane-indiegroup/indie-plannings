@@ -361,9 +361,18 @@ const RhSalaries = {
   },
   // Soumission publique du formulaire d'onboarding (sans connexion) : crée la fiche,
   // ou la complète si un directeur avait déjà créé une entrée de base pour ce salarié.
+  // Soumission publique du formulaire d'onboarding (sans connexion). Toujours une
+  // création (jamais d'upsert) : un upsert exigerait un droit de lecture qu'on ne
+  // veut pas donner à un lien public. Si une fiche existe déjà pour ce nom à cet
+  // établissement (créée par un directeur, ou double envoi), on le signale au lieu
+  // d'échouer avec une erreur générique.
   async onboarder(row) {
-    const { error } = await supabase.from("rh_salaries").upsert(row, { onConflict: "resto,salarie_id" });
-    if (error) { console.error("RhSalaries.onboarder:", error.message); return false; }
+    const { error } = await supabase.from("rh_salaries").insert(row);
+    if (error) {
+      console.error("RhSalaries.onboarder:", error.message);
+      if (error.code === "23505") return "existe_deja";
+      return false;
+    }
     return true;
   },
 };
@@ -3461,7 +3470,8 @@ function OnboardingForm({ restaurants }) {
     Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
     const ok = await RhSalaries.onboarder(patch);
     setEnvoiEnCours(false);
-    if (ok) setEnvoye(true);
+    if (ok === true) setEnvoye(true);
+    else if (ok === "existe_deja") setErr("Une fiche existe déjà pour ce nom dans cet établissement. Contactez votre responsable pour la compléter.");
     else setErr("Une erreur est survenue lors de l'envoi. Réessayez, ou contactez votre établissement.");
   }
 
