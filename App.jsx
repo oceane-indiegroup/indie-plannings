@@ -359,6 +359,13 @@ const RhSalaries = {
     if (error) { console.error("RhSalaries.maj:", error.message); return null; }
     return data;
   },
+  // Soumission publique du formulaire d'onboarding (sans connexion) : crée la fiche,
+  // ou la complète si un directeur avait déjà créé une entrée de base pour ce salarié.
+  async onboarder(row) {
+    const { error } = await supabase.from("rh_salaries").upsert(row, { onConflict: "resto,salarie_id" });
+    if (error) { console.error("RhSalaries.onboarder:", error.message); return false; }
+    return true;
+  },
 };
 
 // ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
@@ -3380,6 +3387,120 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "contact_urgence", label: "Contact d'urgence (nom et n°)" },
 ];
 
+// ---------- Formulaire d'onboarding public (sans connexion, lien envoyé au salarié) ----------
+const ONBOARDING_CHAMPS = [
+  { cle: "civilite", label: "Civilité", type: "select", options: ["Madame", "Monsieur"] },
+  { cle: "nom", label: "Nom" },
+  { cle: "prenom", label: "Prénom" },
+  { cle: "poste", label: "Nom du poste" },
+  { cle: "date_naissance", label: "Date de naissance", type: "date" },
+  { cle: "lieu_naissance", label: "Lieu de naissance (ville)" },
+  { cle: "nationalite", label: "Nationalité" },
+  { cle: "adresse", label: "Adresse postale" },
+  { cle: "code_postal", label: "Code postal" },
+  { cle: "ville", label: "Ville" },
+  { cle: "secu", label: "Numéro de sécurité sociale (mettre 0 si vous n'en avez pas encore)" },
+  { cle: "telephone", label: "Numéro de téléphone" },
+  { cle: "email", label: "Adresse mail" },
+  { cle: "mutuelle", label: "Je veux la mutuelle de l'établissement", type: "bool" },
+  { cle: "iban", label: "IBAN (RIB)" },
+  { cle: "bic", label: "BIC (RIB)" },
+  { cle: "vehicule", label: "Véhicule" },
+  { cle: "contact_urgence", label: "Nom et numéro d'une personne à contacter en cas d'urgence" },
+];
+
+function OnboardingForm({ restaurants }) {
+  const [resto, setResto] = useState("");
+  const [unite, setUnite] = useState("");
+  const [f, setF] = useState(() => {
+    const base = {};
+    ONBOARDING_CHAMPS.forEach((c) => { base[c.cle] = c.type === "bool" ? false : ""; });
+    return base;
+  });
+  const [err, setErr] = useState("");
+  const [envoiEnCours, setEnvoiEnCours] = useState(false);
+  const [envoye, setEnvoye] = useState(false);
+
+  function champ(c) {
+    const valeur = f[c.cle];
+    if (c.type === "bool") {
+      return (
+        <label key={c.cle} style={{display:'flex',alignItems:'center',gap:8,fontSize:14,margin:'14px 0'}}>
+          <input type="checkbox" checked={!!valeur} onChange={(e)=>setF({ ...f, [c.cle]: e.target.checked })} />
+          {c.label}
+        </label>
+      );
+    }
+    if (c.type === "select") {
+      return (
+        <div className="ig-field" key={c.cle}>
+          <label>{c.label}</label>
+          <select value={valeur} onChange={(e)=>setF({ ...f, [c.cle]: e.target.value })}>
+            <option value="">—</option>
+            {c.options.map((o) => (<option key={o} value={o}>{o}</option>))}
+          </select>
+        </div>
+      );
+    }
+    return (
+      <div className="ig-field" key={c.cle}>
+        <label>{c.label}</label>
+        <input type={c.type === "date" ? "date" : "text"} value={valeur} onChange={(e)=>setF({ ...f, [c.cle]: e.target.value })} />
+      </div>
+    );
+  }
+
+  async function envoyer() {
+    if (!resto) { setErr("Choisissez l'établissement dans lequel vous allez travailler."); return; }
+    if (!unite) { setErr("Choisissez votre unité de travail."); return; }
+    if (!f.nom.trim() || !f.prenom.trim()) { setErr("Nom et prénom sont obligatoires."); return; }
+    setErr("");
+    setEnvoiEnCours(true);
+    const salarieId = idSalarie({ n: f.nom, p: f.prenom });
+    const patch = { resto, unite, salarie_id: salarieId, ...f };
+    Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
+    const ok = await RhSalaries.onboarder(patch);
+    setEnvoiEnCours(false);
+    if (ok) setEnvoye(true);
+    else setErr("Une erreur est survenue lors de l'envoi. Réessayez, ou contactez votre établissement.");
+  }
+
+  if (envoye) {
+    return (
+      <div className="ig-hero" style={{maxWidth:480,textAlign:'center'}}>
+        <div className="ig-ic" style={{background:'var(--sea)',color:'#fff',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}><Icon.Check/></div>
+        <h1 className="ig-display" style={{fontSize:28,marginBottom:8}}>Merci !</h1>
+        <p>Vos informations ont bien été transmises. Votre établissement complètera votre dossier avant votre arrivée.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ig-hero" style={{maxWidth:520}}>
+      <h1 className="ig-display" style={{fontSize:28,marginBottom:8}}>Bienvenue chez Indie Group</h1>
+      <p style={{marginBottom:20}}>Remplissez ce formulaire pour préparer votre arrivée. Ces informations restent confidentielles et ne sont visibles que par votre établissement et l'équipe RH.</p>
+      <div className="ig-field">
+        <label>Établissement dans lequel je vais travailler</label>
+        <select value={resto} onChange={(e)=>{ setResto(e.target.value); setErr(""); }}>
+          <option value="">—</option>
+          {restaurants.map((r) => (<option key={r} value={r}>{r}</option>))}
+        </select>
+      </div>
+      <div className="ig-field">
+        <label>Unité de travail</label>
+        <select value={unite} onChange={(e)=>{ setUnite(e.target.value); setErr(""); }}>
+          <option value="">—</option>
+          <option value="SALLE">Salle</option>
+          <option value="CUISINE">Cuisine</option>
+        </select>
+      </div>
+      {ONBOARDING_CHAMPS.map(champ)}
+      {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
+      <button className="ig-btn ig-btn-primary" onClick={envoyer} disabled={envoiEnCours} style={{marginTop:14,width:'100%',justifyContent:'center'}}>{envoiEnCours ? "Envoi…" : "Envoyer mes informations"}</button>
+    </div>
+  );
+}
+
 // ---------- Modal fiche salarié RH (création / édition) ----------
 function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose }) {
   const [f, setF] = useState(() => {
@@ -3524,6 +3645,9 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
 
 // ---------- Application principale ----------
 export default function App() {
+  // Lien d'onboarding public (envoyé aux nouveaux salariés) : ?onboarding=1
+  // contourne tout le reste de l'appli, aucune connexion nécessaire.
+  const [modeOnboarding] = useState(() => new URLSearchParams(window.location.search).get("onboarding") === "1");
   const [role, setRole] = useState(null);     // 'manager' | 'salarie' | 'rh'
   const [askCode, setAskCode] = useState(false);
   const [askRH, setAskRH] = useState(false);
@@ -3579,7 +3703,9 @@ export default function App() {
   }
 
   let content;
-  if (askCode) {
+  if (modeOnboarding) {
+    content = <OnboardingForm restaurants={restaurants} />;
+  } else if (askCode) {
     content = <CodeGate onOk={(estSuperviseur)=>{
       setAskCode(false);
       setRole('manager');

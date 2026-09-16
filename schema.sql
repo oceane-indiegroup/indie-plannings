@@ -174,12 +174,19 @@ drop trigger if exists rh_salaries_touch_trg on public.rh_salaries;
 create trigger rh_salaries_touch_trg before update on public.rh_salaries
   for each row execute function public.rh_salaries_touch();
 
--- Verrouille les champs sensibles pour tout compte qui n'est pas superviseur,
--- quoi que le client envoie (protection en base, pas seulement dans l'écran).
+-- Verrouille les champs sensibles pour tout compte AUTHENTIFIÉ qui n'est pas
+-- superviseur (directeur/chef), quoi que le client envoie — protection en
+-- base, pas seulement dans l'écran. Les soumissions ANONYMES (formulaire
+-- d'onboarding rempli par le salarié lui-même, cf. policy anon plus bas) ne
+-- sont PAS concernées : c'est le salarié qui renseigne ses propres champs
+-- sensibles à ce moment-là, c'est légitime.
 create or replace function public.rh_salaries_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare est_superviseur boolean;
 begin
+  if auth.uid() is null then
+    return new;
+  end if;
   select coalesce(bool_or(superviseur), false) into est_superviseur
     from public.rh_acces where user_id = auth.uid();
   if not est_superviseur then
@@ -231,6 +238,22 @@ create policy directeur_scope_rh on public.rh_salaries
   for all to authenticated
   using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_salaries.resto and a.unite = rh_salaries.unite))
   with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_salaries.resto and a.unite = rh_salaries.unite));
+
+-- SALARIÉS (anonymes) : formulaire d'onboarding public. Écriture seule (création
+-- de leur fiche, ou complément si un directeur avait déjà créé une fiche de base
+-- avec le même nom/prénom/établissement/unité) — jamais de lecture ni de
+-- suppression, pour qu'un lien d'onboarding ne permette pas de consulter les
+-- fiches des autres salariés.
+drop policy if exists anon_onboarding_insert on public.rh_salaries;
+create policy anon_onboarding_insert on public.rh_salaries
+  for insert to anon
+  with check (true);
+
+drop policy if exists anon_onboarding_update on public.rh_salaries;
+create policy anon_onboarding_update on public.rh_salaries
+  for update to anon
+  using (true)
+  with check (true);
 
 -- ============================================================================
 --  Rappel : les comptes managers se créent dans
