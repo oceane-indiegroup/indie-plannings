@@ -239,21 +239,19 @@ create policy directeur_scope_rh on public.rh_salaries
   using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_salaries.resto and a.unite = rh_salaries.unite))
   with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_salaries.resto and a.unite = rh_salaries.unite));
 
--- SALARIÉS (anonymes) : formulaire d'onboarding public. Écriture seule (création
--- de leur fiche, ou complément si un directeur avait déjà créé une fiche de base
--- avec le même nom/prénom/établissement/unité) — jamais de lecture ni de
--- suppression, pour qu'un lien d'onboarding ne permette pas de consulter les
--- fiches des autres salariés.
+-- SALARIÉS (anonymes) : formulaire d'onboarding public. Écriture seule
+-- (création uniquement, jamais de mise à jour) — pas de lecture, pour qu'un
+-- lien d'onboarding ne permette jamais de consulter les fiches des autres
+-- salariés. Un upsert exigerait un droit de lecture (SELECT) pour détecter
+-- les conflits, ce qu'on ne veut pas ouvrir à un lien public ; le doublon
+-- éventuel (fiche déjà créée pour ce nom) est donc signalé côté appli au
+-- moment de l'envoi plutôt que fusionné automatiquement en base.
 drop policy if exists anon_onboarding_insert on public.rh_salaries;
 create policy anon_onboarding_insert on public.rh_salaries
   for insert to anon
   with check (true);
 
 drop policy if exists anon_onboarding_update on public.rh_salaries;
-create policy anon_onboarding_update on public.rh_salaries
-  for update to anon
-  using (true)
-  with check (true);
 
 -- ============================================================================
 --  Rappel : les comptes managers se créent dans
