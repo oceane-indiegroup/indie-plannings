@@ -3397,33 +3397,41 @@ const RH_CHAMPS_SENSIBLES = [
 ];
 
 // ---------- Formulaire d'onboarding public (sans connexion, lien envoyé au salarié) ----------
+const ONBOARDING_POSTES = [
+  "Directeur", "Manager", "Chef Hotesse", "Hotesse", "Agent Entretien", "Standardiste",
+  "Barman", "Chef de Bar", "Commis de Bar", "Officier", "Plongeur", "Chef de Cuisine",
+  "Chef de Partie", "Commis de Cuisine", "Cuisinier", "Patissier", "Second de Cuisine",
+  "Chef Plagiste", "Plagiste", "Chef de Rang", "Commis de Salle", "Limonadier", "Runner",
+  "Sommelier", "Caissière", "Pizzaiolo", "Autres",
+];
+
+// Mêmes questions, dans le même ordre, que le Google Form d'onboarding existant.
 const ONBOARDING_CHAMPS = [
-  { cle: "civilite", label: "Civilité", type: "select", options: ["Madame", "Monsieur"] },
+  { cle: "civilite", label: "Civilité", type: "select", options: ["Monsieur", "Madame"] },
   { cle: "nom", label: "Nom" },
   { cle: "prenom", label: "Prénom" },
-  { cle: "poste", label: "Nom du poste" },
   { cle: "date_naissance", label: "Date de naissance", type: "date" },
-  { cle: "lieu_naissance", label: "Lieu de naissance (ville)" },
+  { cle: "lieu_naissance", label: "Lieux de naissance (ville)" },
   { cle: "nationalite", label: "Nationalité" },
   { cle: "adresse", label: "Adresse postale" },
-  { cle: "code_postal", label: "Code postal" },
   { cle: "ville", label: "Ville" },
-  { cle: "secu", label: "Numéro de sécurité sociale (mettre 0 si vous n'en avez pas encore)" },
-  { cle: "telephone", label: "Numéro de téléphone" },
+  { cle: "code_postal", label: "Code postal" },
+  { cle: "secu", label: "Numéro de sécurité sociale (mettre 0 si pas encore de numéro de sécurité sociale)" },
+  { cle: "telephone", label: "Numéro de téléphone (sans espace)" },
   { cle: "email", label: "Adresse mail" },
-  { cle: "mutuelle", label: "Je veux la mutuelle de l'établissement", type: "bool" },
+  { cle: "unite", label: "Unité de travail", type: "select", options: ["SALLE", "CUISINE"] },
+  { cle: "poste", label: "Nom du poste", type: "select", options: ONBOARDING_POSTES },
   { cle: "iban", label: "IBAN (RIB)" },
   { cle: "bic", label: "BIC (RIB)" },
-  { cle: "vehicule", label: "Véhicule" },
-  { cle: "contact_urgence", label: "Nom et numéro d'une personne à contacter en cas d'urgence" },
+  { cle: "mutuelle", label: "Je veux la mutuelle de l'établissement", type: "select", options: ["Oui", "Non (j'ai ma propre mutuelle)"] },
+  { cle: "resto", label: "Établissement dans lequel je vais travailler", type: "select" },
+  { cle: "contact_urgence", label: "Nom et n° de la personne à contacter d'urgence" },
 ];
 
 function OnboardingForm({ restaurants }) {
-  const [resto, setResto] = useState("");
-  const [unite, setUnite] = useState("");
   const [f, setF] = useState(() => {
     const base = {};
-    ONBOARDING_CHAMPS.forEach((c) => { base[c.cle] = c.type === "bool" ? false : ""; });
+    ONBOARDING_CHAMPS.forEach((c) => { base[c.cle] = ""; });
     return base;
   });
   const [err, setErr] = useState("");
@@ -3432,21 +3440,14 @@ function OnboardingForm({ restaurants }) {
 
   function champ(c) {
     const valeur = f[c.cle];
-    if (c.type === "bool") {
-      return (
-        <label key={c.cle} style={{display:'flex',alignItems:'center',gap:8,fontSize:14,margin:'14px 0'}}>
-          <input type="checkbox" checked={!!valeur} onChange={(e)=>setF({ ...f, [c.cle]: e.target.checked })} />
-          {c.label}
-        </label>
-      );
-    }
     if (c.type === "select") {
+      const options = c.cle === "resto" ? restaurants : c.options;
       return (
         <div className="ig-field" key={c.cle}>
           <label>{c.label}</label>
-          <select value={valeur} onChange={(e)=>setF({ ...f, [c.cle]: e.target.value })}>
+          <select value={valeur} onChange={(e)=>{ setF({ ...f, [c.cle]: e.target.value }); setErr(""); }}>
             <option value="">—</option>
-            {c.options.map((o) => (<option key={o} value={o}>{o}</option>))}
+            {options.map((o) => (<option key={o} value={o}>{o}</option>))}
           </select>
         </div>
       );
@@ -3460,13 +3461,13 @@ function OnboardingForm({ restaurants }) {
   }
 
   async function envoyer() {
-    if (!resto) { setErr("Choisissez l'établissement dans lequel vous allez travailler."); return; }
-    if (!unite) { setErr("Choisissez votre unité de travail."); return; }
+    if (!f.resto) { setErr("Choisissez l'établissement dans lequel vous allez travailler."); return; }
+    if (!f.unite) { setErr("Choisissez votre unité de travail."); return; }
     if (!f.nom.trim() || !f.prenom.trim()) { setErr("Nom et prénom sont obligatoires."); return; }
     setErr("");
     setEnvoiEnCours(true);
     const salarieId = idSalarie({ n: f.nom, p: f.prenom });
-    const patch = { resto, unite, salarie_id: salarieId, ...f };
+    const patch = { ...f, salarie_id: salarieId, mutuelle: f.mutuelle === "Oui" };
     Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
     const ok = await RhSalaries.onboarder(patch);
     setEnvoiEnCours(false);
@@ -3489,21 +3490,6 @@ function OnboardingForm({ restaurants }) {
     <div className="ig-hero" style={{maxWidth:520}}>
       <h1 className="ig-display" style={{fontSize:28,marginBottom:8}}>Bienvenue chez Indie Group</h1>
       <p style={{marginBottom:20}}>Remplissez ce formulaire pour préparer votre arrivée. Ces informations restent confidentielles et ne sont visibles que par votre établissement et l'équipe RH.</p>
-      <div className="ig-field">
-        <label>Établissement dans lequel je vais travailler</label>
-        <select value={resto} onChange={(e)=>{ setResto(e.target.value); setErr(""); }}>
-          <option value="">—</option>
-          {restaurants.map((r) => (<option key={r} value={r}>{r}</option>))}
-        </select>
-      </div>
-      <div className="ig-field">
-        <label>Unité de travail</label>
-        <select value={unite} onChange={(e)=>{ setUnite(e.target.value); setErr(""); }}>
-          <option value="">—</option>
-          <option value="SALLE">Salle</option>
-          <option value="CUISINE">Cuisine</option>
-        </select>
-      </div>
       {ONBOARDING_CHAMPS.map(champ)}
       {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
       <button className="ig-btn ig-btn-primary" onClick={envoyer} disabled={envoiEnCours} style={{marginTop:14,width:'100%',justifyContent:'center'}}>{envoiEnCours ? "Envoi…" : "Envoyer mes informations"}</button>
