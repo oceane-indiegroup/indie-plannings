@@ -147,6 +147,7 @@ create table if not exists public.rh_salaries (
   -- champs modifiables par le directeur/chef
   nom text, prenom text, telephone text, email text, poste text,
   date_debut date, date_fin date, salaire_net numeric, loge boolean,
+  staff_party boolean, heures_contrat numeric, date_prolongation_fin date,
   -- champs réservés au superviseur
   civilite text, date_naissance date, lieu_naissance text, nationalite text,
   adresse text, code_postal text, ville text, secu text,
@@ -162,6 +163,12 @@ create table if not exists public.rh_salaries (
   unique (resto, salarie_id)
 );
 create index if not exists rh_salaries_scope_idx on public.rh_salaries (resto, unite);
+
+-- Ajout ultérieur (registre d'embauche) : "if not exists" pour rester sans risque
+-- à rejouer même si la table rh_salaries existe déjà.
+alter table public.rh_salaries add column if not exists staff_party boolean;
+alter table public.rh_salaries add column if not exists heures_contrat numeric;
+alter table public.rh_salaries add column if not exists date_prolongation_fin date;
 
 create or replace function public.rh_salaries_touch()
 returns trigger language plpgsql as $$
