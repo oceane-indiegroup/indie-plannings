@@ -331,6 +331,13 @@ const Store = {
     if (error) { console.error("Store.listByPrefix:", prefix, error.message); return []; }
     return data || [];
   },
+  // Anciennes versions d'une clé (voir trigger kv_snapshot en base), la plus récente d'abord.
+  async history(key, limite = 20) {
+    const { data, error } = await supabase
+      .from("kv_history").select("value, saved_at").eq("key", key).order("saved_at", { ascending: false }).limit(limite);
+    if (error) { console.error("Store.history:", key, error.message); return []; }
+    return data || [];
+  },
 };
 
 // ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
@@ -1983,6 +1990,7 @@ function ManagerView({ resto, onBack, superviseur }) {
   const [moisExport, setMoisExport] = useState(() => { const d = new Date(); return { annee: d.getFullYear(), mois: d.getMonth() + 1 }; }); // mois choisi pour l'export PayFit
   const [importPreview, setImportPreview] = useState(null); // aperçu avant confirmation d'un import Excel
   const [importEnCours, setImportEnCours] = useState(false);
+  const [histo, setHisto] = useState(null); // { titre, cle, onRestaurer } | null
   const fileImportRef = useRef(null);
   const [mappingPayfit, setMappingPayfit] = useState({}); // correspondance PayFit de CET établissement (Store), fusionnée avec PAYFIT_IDS
   const [majMappingEnCours, setMajMappingEnCours] = useState(false);
@@ -2516,6 +2524,12 @@ function ManagerView({ resto, onBack, superviseur }) {
             <button className="ig-btn ig-btn-ghost" onClick={()=>setAjout(true)}>+ Ajouter un salarié</button>
             <button className="ig-btn ig-btn-ghost" onClick={()=>{ setModeSelect((v)=>!v); setSelection(new Set()); setConfirmLot(false); }} style={modeSelect?{borderColor:'var(--coral-d)',color:'var(--coral-d)'}:undefined}>🧹 {modeSelect?"Terminer le nettoyage":"Nettoyer l'effectif"}</button>
             <button className="ig-btn ig-btn-ghost" onClick={enregistrerModele} disabled={Object.keys(planning).length===0} title="Mémoriser les horaires de cette semaine comme modèle">★ Enregistrer comme modèle</button>
+            {superviseur && (
+              <button className="ig-btn ig-btn-ghost" onClick={()=>setHisto({ titre: `Planning — semaine du ${fmtDate(lundi)}`, cle: kPlanning(resto, sem), onRestaurer: (v) => { persistPlanning(v); montrerFlash("Version du planning restaurée."); } })} title="Voir les versions précédentes de cette semaine et en restaurer une">🕐 Historique du planning</button>
+            )}
+            {superviseur && (
+              <button className="ig-btn ig-btn-ghost" onClick={()=>setHisto({ titre: `Effectif — ${resto}`, cle: kRoster(resto), onRestaurer: (v) => { persistRoster(v); montrerFlash("Version de l'effectif restaurée."); } })} title="Voir les versions précédentes de l'effectif et en restaurer une">🕐 Historique de l'effectif</button>
+            )}
             <button className="ig-btn ig-btn-ghost" onClick={appliquerModele} disabled={!modele} title="Reprendre les horaires du modèle pour les salariés sans planning">⤵ Appliquer le modèle</button>
             {superviseur && (
               <button className="ig-btn ig-btn-ghost" onClick={()=>setConfirmForceModele(true)} disabled={!modele} title="Écrase aussi les horaires déjà saisis cette semaine" style={{borderColor:'var(--coral-d)',color:'var(--coral-d)'}}>⚠ Forcer le modèle sur toute la semaine</button>
@@ -2710,6 +2724,58 @@ function ManagerView({ resto, onBack, superviseur }) {
       {ajout && (
         <AjoutModal resto={resto} onAjouter={ajouterSalarie} onClose={()=>setAjout(false)} />
       )}
+      {histo && (
+        <HistoriqueModal titre={histo.titre} cle={histo.cle} onRestaurer={histo.onRestaurer} onClose={()=>setHisto(null)} />
+      )}
+    </div>
+  );
+}
+
+// ---------- Modal Historique / restauration d'une ancienne version ----------
+function HistoriqueModal({ titre, cle, onRestaurer, onClose }) {
+  const [versions, setVersions] = useState(null);
+  const [enCours, setEnCours] = useState(false);
+
+  useEffect(() => {
+    let on = true;
+    Store.history(cle).then((v) => { if (on) setVersions(v); });
+    return () => { on = false; };
+  }, [cle]);
+
+  function fmtDateHeure(iso) {
+    const d = new Date(iso);
+    return `${fmtDate(d)} à ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+
+  function restaurer(value) {
+    setEnCours(true);
+    onRestaurer(value);
+    onClose();
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:460}}>
+        <h3>Historique</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>{titre}<br />Chaque modification précédente est conservée automatiquement. Choisissez une version à restaurer si une modification récente a été perdue par erreur.</div>
+        {versions === null ? (
+          <div className="ig-muted">Chargement…</div>
+        ) : versions.length === 0 ? (
+          <div className="ig-muted">Aucun historique pour le moment : il se constitue à partir de la prochaine modification.</div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:360,overflowY:'auto'}}>
+            {versions.map((v, i) => (
+              <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'10px 12px',border:'1px solid var(--line)',borderRadius:10}}>
+                <span style={{fontSize:13}}>{fmtDateHeure(v.saved_at)}</span>
+                <button className="ig-btn ig-btn-sm" style={{background:'var(--sea)',color:'#fff'}} disabled={enCours} onClick={()=>restaurer(v.value)}>Restaurer</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
+        </div>
+      </div>
     </div>
   );
 }
