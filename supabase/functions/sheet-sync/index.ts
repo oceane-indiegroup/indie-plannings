@@ -376,13 +376,16 @@ Deno.serve(async (req: Request) => {
         const prenom = valeurPourLigne(nv, "prenom");
         if (!resto || !unite || !nom || !prenom) { ignores++; continue; }
 
+        // Toutes les lignes envoyées à Postgrest en une seule requête groupée doivent avoir
+        // EXACTEMENT les mêmes clés (sinon erreur "All object keys must match") : chaque
+        // champ est donc toujours présent, avec null si absent du Sheet pour cette personne.
         const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
         ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence"].forEach((cle) => {
           const v = valeurPourLigne(nv, cle);
-          if (v) ligne[cle] = cle === "date_naissance" ? versDateISO(v) : v;
+          ligne[cle] = v ? (cle === "date_naissance" ? versDateISO(v) : v) : null;
         });
         const mutuelleVal = valeurPourLigne(nv, "mutuelle");
-        if (mutuelleVal) ligne.mutuelle = normaliser(mutuelleVal).startsWith("oui");
+        ligne.mutuelle = mutuelleVal ? normaliser(mutuelleVal).startsWith("oui") : null;
 
         aInserer.push(ligne);
       }
