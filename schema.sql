@@ -275,6 +275,56 @@ drop policy if exists anon_onboarding_insert on public.rh_salaries;
 drop policy if exists anon_onboarding_update on public.rh_salaries;
 
 -- ============================================================================
+--  Prévisionnel de recrutement — suivi des postes à pourvoir, AVANT l'onboarding
+-- ============================================================================
+--  Totalement séparé de rh_salaries : la vraie fiche salarié ne se crée que quand la
+--  personne remplit elle-même le Google Form (pour ne jamais avoir un nom mal saisi par
+--  un tiers). Cette table sert seulement aux directeurs/chefs à préparer et suivre leurs
+--  recrutements en amont (comme leur ancien registre d'embauche en Google Sheet), avec
+--  éventuellement le nom d'un candidat en cours de discussion. Aucun lien technique avec
+--  rh_salaries, donc aucun risque de doublon : une fois la personne recrutée et onboardée,
+--  le directeur marque juste la ligne "pourvu" (ou la supprime).
+create table if not exists public.rh_previsionnel (
+  id              bigint generated always as identity primary key,
+  resto           text not null,
+  unite           text not null check (unite in ('SALLE','CUISINE')),
+  poste           text not null,
+  statut          text not null default 'a_pourvoir' check (statut in ('a_pourvoir','en_cours','valide','pourvu')),
+  nom             text,
+  prenom          text,
+  salaire_propose numeric,
+  notes           text,
+  cree_le         timestamptz not null default now(),
+  maj_le          timestamptz not null default now()
+);
+create index if not exists rh_previsionnel_scope_idx on public.rh_previsionnel (resto, unite);
+
+create or replace function public.rh_previsionnel_touch()
+returns trigger language plpgsql as $$
+begin
+  new.maj_le = now();
+  return new;
+end;
+$$;
+drop trigger if exists rh_previsionnel_touch_trg on public.rh_previsionnel;
+create trigger rh_previsionnel_touch_trg before update on public.rh_previsionnel
+  for each row execute function public.rh_previsionnel_touch();
+
+alter table public.rh_previsionnel enable row level security;
+
+drop policy if exists superviseur_all_previsionnel on public.rh_previsionnel;
+create policy superviseur_all_previsionnel on public.rh_previsionnel
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur));
+
+drop policy if exists directeur_scope_previsionnel on public.rh_previsionnel;
+create policy directeur_scope_previsionnel on public.rh_previsionnel
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_previsionnel.resto and a.unite = rh_previsionnel.unite))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_previsionnel.resto and a.unite = rh_previsionnel.unite));
+
+-- ============================================================================
 --  Documents RH : dossier par salarié, archivé par établissement/unité/année
 -- ============================================================================
 --  Les documents (contrats, pièces d'identité...) sont gérés entièrement par le

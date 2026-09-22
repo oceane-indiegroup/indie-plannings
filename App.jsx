@@ -410,6 +410,36 @@ const RhSalaries = {
   },
 };
 
+// ---------- Prévisionnel de recrutement (postes à pourvoir, avant l'onboarding) ----------
+// Totalement séparé de rh_salaries : sert aux directeurs/chefs à préparer et suivre leurs
+// recrutements en amont, éventuellement avec le nom d'un candidat en cours de discussion.
+// Aucun lien technique avec la vraie fiche salarié (créée uniquement par le Google Form) :
+// donc aucun risque de doublon quand la personne s'onboarde réellement.
+const RhPrevisionnel = {
+  async list(resto, unite) {
+    let q = supabase.from("rh_previsionnel").select("*").eq("resto", resto);
+    if (unite) q = q.eq("unite", unite);
+    const { data, error } = await q.order("cree_le", { ascending: true });
+    if (error) { console.error("RhPrevisionnel.list:", error.message); return []; }
+    return data || [];
+  },
+  async creer(row) {
+    const { data, error } = await supabase.from("rh_previsionnel").insert(row).select().single();
+    if (error) { console.error("RhPrevisionnel.creer:", error.message); return null; }
+    return data;
+  },
+  async maj(id, patch) {
+    const { data, error } = await supabase.from("rh_previsionnel").update(patch).eq("id", id).select().single();
+    if (error) { console.error("RhPrevisionnel.maj:", error.message); return null; }
+    return data;
+  },
+  async supprimer(id) {
+    const { error } = await supabase.from("rh_previsionnel").delete().eq("id", id);
+    if (error) { console.error("RhPrevisionnel.supprimer:", error.message); return false; }
+    return true;
+  },
+};
+
 // ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
 // Robustesse V2 : chaque confirmation n'écrit qu'UNE ligne, donc deux salariés
 // qui pointent en même temps ne s'écrasent plus. La forme rendue en mémoire est
@@ -3585,6 +3615,165 @@ function MenuFiltreColonne({ options, selection, onValider, onTrier, onFermer })
   );
 }
 
+// ---------- Prévisionnel de recrutement : statuts affichables ----------
+const PREVISIONNEL_STATUTS = [
+  { cle: "a_pourvoir", label: "À pourvoir" },
+  { cle: "en_cours", label: "En cours" },
+  { cle: "valide", label: "Validé" },
+  { cle: "pourvu", label: "Pourvu" },
+];
+
+// ---------- Modal ligne prévisionnelle (création / édition) ----------
+function PrevisionnelModal({ resto, unite, ligne, onSave, onClose }) {
+  const [poste, setPoste] = useState(ligne?.poste || "");
+  const [statut, setStatut] = useState(ligne?.statut || "a_pourvoir");
+  const [nom, setNom] = useState(ligne?.nom || "");
+  const [prenom, setPrenom] = useState(ligne?.prenom || "");
+  const [salaireP, setSalaireP] = useState(ligne?.salaire_propose ?? "");
+  const [notes, setNotes] = useState(ligne?.notes || "");
+  const [err, setErr] = useState("");
+
+  function valider() {
+    if (!poste.trim()) { setErr("Le poste est obligatoire."); return; }
+    onSave({
+      poste: poste.trim(), statut,
+      nom: nom.trim() || null, prenom: prenom.trim() || null,
+      salaire_propose: salaireP === "" ? null : Number(salaireP),
+      notes: notes.trim() || null,
+    });
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:460}}>
+        <h3>{ligne ? "Modifier le poste" : "Nouveau poste à pourvoir"}</h3>
+        <div className="ig-muted" style={{marginBottom:10}}>{resto} · {unite === "SALLE" ? "Salle" : "Cuisine"}</div>
+        <div className="ig-field">
+          <label>Poste</label>
+          <input value={poste} autoFocus onChange={(e)=>{ setPoste(e.target.value); setErr(""); }} placeholder="Ex : Chef de Rang" />
+        </div>
+        <div className="ig-field">
+          <label>Statut</label>
+          <select value={statut} onChange={(e)=>setStatut(e.target.value)}>
+            {PREVISIONNEL_STATUTS.map((s) => <option key={s.cle} value={s.cle}>{s.label}</option>)}
+          </select>
+        </div>
+        <div className="ig-times">
+          <div className="ig-field" style={{margin:0}}>
+            <label>Prénom candidat</label>
+            <input value={prenom} onChange={(e)=>setPrenom(e.target.value)} placeholder="(si identifié)" />
+          </div>
+          <div className="ig-field" style={{margin:0}}>
+            <label>Nom candidat</label>
+            <input value={nom} onChange={(e)=>setNom(e.target.value)} placeholder="(si identifié)" />
+          </div>
+        </div>
+        <div className="ig-field">
+          <label>Salaire proposé</label>
+          <input type="number" value={salaireP} onChange={(e)=>setSalaireP(e.target.value)} placeholder="Optionnel" />
+        </div>
+        <div className="ig-field">
+          <label>Notes</label>
+          <textarea value={notes} onChange={(e)=>setNotes(e.target.value)} rows={3} placeholder="Optionnel" />
+        </div>
+        {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:8,fontWeight:600}}>{err}</div>}
+        <div style={{display:'flex',gap:10,marginTop:16}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Liste du prévisionnel de recrutement d'un établissement + unité ----------
+// Sert aux directeurs/chefs à préparer et suivre leurs recrutements en amont (comme leur
+// ancien registre d'embauche en Google Sheet). Complètement séparé des fiches salariés
+// réelles : aucun lien technique, donc aucun risque de doublon à l'onboarding.
+function ListePrevisionnelRH({ resto, unite }) {
+  const [liste, setListe] = useState(null);
+  const [ajout, setAjout] = useState(false);
+  const [edition, setEdition] = useState(null);
+  const [erreur, setErreur] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    setListe(null);
+    RhPrevisionnel.list(resto, unite).then((l) => { if (on) setListe(l); });
+    return () => { on = false; };
+  }, [resto, unite]);
+
+  function montrerErreur(msg) { setErreur(msg); setTimeout(() => setErreur(""), 6000); }
+
+  async function creer(patch) {
+    const cree = await RhPrevisionnel.creer({ resto, unite, ...patch });
+    if (cree) { setListe([...(liste || []), cree]); setAjout(false); }
+    else montrerErreur("Impossible d'ajouter ce poste. Réessayez.");
+  }
+  async function modifier(patch) {
+    const maj = await RhPrevisionnel.maj(edition.id, patch);
+    if (maj) { setListe(liste.map((l) => (l.id === maj.id ? maj : l))); setEdition(null); }
+    else montrerErreur("La sauvegarde a échoué. Réessayez.");
+  }
+  async function supprimer(l) {
+    if (!confirm(`Supprimer la ligne « ${l.poste} » ?`)) return;
+    const ok = await RhPrevisionnel.supprimer(l.id);
+    if (ok) setListe(liste.filter((x) => x.id !== l.id));
+    else montrerErreur("La suppression a échoué. Réessayez.");
+  }
+
+  if (liste === null) return <div className="ig-muted">Chargement…</div>;
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+        <div className="ig-muted">Postes à pourvoir, en amont de l'onboarding réel — aucun lien avec les fiches salariés.</div>
+        <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau poste</button>
+      </div>
+      {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
+      {liste.length === 0 ? (
+        <div className="ig-muted">Aucun poste en prévisionnel pour le moment.</div>
+      ) : (
+        <div className="ig-card" style={{padding:0,overflowX:'auto'}}>
+          <table style={{width:'100%',fontSize:13,borderCollapse:'collapse'}}>
+            <thead>
+              <tr style={{textAlign:'left',borderBottom:'1px solid var(--line)'}}>
+                <th style={{padding:'10px 12px'}}>Poste</th>
+                <th style={{padding:'10px 12px'}}>Statut</th>
+                <th style={{padding:'10px 12px'}}>Candidat</th>
+                <th style={{padding:'10px 12px'}}>Salaire proposé</th>
+                <th style={{padding:'10px 12px'}}>Notes</th>
+                <th style={{padding:'10px 12px'}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {liste.map((l) => (
+                <tr key={l.id} style={{borderBottom:'1px solid var(--line)'}}>
+                  <td style={{padding:'10px 12px',fontWeight:600}}>{l.poste}</td>
+                  <td style={{padding:'10px 12px'}}>
+                    <select value={l.statut} onChange={(e)=>{ RhPrevisionnel.maj(l.id, { statut: e.target.value }).then((maj)=>{ if (maj) setListe(liste.map((x)=>x.id===maj.id?maj:x)); }); }}>
+                      {PREVISIONNEL_STATUTS.map((s) => <option key={s.cle} value={s.cle}>{s.label}</option>)}
+                    </select>
+                  </td>
+                  <td style={{padding:'10px 12px'}}>{l.prenom || l.nom ? `${l.prenom || ""} ${l.nom || ""}`.trim() : <span className="ig-muted">—</span>}</td>
+                  <td style={{padding:'10px 12px'}}>{l.salaire_propose != null ? `${l.salaire_propose} €` : <span className="ig-muted">—</span>}</td>
+                  <td style={{padding:'10px 12px',maxWidth:220,color:'var(--ink-2)'}}>{l.notes || ""}</td>
+                  <td style={{padding:'10px 12px',textAlign:'right',whiteSpace:'nowrap'}}>
+                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(l)}>Modifier</button>
+                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(l)} style={{marginLeft:6}}>Supprimer</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {ajout && <PrevisionnelModal resto={resto} unite={unite} onSave={creer} onClose={()=>setAjout(false)} />}
+      {edition && <PrevisionnelModal resto={resto} unite={unite} ligne={edition} onSave={modifier} onClose={()=>setEdition(null)} />}
+    </div>
+  );
+}
+
 // ---------- Liste des salariés RH d'un établissement + unité ----------
 function ListeSalariesRH({ resto, unite, superviseur }) {
   const [liste, setListe] = useState(null);
@@ -3901,6 +4090,7 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [ongletRH, setOngletRH] = useState("salaries"); // salaries | previsionnel
 
   // Rattrapage en un clic : va chercher dans le Google Sheet les salariés déjà onboardés
   // mais jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique),
@@ -3948,7 +4138,13 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
         )}
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion}>Déconnexion</button>
       </div>
-      <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      <div className="ig-noprint" style={{display:'flex',gap:8,marginBottom:16}}>
+        <button className={"ig-btn ig-btn-sm "+(ongletRH==='salaries'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setOngletRH('salaries')}>Salariés</button>
+        <button className={"ig-btn ig-btn-sm "+(ongletRH==='previsionnel'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setOngletRH('previsionnel')}>Prévisionnel recrutement</button>
+      </div>
+      {ongletRH === 'salaries'
+        ? <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+        : <ListePrevisionnelRH resto={restoActif} unite={uniteActive} />}
       {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>
   );
