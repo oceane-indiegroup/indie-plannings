@@ -195,6 +195,14 @@ alter table public.rh_salaries add constraint rh_salaries_resto_salarie_id_saiso
 -- Couleur de la ligne dans le tableau RH (remplissage façon Excel), ex: '#FBE2DC'. NULL = aucune.
 alter table public.rh_salaries add column if not exists couleur text;
 
+-- "provisoire" = true : fiche créée à l'avance par le directeur/chef (registre d'embauche,
+-- salaire/dates/tél déjà connus) mais la personne n'a pas encore rempli le vrai Google Form.
+-- À l'onboarding réel (formSubmit), l'app cherche une fiche "provisoire" qui lui ressemble
+-- (nom approchant, même établissement) : si trouvée, elle est mise à jour (nom/prénom
+-- corrigés par le Form, provisoire repasse à false) au lieu de créer un doublon — le
+-- directeur ne ressaisit jamais ce qu'il avait déjà rempli.
+alter table public.rh_salaries add column if not exists provisoire boolean not null default false;
+
 -- "Logé" est passé d'une case à cocher à un champ texte libre (pour préciser
 -- "seul", "en colocation"...). Convertit une éventuelle colonne booléenne existante
 -- sans perdre les données déjà saisies ; ne fait rien si c'est déjà du texte.

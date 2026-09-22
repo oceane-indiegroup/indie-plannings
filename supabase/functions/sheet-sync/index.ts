@@ -60,6 +60,23 @@ function normaliser(s: string): string {
     .trim();
 }
 
+// Distance de Levenshtein (tolérance aux fautes de frappe) : sert à reconnaître, à
+// l'onboarding réel, une fiche "provisoire" déjà remplie par le directeur malgré une
+// petite faute de frappe sur le nom/prénom.
+function lev(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
 // Chaque entrée décrit comment reconnaître, dans le texte d'un en-tête de colonne du
 // Sheet (normalisé), la colonne qui correspond à un champ de l'appli — et inversement,
 // pour "formSubmit", comment reconnaître le titre de question du Form.
@@ -525,15 +542,58 @@ Deno.serve(async (req: Request) => {
       const prenom = valeurPour("prenom");
       if (!resto || !unite || !nom || !prenom) return json({ error: "champs_manquants" }, 400);
 
-      // salarie_id garde la casse d'origine (identité stable pour les fiches déjà
-      // importées) ; seul le nom affiché/enregistré est mis en majuscules.
-      const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom };
+      const uniteMaj = unite.trim().toUpperCase();
+      // Champs capturés par le vrai Form uniquement (jamais salaire/dates/tél de contrat,
+      // que le directeur seul connaît et remplit dans sa fiche "provisoire").
+      const champsFormulaire: Record<string, unknown> = {};
       ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence"].forEach((cle) => {
         const v = valeurPour(cle);
-        if (v !== null) ligne[cle] = cle === "date_naissance" ? versDateISO(v) : v;
+        if (v !== null) champsFormulaire[cle] = cle === "date_naissance" ? versDateISO(v) : v;
       });
       const mutuelleVal = valeurPour("mutuelle");
-      if (mutuelleVal !== null) ligne.mutuelle = normaliser(mutuelleVal).startsWith("oui");
+      if (mutuelleVal !== null) champsFormulaire.mutuelle = normaliser(mutuelleVal).startsWith("oui");
+
+      // ---- Cherche une fiche "provisoire" (déjà remplie par le directeur, pas encore
+      // confirmée) qui ressemble à cette personne, pour compléter CETTE fiche au lieu
+      // d'en créer une nouvelle — le directeur ne ressaisit jamais salaire/dates/tél. ----
+      const provRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/rh_salaries?resto=eq.${encodeURIComponent(resto)}&unite=eq.${uniteMaj}&provisoire=is.true&select=id,nom,prenom`,
+        { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
+      );
+      let correspondance: { id: number } | null = null;
+      if (provRes.ok) {
+        const candidats: { id: number; nom: string; prenom: string }[] = await provRes.json();
+        const nomN = normaliser(nom), prenomN = normaliser(prenom);
+        const scores = candidats
+          .map((c) => ({ c, score: lev(nomN, normaliser(c.nom)) + lev(prenomN, normaliser(c.prenom)) }))
+          .filter((s) => s.score <= 3) // tolère 1-2 fautes de frappe réparties sur nom+prénom
+          .sort((a, b) => a.score - b.score);
+        // N'agit que si un seul candidat est nettement le meilleur (évite de fusionner
+        // avec la mauvaise personne en cas d'ambiguïté) : sinon on crée une fiche à part.
+        if (scores.length === 1 || (scores.length > 1 && scores[0].score < scores[1].score)) {
+          correspondance = { id: scores[0].c.id };
+        }
+      }
+
+      if (correspondance) {
+        const patch = { ...champsFormulaire, nom: nom.toUpperCase(), prenom, provisoire: false };
+        const majRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${correspondance.id}`, {
+          method: "PATCH",
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify(patch),
+        });
+        if (!majRes.ok) {
+          const detail = await majRes.text();
+          console.error("formSubmit fusion_echouee:", majRes.status, detail);
+          return json({ error: "fusion_echouee", detail }, 500);
+        }
+        return json({ ok: true, fusionne: true });
+      }
+
+      // Aucune fiche provisoire correspondante : nouvelle fiche, comme avant.
+      // salarie_id garde la casse d'origine (identité stable pour les fiches déjà
+      // importées) ; seul le nom affiché/enregistré est mis en majuscules.
+      const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom, ...champsFormulaire };
 
       const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison`, {
         method: "POST",
