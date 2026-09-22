@@ -376,6 +376,10 @@ Deno.serve(async (req: Request) => {
       if (!appelant) return json({ error: "non_authentifie" }, 401);
       if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
 
+      // Facultatif : si l'appelant précise un établissement, seules ses lignes sont
+      // importées (évite de mélanger l'import avec les autres établissements du Sheet).
+      const { resto: restoDemande } = corps;
+
       const jeton = await jetonAcces();
       const grille = await lireFeuille(jeton);
       if (grille.length < 2) return json({ ok: true, importes: 0, ignores: 0 });
@@ -400,11 +404,16 @@ Deno.serve(async (req: Request) => {
         const nom = valeurPourLigne(nv, "nom");
         const prenom = valeurPourLigne(nv, "prenom");
         if (!resto || !unite || !nom || !prenom) { ignores++; continue; }
+        if (restoDemande && normaliser(resto) !== normaliser(restoDemande)) continue; // pas ignoré : hors périmètre demandé, ne compte pas
+        // rh_salaries n'accepte que SALLE/CUISINE (contrainte en base) : une ligne avec une
+        // autre valeur (ex: "Bureau" pour le siège) ferait échouer tout le lot groupé.
+        const uniteMaj = unite.trim().toUpperCase();
+        if (uniteMaj !== "SALLE" && uniteMaj !== "CUISINE") { ignores++; continue; }
 
         // Toutes les lignes envoyées à Postgrest en une seule requête groupée doivent avoir
         // EXACTEMENT les mêmes clés (sinon erreur "All object keys must match") : chaque
         // champ est donc toujours présent, avec null si absent du Sheet pour cette personne.
-        const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
+        const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
         ["civilite", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence", "type_contrat", "niveau", "echelon"].forEach((cle) => {
           const v = valeurPourLigne(nv, cle);
           ligne[cle] = v || null;
