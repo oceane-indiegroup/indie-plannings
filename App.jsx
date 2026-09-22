@@ -3983,8 +3983,12 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   async function creer(patch) {
     const nomMaj = (patch.nom || "").toUpperCase();
     const salarieId = idSalarie({ n: nomMaj, p: patch.prenom });
-    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, saison: saisonActive, ...patch, nom: nomMaj });
-    if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté."); }
+    // provisoire=true : cette fiche est créée à l'avance par le directeur/chef (salaire,
+    // dates, tél déjà connus). Quand la personne remplira le vrai Google Form, l'app la
+    // reconnaîtra (nom approchant + même établissement) et complétera cette même fiche —
+    // au lieu d'en créer une nouvelle — en corrigeant nom/prénom avec ceux du Form.
+    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, saison: saisonActive, provisoire: true, ...patch, nom: nomMaj });
+    if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté (marqué « à confirmer » jusqu'à son onboarding réel)."); }
     else montrerErreur("Impossible d'ajouter ce salarié (peut-être une fiche existe déjà pour ce nom). Vérifiez et réessayez.");
   }
   async function modifier(patch) {
@@ -4183,7 +4187,10 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                     }} />
                   </td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
+                  <td style={{padding:'4px 6px'}}>
+                    <input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} />
+                    {s.provisoire && <span title="Créée par le directeur, en attente de l'onboarding réel via le Form" style={{display:'inline-block',marginTop:2,padding:'1px 5px',borderRadius:20,background:'var(--sand-2)',color:'var(--ink-2)',fontSize:9,fontWeight:700,letterSpacing:'.3px'}}>À CONFIRMER</span>}
+                  </td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:100}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:110}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:170}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
