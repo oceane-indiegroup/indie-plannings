@@ -88,11 +88,15 @@ const CHAMPS_SHEET: { cle: string; test: (h: string) => boolean }[] = [
   { cle: "loge", test: (h) => h === "logement" },
   { cle: "vehicule", test: (h) => h === "vehicule" },
   { cle: "promesse_embauche", test: (h) => h.includes("promesse") },
-  { cle: "date_debut", test: (h) => h === "date de debut de contrat" },
-  { cle: "date_fin", test: (h) => h === "date de fin de contrat" },
+  // "debut"/"fin" + "contrat" (pas juste l'intitulé exact) : tolère les variantes
+  // d'intitulé de colonne ("Date Debut de Contrat", "Date de Début de Contrat"...).
+  { cle: "date_debut", test: (h) => h.includes("debut") && h.includes("contrat") },
+  { cle: "date_fin", test: (h) => h.includes("fin") && h.includes("contrat") && !h.includes("essai") && !h.includes("prolongation") },
   { cle: "periode_essai_jours", test: (h) => h.includes("periode essai") && !h.includes("fin") && !h.includes("date") },
   { cle: "date_fin_periode_essai", test: (h) => h.includes("periode essai") && (h.includes("fin") || h.includes("date")) },
   { cle: "type_contrat", test: (h) => h.includes("type de contrat") },
+  { cle: "heures_contrat", test: (h) => h.includes("heure") && h.includes("contrat") },
+  { cle: "heures_sup", test: (h) => h.includes("heure") && h.includes("sup") },
   { cle: "niveau", test: (h) => h === "niveau" },
   { cle: "echelon", test: (h) => h === "echelon" },
   { cle: "code_pcs", test: (h) => h.includes("code pcs") },
@@ -117,9 +121,30 @@ function indexVersLettre(i: number): string {
 // Postgres attend AAAA-MM-JJ pour une colonne "date". Sans conversion, un jour > 12
 // (ex: 16/08/1995) est rejeté par Postgres qui l'interprète comme un mois invalide.
 function versDateISO(valeur: string): string {
-  const m = valeur.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  // Tolère les espaces parasites autour des "/" (fréquents en saisie manuelle dans le
+  // Sheet, ex: "02/01/ 1987") : sans ce trim, la date passe telle quelle à Postgres qui
+  // la rejette avec "invalid input syntax for type date".
+  const m = valeur.trim().match(/^(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})$/);
   if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
   return valeur;
+}
+
+// Pour l'import en masse ("importerTout") : une date illisible ou composite (ex: "26/03/2026
+// ET 26/05/2026", saisie manuelle libre dans le Sheet) est ignorée (null) plutôt que de faire
+// échouer tout le lot inséré en une seule requête groupée.
+function versDateISOouNull(valeur: string | null): string | null {
+  if (!valeur) return null;
+  const iso = versDateISO(valeur);
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+}
+
+// Idem pour un champ numérique (ex: "39H", "42 heures") : garde uniquement les chiffres,
+// ignore (null) si rien d'exploitable n'en ressort plutôt que de planter l'insertion.
+function versNombreOuNull(valeur: string | null): number | null {
+  if (!valeur) return null;
+  const nettoye = valeur.replace(/[^0-9.,]/g, "").replace(",", ".");
+  const n = parseFloat(nettoye);
+  return Number.isFinite(n) ? n : null;
 }
 
 function versDateSheet(cle: string, valeur: unknown): string {
@@ -380,9 +405,20 @@ Deno.serve(async (req: Request) => {
         // EXACTEMENT les mêmes clés (sinon erreur "All object keys must match") : chaque
         // champ est donc toujours présent, avec null si absent du Sheet pour cette personne.
         const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
-        ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence"].forEach((cle) => {
+        ["civilite", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence", "type_contrat", "niveau", "echelon"].forEach((cle) => {
           const v = valeurPourLigne(nv, cle);
-          ligne[cle] = v ? (cle === "date_naissance" ? versDateISO(v) : v) : null;
+          ligne[cle] = v || null;
+        });
+        // Dates : une valeur illisible ou composite (saisie manuelle libre dans le registre
+        // d'embauche, ex: "26/03/2026 ET 26/05/2026") est ignorée (null) plutôt que de faire
+        // échouer tout le lot.
+        ["date_naissance", "date_debut", "date_fin", "date_fin_periode_essai"].forEach((cle) => {
+          ligne[cle] = versDateISOouNull(valeurPourLigne(nv, cle));
+        });
+        // Nombres (heures, salaire) : idem, on garde ce qui est exploitable ("39H" -> 39),
+        // sinon null plutôt qu'une erreur d'insertion.
+        ["heures_contrat", "heures_sup", "salaire_net"].forEach((cle) => {
+          ligne[cle] = versNombreOuNull(valeurPourLigne(nv, cle));
         });
         const mutuelleVal = valeurPourLigne(nv, "mutuelle");
         ligne.mutuelle = mutuelleVal ? normaliser(mutuelleVal).startsWith("oui") : null;
