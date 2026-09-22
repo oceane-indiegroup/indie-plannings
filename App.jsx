@@ -22,8 +22,7 @@ const PAYFIT_IDS = {"BENECKO_Alin":["69ddf8f996c38711f2319d79",""],"BILLERY_Él�
 // à UN compte Supabase partagé (identifiants ci-dessous) : la base reste ainsi protégée
 // en écriture (seuls les utilisateurs connectés peuvent écrire). Le manager ne tape que le code.
 // -> Créez ce compte dans Supabase (Authentication → Users) avec EXACTEMENT cet e-mail et ce mot de passe.
-const CODE_SALLE = "1942";                         // code tapé par les directeurs/chefs de SALLE (modifiable ici)
-const CODE_CUISINE = "1943";                       // code tapé par les directeurs/chefs de CUISINE (modifiable ici)
+const CODE_MANAGER = "1942";                       // code tapé par le manager (modifiable ici)
 const CODE_SUPERVISEUR = "1608";                   // code superviseur (accès étendu, à réserver à Océane) — modifiable ici
 const MANAGER_EMAIL = "manager@indiegroup.fr";     // compte partagé (à créer dans Supabase)
 const MANAGER_SECRET = "IndieGroup-Manager-2026";  // mot de passe du compte partagé (>= 6 caractères)
@@ -1605,11 +1604,11 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
 }
 
 // ---------- Modal Ajout d'un salarié (début de contrat) ----------
-function AjoutModal({ resto, uniteForcee, onAjouter, onClose }) {
+function AjoutModal({ resto, onAjouter, onClose }) {
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
   const [poste, setPoste] = useState("");
-  const [unite, setUnite] = useState(uniteForcee || "SALLE");
+  const [unite, setUnite] = useState("SALLE");
   const [heures, setHeures] = useState(35);
   const [err, setErr] = useState(false);
 
@@ -1638,14 +1637,10 @@ function AjoutModal({ resto, uniteForcee, onAjouter, onClose }) {
         <div className="ig-times">
           <div className="ig-field" style={{margin:0}}>
             <label>Unité</label>
-            {uniteForcee ? (
-              <input value={uniteForcee === "SALLE" ? "Salle" : "Cuisine"} disabled />
-            ) : (
-              <select value={unite} onChange={(e)=>setUnite(e.target.value)}>
-                <option value="SALLE">Salle</option>
-                <option value="CUISINE">Cuisine</option>
-              </select>
-            )}
+            <select value={unite} onChange={(e)=>setUnite(e.target.value)}>
+              <option value="SALLE">Salle</option>
+              <option value="CUISINE">Cuisine</option>
+            </select>
           </div>
           <div className="ig-field" style={{margin:0}}>
             <label>Heures / semaine</label>
@@ -2013,10 +2008,7 @@ function VueGlobaleExtras() {
 }
 
 // ---------- Vue Manager ----------
-// uniteForcee (SALLE|CUISINE|null) : accès directeur/chef cloisonné par unité — ils ne
-// voient et ne peuvent ajouter que les salariés de leur unité. null = superviseur, tout
-// visible, avec le filtre Salle/Cuisine laissé libre pour sa propre commodité.
-function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
+function ManagerView({ resto, onBack, superviseur }) {
   const [semDate, setSemDate] = useState(new Date());
   const [planning, setPlanning] = useState({}); // { idSalarie: { 0..6 } }
   const [pointages, setPointages] = useState({});
@@ -2029,7 +2021,7 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
   const [ajout, setAjout] = useState(false);    // formulaire d'ajout ouvert
   const [flash, setFlash] = useState("");        // message de confirmation éphémère
   const [recherche, setRecherche] = useState(""); // filtre de recherche salarié
-  const [filtreUnite, setFiltreUnite] = useState(uniteForcee || "TOUS"); // TOUS | SALLE | CUISINE
+  const [filtreUnite, setFiltreUnite] = useState("TOUS"); // TOUS | SALLE | CUISINE
   const [valide, setValide] = useState(false);    // planning de la semaine validé/publié
   const [alerteHier, setAlerteHier] = useState([]); // noms des salariés non confirmés hier
   const [modeSelect, setModeSelect] = useState(false); // mode nettoyage (sélection multiple)
@@ -2090,20 +2082,15 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
     });
   }, [resto, roster, sem]);
 
-  // Équipe filtrée par unité seulement (sans la recherche) : c'est ce cloisonnement-là
-  // qui doit s'appliquer partout, y compris à l'émargement — jamais la recherche, qui ne
-  // doit affecter que l'affichage de l'onglet planning.
-  const teamUnite = useMemo(() => {
-    if (filtreUnite === "TOUS") return team;
-    return team.filter((e) => normTxt(e.u) === normTxt(filtreUnite));
-  }, [team, filtreUnite]);
-
   // Équipe filtrée par la recherche (nom/prénom) et le filtre d'unité (salle/cuisine).
   const teamFiltre = useMemo(() => {
     const q = normTxt(recherche);
-    if (!q) return teamUnite;
-    return teamUnite.filter((e) => normTxt(e.p + " " + e.n).includes(q) || normTxt(e.n + " " + e.p).includes(q));
-  }, [teamUnite, recherche]);
+    return team.filter((e) => {
+      if (filtreUnite !== "TOUS" && normTxt(e.u) !== normTxt(filtreUnite)) return false;
+      if (!q) return true;
+      return normTxt(e.p + " " + e.n).includes(q) || normTxt(e.n + " " + e.p).includes(q);
+    });
+  }, [team, recherche, filtreUnite]);
 
   useEffect(() => {
     let on = true;
@@ -2170,7 +2157,6 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
       const pointagesH = ptH || {};
       const base = EMPLOYEES.filter((e) => e.r === resto).concat(roster.ajouts || []);
       const manquants = base.filter((e) => {
-        if (filtreUnite !== "TOUS" && normTxt(e.u) !== normTxt(filtreUnite)) return false;
         // exclut les contrats déjà terminés à la date d'hier
         const fin = (roster.departs || {})[idSalarie(e)];
         if (fin && semHier > fin) return false;
@@ -2184,7 +2170,7 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
       setAlerteHier(manquants.map((e) => `${e.n} ${e.p}`));
     });
     return () => { on = false; };
-  }, [resto, roster, filtreUnite]);
+  }, [resto, roster]);
 
   function persistPlanning(next) {
     setPlanning(next);
@@ -2258,7 +2244,7 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
       }
       const plannings = await Promise.all(semaines.map((s) => Store.get(kPlanning(resto, s.sem))));
       const lignes = [];
-      teamUnite.forEach((e) => {
+      team.forEach((e) => {
         const id = idSalarie(e);
         semaines.forEach((s, wi) => {
           const pl = plannings[wi] && plannings[wi][id];
@@ -2343,7 +2329,7 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
   function imprimerPlanning() {
     const lundi = lundiDeLaSemaine(semDate);
     const entetes = JOURS.map((j, i) => `<th>${JOURS_COURT[i]}<br><span style="font-weight:400">${fmtJour(ajouterJours(lundi, i))}</span></th>`).join("");
-    const lignes = teamUnite.map((e) => {
+    const lignes = team.map((e) => {
       const pl = planning[idSalarie(e)];
       const tot = pl ? totalHebdo(pl) : 0;
       const jours = JOURS.map((j, i) => `<td>${pl ? celluleHTML(pl[i]) : ''}</td>`).join("");
@@ -2380,7 +2366,7 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
     if (!modele) return;
     const next = { ...planning };
     let ajoutes = 0;
-    teamUnite.forEach((e) => {
+    team.forEach((e) => {
       const id = idSalarie(e);
       if (!next[id] && modele[id]) {           // vierge cette semaine + présent dans le modèle
         next[id] = JSON.parse(JSON.stringify(modele[id]));
@@ -2398,7 +2384,7 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
     if (!modele) return;
     const next = { ...planning };
     let appliques = 0;
-    teamUnite.forEach((e) => {
+    team.forEach((e) => {
       const id = idSalarie(e);
       if (modele[id]) {
         next[id] = JSON.parse(JSON.stringify(modele[id]));
@@ -2656,14 +2642,12 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
               <Icon.Search />
               <input placeholder="Rechercher un salarié…" value={recherche} onChange={(e)=>setRecherche(e.target.value)} />
             </div>
-            {!uniteForcee && (
-              <div style={{display:'flex',gap:6}}>
-                {[["TOUS","Tous"],["SALLE","Salle"],["CUISINE","Cuisine"]].map(([val,lib])=>(
-                  <button key={val} className={"ig-btn ig-btn-sm "+(filtreUnite===val?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setFiltreUnite(val)}>{lib}</button>
-                ))}
-              </div>
-            )}
-            <span className="ig-muted">{(recherche||filtreUnite!=="TOUS") ? `${teamFiltre.length} sur ${teamUnite.length}` : `${teamUnite.length} salariés`} · cliquez une case pour ajuster un créneau.{modele?'':' Aucun modèle enregistré pour le moment.'}</span>
+            <div style={{display:'flex',gap:6}}>
+              {[["TOUS","Tous"],["SALLE","Salle"],["CUISINE","Cuisine"]].map(([val,lib])=>(
+                <button key={val} className={"ig-btn ig-btn-sm "+(filtreUnite===val?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setFiltreUnite(val)}>{lib}</button>
+              ))}
+            </div>
+            <span className="ig-muted">{(recherche||filtreUnite!=="TOUS") ? `${teamFiltre.length} sur ${team.length}` : `${team.length} salariés`} · cliquez une case pour ajuster un créneau.{modele?'':' Aucun modèle enregistré pour le moment.'}</span>
           </div>
           {modeSelect && (
             <div className="ig-noprint ig-card" style={{padding:'12px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',borderColor:'var(--coral)'}}>
@@ -2742,7 +2726,7 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
       )}
 
       {vue === "emargement" && (
-        <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={teamUnite} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
+        <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
       )}
 
       {vue === "extra" && <ExtraTab resto={resto} superviseur={superviseur} />}
@@ -2779,7 +2763,7 @@ function ManagerView({ resto, onBack, superviseur, uniteForcee }) {
       })()}
 
       {ajout && (
-        <AjoutModal resto={resto} uniteForcee={uniteForcee} onAjouter={ajouterSalarie} onClose={()=>setAjout(false)} />
+        <AjoutModal resto={resto} onAjouter={ajouterSalarie} onClose={()=>setAjout(false)} />
       )}
       {histo && (
         <HistoriqueModal titre={histo.titre} cle={histo.cle} onRestaurer={histo.onRestaurer} onClose={()=>setHisto(null)} />
@@ -3294,18 +3278,13 @@ function CodeGate({ onOk, onCancel }) {
   async function valider() {
     if (busy) return;
     const estSuperviseur = code === CODE_SUPERVISEUR;
-    let uniteForcee = null;
-    if (!estSuperviseur) {
-      if (code === CODE_SALLE) uniteForcee = "SALLE";
-      else if (code === CODE_CUISINE) uniteForcee = "CUISINE";
-      else { setErreur("Code incorrect. Réessayez."); setCode(""); return; }
-    }
+    if (!estSuperviseur && code !== CODE_MANAGER) { setErreur("Code incorrect. Réessayez."); setCode(""); return; }
     setErreur("");
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({ email: MANAGER_EMAIL, password: MANAGER_SECRET });
     setBusy(false);
     if (error) { setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
-    onOk(estSuperviseur, uniteForcee);
+    onOk(estSuperviseur);
   }
   function onKey(e) { if (e.key === "Enter") valider(); }
 
@@ -3796,9 +3775,6 @@ export default function App() {
   // Accès étendu (export PayFit, validations à la place du salarié, forcer le modèle...),
   // réservé à Océane. Mémorisé sur cet appareil pour ne pas retaper le code à chaque visite.
   const [superviseur, setSuperviseur] = useState(() => localStorage.getItem("ig_superviseur") === "1");
-  // Accès cloisonné Salle/Cuisine pour les directeurs/chefs (non superviseur) : "SALLE" | "CUISINE" | null.
-  // Mémorisé sur cet appareil pour ne pas retaper le code à chaque visite.
-  const [uniteForcee, setUniteForcee] = useState(() => localStorage.getItem("ig_unite_forcee") || null);
 
   useEffect(() => {
     let on = true;
@@ -3834,9 +3810,7 @@ export default function App() {
   async function deconnexion() {
     await supabase.auth.signOut();
     localStorage.removeItem("ig_superviseur");
-    localStorage.removeItem("ig_unite_forcee");
     setSuperviseur(false);
-    setUniteForcee(null);
     reset();
   }
   async function deconnexionRH() {
@@ -3846,15 +3820,12 @@ export default function App() {
 
   let content;
   if (askCode) {
-    content = <CodeGate onOk={(estSuperviseur, uniteForceeRecue)=>{
+    content = <CodeGate onOk={(estSuperviseur)=>{
       setAskCode(false);
       setRole('manager');
       setSuperviseur(estSuperviseur);
       if (estSuperviseur) localStorage.setItem("ig_superviseur", "1");
       else localStorage.removeItem("ig_superviseur");
-      setUniteForcee(uniteForceeRecue);
-      if (uniteForceeRecue) localStorage.setItem("ig_unite_forcee", uniteForceeRecue);
-      else localStorage.removeItem("ig_unite_forcee");
     }} onCancel={()=>setAskCode(false)} />;
   } else if (askRH) {
     content = <RHLoginForm onOk={(acces)=>{ setAskRH(false); setRole('rh'); setRhAcces(acces); }} onCancel={()=>setAskRH(false)} />;
@@ -3887,7 +3858,7 @@ export default function App() {
   } else if (role === "manager" && !resto) {
     content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} />;
   } else if (role === "manager") {
-    content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} uniteForcee={uniteForcee} />;
+    content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "rh") {
     content = <EspaceRH acces={rhAcces} restaurants={restaurants} onBack={reset} onDeconnexion={deconnexionRH} />;
   } else if (role === "salarie" && !emp) {
