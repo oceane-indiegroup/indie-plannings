@@ -2352,6 +2352,73 @@ function ManagerView({ resto, onBack, superviseur }) {
     }
   }
 
+  // Émargement du mois entier en UN SEUL PDF (une page par semaine), pour archivage/contrôle.
+  const [emargementMoisEnCours, setEmargementMoisEnCours] = useState(false);
+  async function telechargerEmargementMois(annee, mois) {
+    setEmargementMoisEnCours(true);
+    try {
+      const premierJour = new Date(annee, mois - 1, 1);
+      const dernierJour = new Date(annee, mois, 0);
+      const semaines = [];
+      for (let l = lundiDeLaSemaine(premierJour); l <= lundiDeLaSemaine(dernierJour); l = ajouterJours(l, 7)) {
+        semaines.push(l);
+      }
+      const donnees = await Promise.all(semaines.map(async (lundi) => {
+        const s = cleSemaine(lundi);
+        const [pl, pt] = await Promise.all([Store.get(kPlanning(resto, s)), Pointages.load(resto, s)]);
+        return { lundi, planning: pl || {}, pointages: pt || {} };
+      }));
+      const blocs = donnees.map(({ lundi, planning: pl, pointages: pt }, idx) => {
+        const dimanche = ajouterJours(lundi, 6);
+        const withPlanning = team.filter((e) => pl[idSalarie(e)]);
+        const list = withPlanning.length ? withPlanning : team;
+        const entetes = JOURS.map((j, i) => `<th>${j}<br><span style="font-weight:400">${fmtJour(ajouterJours(lundi, i))}</span></th>`).join("");
+        const lignes = list.map((e) => {
+          const plE = pl[idSalarie(e)];
+          const tot = plE ? totalHebdo(plE) : 0;
+          const jours = JOURS.map((j, i) => {
+            const p = plE ? plE[i] : null;
+            const ptE = pt[idSalarie(e)];
+            const ptJour = ptE ? ptE[i] : null;
+            const signe = p && (p.statut === STATUTS.TRAVAIL || p.statut === STATUTS.DEMI_CP)
+              ? !!(ptJour && ptJour.confirme) : undefined;
+            return `<td class="daycell">${celluleHTML(p, { signe })}</td>`;
+          }).join("");
+          const ptAll = pt[idSalarie(e)];
+          const signee = ptAll && ptAll.semaine && ptAll.semaine.signee;
+          const totCell = `${plE ? fmtHeures(tot) : "—"}${signee ? '<div class="sig signed">✓ semaine validée</div>' : '<div class="sig">signature ____</div>'}`;
+          return `<tr><td class="who"><b>${esc(e.n)}</b><br>${esc(e.p)}</td>${jours}<td class="daycell" style="text-align:center;font-weight:700">${totCell}</td></tr>`;
+        }).join("");
+        return `
+          <div${idx > 0 ? ' style="page-break-before:always;"' : ''}>
+            <h1>ÉMARGEMENT — ${esc(resto)}</h1>
+            <div class="sub">Semaine du ${fmtDate(lundi)} au ${fmtDate(dimanche)}</div>
+            <table>
+              <thead><tr><th class="who">Nom / Prénom</th>${entetes}<th>Total hebdo</th></tr></thead>
+              <tbody>${lignes}</tbody>
+            </table>
+          </div>`;
+      });
+      const corps = blocs.join("");
+      const styles = `
+        table { width:100%; border-collapse:collapse; font-size:10px; }
+        th,td { border:1px solid #15303B; padding:4px 5px; text-align:center; vertical-align:top; }
+        th { background:#E8DDC9; font-size:9px; text-transform:uppercase; letter-spacing:.4px; }
+        td.who { text-align:left; min-width:90px; }
+        .daycell { height:50px; }
+        .hrs { font-weight:700; } .pz { font-size:9px; color:#555; }
+        .sig { color:#aaa; font-size:8px; font-style:italic; }
+        .sig.signed { color:#2E7D86; font-weight:700; font-style:normal; }`;
+      const nomFichier = `Emargement_${slugKey(resto)}_${String(mois).padStart(2,"0")}-${annee}`;
+      const ok = imprimerDocument(`Emargement ${resto} — ${MOIS_NOMS[mois-1]} ${annee}`, corps, styles, nomFichier);
+      if (ok === false) montrerFlash("Impossible de générer le document. Réessayez.");
+      else if (ok === "download") montrerFlash("Le fichier a été téléchargé. Ouvrez-le, puis choisissez « Enregistrer au format PDF » à l'impression (une page par semaine).");
+      else montrerFlash(`Émargement de ${MOIS_NOMS[mois-1]} ${annee} prêt : ${semaines.length} semaine${semaines.length>1?'s':''}. Choisissez « Enregistrer au format PDF » dans la fenêtre d'impression.`);
+    } finally {
+      setEmargementMoisEnCours(false);
+    }
+  }
+
   function imprimerPlanning() {
     const lundi = lundiDeLaSemaine(semDate);
     const entetes = JOURS.map((j, i) => `<th>${JOURS_COURT[i]}<br><span style="font-weight:400">${fmtJour(ajouterJours(lundi, i))}</span></th>`).join("");
@@ -2727,7 +2794,20 @@ function ManagerView({ resto, onBack, superviseur }) {
       )}
 
       {vue === "emargement" && (
-        <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
+        <>
+          {superviseur && (
+            <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
+              <select value={moisExport.mois} onChange={(e)=>setMoisExport((m)=>({...m, mois:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
+                {MOIS_NOMS.map((nom,i)=>(<option key={i} value={i+1}>{nom}</option>))}
+              </select>
+              <select value={moisExport.annee} onChange={(e)=>setMoisExport((m)=>({...m, annee:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
+                {[moisExport.annee-1, moisExport.annee, moisExport.annee+1].filter((a,i,arr)=>arr.indexOf(a)===i).sort((a,b)=>a-b).map((a)=>(<option key={a} value={a}>{a}</option>))}
+              </select>
+              <button className="ig-btn ig-btn-ink" onClick={()=>telechargerEmargementMois(moisExport.annee, moisExport.mois)} disabled={emargementMoisEnCours} title="Un seul PDF avec toutes les semaines du mois choisi, une page par semaine — pour classer en cas de contrôle"><Icon.Print/> {emargementMoisEnCours ? "Génération…" : "Télécharger l'émargement du mois"}</button>
+            </div>
+          )}
+          <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
+        </>
       )}
 
       {vue === "extra" && <ExtraTab resto={resto} superviseur={superviseur} />}
