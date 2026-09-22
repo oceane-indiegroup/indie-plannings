@@ -925,6 +925,12 @@ function fmtDatePayFit(d) {
 // Retourne les noms des salariés sans identifiant PayFit connu (à compléter à la main).
 function exporterCongesPayFit(lignesAbsences, nomFichier, mapping) {
   const table = mapping || PAYFIT_IDS;
+  // Index normalisé (casse/accents ignorés) : une fiche resaisie autrement (ex: prénom en
+  // MAJUSCULES via "Modifier ses informations") donne un idSalarie différent de celui utilisé
+  // quand PAYFIT_IDS / la correspondance PayFit a été construite — sans ça, l'identifiant
+  // déjà connu du salarié devient introuvable à l'export.
+  const tableNorm = {};
+  Object.keys(table).forEach((k) => { tableNorm[normTxt(k.replace(/_/g, " "))] = table[k]; });
   const aoa = [];
   const ligne1 = [];
   PAYFIT_ENTETES_GROUPES.forEach(([label, n]) => { ligne1.push(label); for (let i = 1; i < n; i++) ligne1.push(""); });
@@ -935,7 +941,7 @@ function exporterCongesPayFit(lignesAbsences, nomFichier, mapping) {
   lignesAbsences.forEach(({ emp, date, type, choix }) => {
     const row = new Array(33).fill("");
     const id = idSalarie(emp);
-    const pf = table[id];
+    const pf = table[id] || tableNorm[normTxt(id.replace(/_/g, " "))];
     row[0] = pf ? pf[0] : "";
     row[2] = pf ? pf[1] : "";
     row[3] = `${emp.p} ${emp.n}`;
