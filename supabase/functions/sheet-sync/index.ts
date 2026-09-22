@@ -413,7 +413,9 @@ Deno.serve(async (req: Request) => {
         // Toutes les lignes envoyées à Postgrest en une seule requête groupée doivent avoir
         // EXACTEMENT les mêmes clés (sinon erreur "All object keys must match") : chaque
         // champ est donc toujours présent, avec null si absent du Sheet pour cette personne.
-        const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
+        // salarie_id garde la casse d'origine (identité stable pour les fiches déjà
+        // importées) ; seul le nom affiché/enregistré est mis en majuscules.
+        const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom };
         ["civilite", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence", "type_contrat", "niveau", "echelon"].forEach((cle) => {
           const v = valeurPourLigne(nv, cle);
           ligne[cle] = v || null;
@@ -523,7 +525,9 @@ Deno.serve(async (req: Request) => {
       const prenom = valeurPour("prenom");
       if (!resto || !unite || !nom || !prenom) return json({ error: "champs_manquants" }, 400);
 
-      const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
+      // salarie_id garde la casse d'origine (identité stable pour les fiches déjà
+      // importées) ; seul le nom affiché/enregistré est mis en majuscules.
+      const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom };
       ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence"].forEach((cle) => {
         const v = valeurPour(cle);
         if (v !== null) ligne[cle] = cle === "date_naissance" ? versDateISO(v) : v;
