@@ -107,6 +107,15 @@ function indexVersLettre(i: number): string {
   return s;
 }
 
+// Google Forms renvoie les dates au format français JJ/MM/AAAA dans namedValues ;
+// Postgres attend AAAA-MM-JJ pour une colonne "date". Sans conversion, un jour > 12
+// (ex: 16/08/1995) est rejeté par Postgres qui l'interprète comme un mois invalide.
+function versDateISO(valeur: string): string {
+  const m = valeur.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  return valeur;
+}
+
 function versDateSheet(cle: string, valeur: unknown): string {
   const dateCles = ["date_naissance", "date_debut", "date_fin", "date_fin_periode_essai", "date_prolongation_fin"];
   if (dateCles.includes(cle) && typeof valeur === "string" && /^\d{4}-\d{2}-\d{2}$/.test(valeur)) {
@@ -220,7 +229,7 @@ Deno.serve(async (req: Request) => {
       const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
       ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence"].forEach((cle) => {
         const v = valeurPour(cle);
-        if (v !== null) ligne[cle] = v;
+        if (v !== null) ligne[cle] = cle === "date_naissance" ? versDateISO(v) : v;
       });
       const mutuelleVal = valeurPour("mutuelle");
       if (mutuelleVal !== null) ligne.mutuelle = normaliser(mutuelleVal).startsWith("oui");
