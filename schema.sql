@@ -169,6 +169,8 @@ create index if not exists rh_salaries_scope_idx on public.rh_salaries (resto, u
 alter table public.rh_salaries add column if not exists staff_party boolean;
 alter table public.rh_salaries add column if not exists heures_contrat numeric;
 alter table public.rh_salaries add column if not exists date_prolongation_fin date;
+-- Couleur de la ligne dans le tableau RH (remplissage façon Excel), ex: '#FBE2DC'. NULL = aucune.
+alter table public.rh_salaries add column if not exists couleur text;
 
 -- "Logé" est passé d'une case à cocher à un champ texte libre (pour préciser
 -- "seul", "en colocation"...). Convertit une éventuelle colonne booléenne existante
