@@ -3624,8 +3624,9 @@ const PREVISIONNEL_STATUTS = [
 ];
 
 // ---------- Modal ligne prévisionnelle (création / édition) ----------
-function PrevisionnelModal({ resto, unite, ligne, onSave, onClose }) {
+function PrevisionnelModal({ resto, unite, ligne, anneeParDefaut, onSave, onClose }) {
   const [poste, setPoste] = useState(ligne?.poste || "");
+  const [annee, setAnnee] = useState(ligne?.annee || anneeParDefaut || String(new Date().getFullYear()));
   const [statut, setStatut] = useState(ligne?.statut || "a_pourvoir");
   const [nom, setNom] = useState(ligne?.nom || "");
   const [prenom, setPrenom] = useState(ligne?.prenom || "");
@@ -3635,8 +3636,9 @@ function PrevisionnelModal({ resto, unite, ligne, onSave, onClose }) {
 
   function valider() {
     if (!poste.trim()) { setErr("Le poste est obligatoire."); return; }
+    if (!annee.trim()) { setErr("L'année est obligatoire."); return; }
     onSave({
-      poste: poste.trim(), statut,
+      poste: poste.trim(), annee: annee.trim(), statut,
       nom: nom.trim() || null, prenom: prenom.trim() || null,
       salaire_propose: salaireP === "" ? null : Number(salaireP),
       notes: notes.trim() || null,
@@ -3648,9 +3650,15 @@ function PrevisionnelModal({ resto, unite, ligne, onSave, onClose }) {
       <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:460}}>
         <h3>{ligne ? "Modifier le poste" : "Nouveau poste à pourvoir"}</h3>
         <div className="ig-muted" style={{marginBottom:10}}>{resto} · {unite === "SALLE" ? "Salle" : "Cuisine"}</div>
-        <div className="ig-field">
-          <label>Poste</label>
-          <input value={poste} autoFocus onChange={(e)=>{ setPoste(e.target.value); setErr(""); }} placeholder="Ex : Chef de Rang" />
+        <div className="ig-times">
+          <div className="ig-field" style={{margin:0}}>
+            <label>Poste</label>
+            <input value={poste} autoFocus onChange={(e)=>{ setPoste(e.target.value); setErr(""); }} placeholder="Ex : Chef de Rang" />
+          </div>
+          <div className="ig-field" style={{margin:0}}>
+            <label>Année / campagne</label>
+            <input value={annee} onChange={(e)=>{ setAnnee(e.target.value); setErr(""); }} placeholder="Ex : 2026 ou 2026-2027" />
+          </div>
         </div>
         <div className="ig-field">
           <label>Statut</label>
@@ -3695,11 +3703,17 @@ function ListePrevisionnelRH({ resto, unite }) {
   const [ajout, setAjout] = useState(false);
   const [edition, setEdition] = useState(null);
   const [erreur, setErreur] = useState("");
+  const [anneeActive, setAnneeActive] = useState(null);
 
   useEffect(() => {
     let on = true;
     setListe(null);
-    RhPrevisionnel.list(resto, unite).then((l) => { if (on) setListe(l); });
+    RhPrevisionnel.list(resto, unite).then((l) => {
+      if (!on) return;
+      setListe(l);
+      const annees = Array.from(new Set(l.map((x) => x.annee))).sort();
+      setAnneeActive(annees.length ? annees[annees.length - 1] : String(new Date().getFullYear()));
+    });
     return () => { on = false; };
   }, [resto, unite]);
 
@@ -3707,7 +3721,7 @@ function ListePrevisionnelRH({ resto, unite }) {
 
   async function creer(patch) {
     const cree = await RhPrevisionnel.creer({ resto, unite, ...patch });
-    if (cree) { setListe([...(liste || []), cree]); setAjout(false); }
+    if (cree) { setListe([...(liste || []), cree]); setAjout(false); setAnneeActive(cree.annee); }
     else montrerErreur("Impossible d'ajouter ce poste. Réessayez.");
   }
   async function modifier(patch) {
@@ -3721,18 +3735,32 @@ function ListePrevisionnelRH({ resto, unite }) {
     if (ok) setListe(liste.filter((x) => x.id !== l.id));
     else montrerErreur("La suppression a échoué. Réessayez.");
   }
+  function nouvelleAnnee() {
+    const saisie = prompt("Libellé de la nouvelle année / campagne (ex : 2027 ou 2027-2028) :");
+    if (saisie && saisie.trim()) setAnneeActive(saisie.trim());
+  }
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
 
+  const annees = Array.from(new Set(liste.map((l) => l.annee))).sort();
+  if (anneeActive && !annees.includes(anneeActive)) annees.push(anneeActive);
+  const listeAnnee = liste.filter((l) => l.annee === anneeActive);
+
   return (
     <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-        <div className="ig-muted">Postes à pourvoir, en amont de l'onboarding réel — aucun lien avec les fiches salariés.</div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {annees.map((a) => (
+            <button key={a} className={"ig-btn ig-btn-sm "+(anneeActive===a?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setAnneeActive(a)}>Registre embauche {a}</button>
+          ))}
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={nouvelleAnnee}>+ Nouvelle année</button>
+        </div>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau poste</button>
       </div>
+      <div className="ig-muted" style={{marginBottom:14}}>Postes à pourvoir, en amont de l'onboarding réel — aucun lien avec les fiches salariés.</div>
       {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
-      {liste.length === 0 ? (
-        <div className="ig-muted">Aucun poste en prévisionnel pour le moment.</div>
+      {listeAnnee.length === 0 ? (
+        <div className="ig-muted">Aucun poste en prévisionnel pour {anneeActive} pour le moment.</div>
       ) : (
         <div className="ig-card" style={{padding:0,overflowX:'auto'}}>
           <table style={{width:'100%',fontSize:13,borderCollapse:'collapse'}}>
@@ -3747,7 +3775,7 @@ function ListePrevisionnelRH({ resto, unite }) {
               </tr>
             </thead>
             <tbody>
-              {liste.map((l) => (
+              {listeAnnee.map((l) => (
                 <tr key={l.id} style={{borderBottom:'1px solid var(--line)'}}>
                   <td style={{padding:'10px 12px',fontWeight:600}}>{l.poste}</td>
                   <td style={{padding:'10px 12px'}}>
@@ -3768,7 +3796,7 @@ function ListePrevisionnelRH({ resto, unite }) {
           </table>
         </div>
       )}
-      {ajout && <PrevisionnelModal resto={resto} unite={unite} onSave={creer} onClose={()=>setAjout(false)} />}
+      {ajout && <PrevisionnelModal resto={resto} unite={unite} anneeParDefaut={anneeActive} onSave={creer} onClose={()=>setAjout(false)} />}
       {edition && <PrevisionnelModal resto={resto} unite={unite} ligne={edition} onSave={modifier} onClose={()=>setEdition(null)} />}
     </div>
   );

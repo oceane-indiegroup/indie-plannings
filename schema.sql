@@ -288,6 +288,9 @@ create table if not exists public.rh_previsionnel (
   id              bigint generated always as identity primary key,
   resto           text not null,
   unite           text not null check (unite in ('SALLE','CUISINE')),
+  -- Libellé libre (ex: "2026", "2026-2027") : permet de garder un historique année par
+  -- année du registre d'embauche, comme le tableur qu'Océane tenait avant.
+  annee           text not null default to_char(now(), 'YYYY'),
   poste           text not null,
   statut          text not null default 'a_pourvoir' check (statut in ('a_pourvoir','en_cours','valide','pourvu')),
   nom             text,
@@ -297,7 +300,9 @@ create table if not exists public.rh_previsionnel (
   cree_le         timestamptz not null default now(),
   maj_le          timestamptz not null default now()
 );
-create index if not exists rh_previsionnel_scope_idx on public.rh_previsionnel (resto, unite);
+-- Ajout ultérieur : "if not exists" pour rester sans risque à rejouer si la table existe déjà.
+alter table public.rh_previsionnel add column if not exists annee text not null default to_char(now(), 'YYYY');
+create index if not exists rh_previsionnel_scope_idx on public.rh_previsionnel (resto, unite, annee);
 
 create or replace function public.rh_previsionnel_touch()
 returns trigger language plpgsql as $$
