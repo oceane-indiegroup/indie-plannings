@@ -19,13 +19,16 @@
 //   FORM_WEBHOOK_SECRET     un mot de passe inventé par vous, collé aussi dans le script Apps Script
 // SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis automatiquement.
 
-const GOOGLE_SA_EMAIL = Deno.env.get("GOOGLE_SA_EMAIL") ?? "";
-const GOOGLE_SA_PRIVATE_KEY = (Deno.env.get("GOOGLE_SA_PRIVATE_KEY") ?? "").replace(/\\n/g, "\n");
-const SHEET_ID = Deno.env.get("SHEET_ID") ?? "";
-const SHEET_TAB = Deno.env.get("SHEET_TAB") ?? "";
-const FORM_WEBHOOK_SECRET = Deno.env.get("FORM_WEBHOOK_SECRET") ?? "";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+// .trim() partout : un espace ou un retour à la ligne collé par erreur dans un secret
+// (très facile en copiant-collant depuis un fichier .json ou une barre d'adresse) rend
+// l'identifiant invalide sans qu'aucun message d'erreur ne le dise clairement.
+const GOOGLE_SA_EMAIL = (Deno.env.get("GOOGLE_SA_EMAIL") ?? "").trim();
+const GOOGLE_SA_PRIVATE_KEY = (Deno.env.get("GOOGLE_SA_PRIVATE_KEY") ?? "").trim().replace(/\\n/g, "\n");
+const SHEET_ID = (Deno.env.get("SHEET_ID") ?? "").trim();
+const SHEET_TAB = (Deno.env.get("SHEET_TAB") ?? "").trim();
+const FORM_WEBHOOK_SECRET = (Deno.env.get("FORM_WEBHOOK_SECRET") ?? "").trim();
+const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").trim();
+const SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -174,7 +177,12 @@ async function lireFeuille(jeton: string): Promise<string[][]> {
   const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${plage}`, {
     headers: { Authorization: `Bearer ${jeton}` },
   });
-  if (!res.ok) throw new Error("sheet_lecture_echec: " + (await res.text()));
+  if (!res.ok) {
+    throw new Error(
+      `sheet_lecture_echec (SHEET_ID="${SHEET_ID}", SHEET_TAB="${SHEET_TAB}", compte="${GOOGLE_SA_EMAIL}"): ` +
+        (await res.text()),
+    );
+  }
   const j = await res.json();
   return j.values || [];
 }
