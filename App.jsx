@@ -341,6 +341,20 @@ const Store = {
 };
 
 // ---------- RH : fiches salariés (table dédiée, cloisonnée par établissement + unité) ----------
+// ---------- Synchro vers le Google Sheet "onboarding" existant ----------
+// Ne bloque jamais l'appli : appelée en tâche de fond après chaque écriture réussie dans
+// rh_salaries, elle répercute les mêmes champs dans le Sheet qu'Océane continue de tenir
+// à jour elle-même. Passe par la fonction Supabase "sheet-sync" (clé Google côté serveur).
+const RhSheetSync = {
+  async upsert({ resto, unite, nom, prenom, champs }) {
+    if (!resto || !nom || !prenom) return;
+    const { error } = await supabase.functions.invoke("sheet-sync", {
+      body: { action: "upsertRow", resto, unite, nom, prenom, champs },
+    });
+    if (error) console.error("RhSheetSync.upsert:", error.message);
+  },
+};
+
 const RhSalaries = {
   async list(resto, unite) {
     let q = supabase.from("rh_salaries").select("*").eq("resto", resto);
@@ -352,28 +366,14 @@ const RhSalaries = {
   async creer(row) {
     const { data, error } = await supabase.from("rh_salaries").insert(row).select().single();
     if (error) { console.error("RhSalaries.creer:", error.message); return null; }
+    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data });
     return data;
   },
   async maj(id, patch) {
     const { data, error } = await supabase.from("rh_salaries").update(patch).eq("id", id).select().single();
     if (error) { console.error("RhSalaries.maj:", error.message); return null; }
+    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch });
     return data;
-  },
-  // Soumission publique du formulaire d'onboarding (sans connexion) : crée la fiche,
-  // ou la complète si un directeur avait déjà créé une entrée de base pour ce salarié.
-  // Soumission publique du formulaire d'onboarding (sans connexion). Toujours une
-  // création (jamais d'upsert) : un upsert exigerait un droit de lecture qu'on ne
-  // veut pas donner à un lien public. Si une fiche existe déjà pour ce nom à cet
-  // établissement (créée par un directeur, ou double envoi), on le signale au lieu
-  // d'échouer avec une erreur générique.
-  async onboarder(row) {
-    const { error } = await supabase.from("rh_salaries").insert(row);
-    if (error) {
-      console.error("RhSalaries.onboarder:", error.message);
-      if (error.code === "23505") return "existe_deja";
-      return false;
-    }
-    return true;
   },
 };
 
@@ -397,15 +397,6 @@ function fichierEnBase64(fichier) {
 }
 
 const RhDocuments = {
-  // Appelé juste après l'envoi du formulaire d'onboarding public (sans connexion) : crée
-  // tout de suite le dossier de l'année en cours dans le Drive, prêt à recevoir des documents.
-  async creerDossierOnboarding({ resto, unite, nom, prenom }) {
-    const annee = new Date().getFullYear();
-    const { error } = await supabase.functions.invoke("drive-docs", {
-      body: { action: "ensureFolderPublic", resto, unite, annee, nom, prenom },
-    });
-    if (error) console.error("RhDocuments.creerDossierOnboarding:", error.message);
-  },
   async lister(resto, unite, annee, nom, prenom) {
     const { data, error } = await supabase.functions.invoke("drive-docs", {
       body: { action: "list", resto, unite, annee, nom, prenom },
@@ -3421,7 +3412,6 @@ function RHLoginForm({ onOk, onCancel }) {
 // Champs "de base" éditables par un directeur/chef ; les autres (sensibles) sont réservés
 // au superviseur — et de toute façon verrouillés en base par rh_salaries_guard côté serveur.
 const RH_CHAMPS_BASE = [
-  { cle: "staff_party", label: "Staff Party", type: "bool" },
   { cle: "heures_contrat", label: "Heure CT", type: "number" },
   { cle: "nom", label: "Nom" },
   { cle: "prenom", label: "Prénom" },
@@ -3433,8 +3423,10 @@ const RH_CHAMPS_BASE = [
   { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
   { cle: "date_prolongation_fin", label: "Date de prolongation de fin de contrat", type: "date" },
   { cle: "loge", label: "Logé (préciser : seul, en colocation, non...)" },
+  { cle: "vehicule", label: "Véhicule" },
 ];
 const RH_CHAMPS_SENSIBLES = [
+  { cle: "staff_party", label: "Staff Party", type: "bool" },
   { cle: "civilite", label: "Civilité" },
   { cle: "date_naissance", label: "Date de naissance", type: "date" },
   { cle: "lieu_naissance", label: "Lieu de naissance" },
@@ -3448,7 +3440,6 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "iban", label: "IBAN" },
   { cle: "bic", label: "BIC" },
   { cle: "salaire_brut", label: "Salaire brut de base", type: "number" },
-  { cle: "vehicule", label: "Véhicule" },
   { cle: "promesse_embauche", label: "Promesse d'embauche" },
   { cle: "periode_essai_jours", label: "Période d'essai (jours)", type: "number" },
   { cle: "date_fin_periode_essai", label: "Fin de période d'essai", type: "date" },
@@ -3462,110 +3453,6 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "statut_payfit", label: "Statut PayFit" },
   { cle: "contact_urgence", label: "Contact d'urgence (nom et n°)" },
 ];
-
-// ---------- Formulaire d'onboarding public (sans connexion, lien envoyé au salarié) ----------
-const ONBOARDING_POSTES = [
-  "Directeur", "Manager", "Chef Hotesse", "Hotesse", "Agent Entretien", "Standardiste",
-  "Barman", "Chef de Bar", "Commis de Bar", "Officier", "Plongeur", "Chef de Cuisine",
-  "Chef de Partie", "Commis de Cuisine", "Cuisinier", "Patissier", "Second de Cuisine",
-  "Chef Plagiste", "Plagiste", "Chef de Rang", "Commis de Salle", "Limonadier", "Runner",
-  "Sommelier", "Caissière", "Pizzaiolo", "Autres",
-];
-
-// Mêmes questions, dans le même ordre, que le Google Form d'onboarding existant.
-const ONBOARDING_CHAMPS = [
-  { cle: "civilite", label: "Civilité", type: "select", options: ["Monsieur", "Madame"] },
-  { cle: "nom", label: "Nom" },
-  { cle: "prenom", label: "Prénom" },
-  { cle: "date_naissance", label: "Date de naissance", type: "date" },
-  { cle: "lieu_naissance", label: "Lieux de naissance (ville)" },
-  { cle: "nationalite", label: "Nationalité" },
-  { cle: "adresse", label: "Adresse postale" },
-  { cle: "ville", label: "Ville" },
-  { cle: "code_postal", label: "Code postal" },
-  { cle: "secu", label: "Numéro de sécurité sociale (mettre 0 si pas encore de numéro de sécurité sociale)" },
-  { cle: "telephone", label: "Numéro de téléphone (sans espace)" },
-  { cle: "email", label: "Adresse mail" },
-  { cle: "unite", label: "Unité de travail", type: "select", options: ["SALLE", "CUISINE"] },
-  { cle: "poste", label: "Nom du poste", type: "select", options: ONBOARDING_POSTES },
-  { cle: "iban", label: "IBAN (RIB)" },
-  { cle: "bic", label: "BIC (RIB)" },
-  { cle: "mutuelle", label: "Je veux la mutuelle de l'établissement", type: "select", options: ["Oui", "Non (j'ai ma propre mutuelle)"] },
-  { cle: "resto", label: "Établissement dans lequel je vais travailler", type: "select" },
-  { cle: "contact_urgence", label: "Nom et n° de la personne à contacter d'urgence" },
-];
-
-function OnboardingForm({ restaurants }) {
-  const [f, setF] = useState(() => {
-    const base = {};
-    ONBOARDING_CHAMPS.forEach((c) => { base[c.cle] = ""; });
-    return base;
-  });
-  const [err, setErr] = useState("");
-  const [envoiEnCours, setEnvoiEnCours] = useState(false);
-  const [envoye, setEnvoye] = useState(false);
-
-  function champ(c) {
-    const valeur = f[c.cle];
-    if (c.type === "select") {
-      const options = c.cle === "resto" ? restaurants : c.options;
-      return (
-        <div className="ig-field" key={c.cle}>
-          <label>{c.label}</label>
-          <select value={valeur} onChange={(e)=>{ setF({ ...f, [c.cle]: e.target.value }); setErr(""); }}>
-            <option value="">—</option>
-            {options.map((o) => (<option key={o} value={o}>{o}</option>))}
-          </select>
-        </div>
-      );
-    }
-    return (
-      <div className="ig-field" key={c.cle}>
-        <label>{c.label}</label>
-        <input type={c.type === "date" ? "date" : "text"} value={valeur} onChange={(e)=>setF({ ...f, [c.cle]: e.target.value })} />
-      </div>
-    );
-  }
-
-  async function envoyer() {
-    if (!f.resto) { setErr("Choisissez l'établissement dans lequel vous allez travailler."); return; }
-    if (!f.unite) { setErr("Choisissez votre unité de travail."); return; }
-    if (!f.nom.trim() || !f.prenom.trim()) { setErr("Nom et prénom sont obligatoires."); return; }
-    setErr("");
-    setEnvoiEnCours(true);
-    const salarieId = idSalarie({ n: f.nom, p: f.prenom });
-    const patch = { ...f, salarie_id: salarieId, mutuelle: f.mutuelle === "Oui" };
-    Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
-    const ok = await RhSalaries.onboarder(patch);
-    setEnvoiEnCours(false);
-    if (ok === true) {
-      RhDocuments.creerDossierOnboarding({ resto: f.resto, unite: f.unite, nom: f.nom, prenom: f.prenom });
-      setEnvoye(true);
-    }
-    else if (ok === "existe_deja") setErr("Une fiche existe déjà pour ce nom dans cet établissement. Contactez votre responsable pour la compléter.");
-    else setErr("Une erreur est survenue lors de l'envoi. Réessayez, ou contactez votre établissement.");
-  }
-
-  if (envoye) {
-    return (
-      <div className="ig-hero" style={{maxWidth:480,textAlign:'center'}}>
-        <div className="ig-ic" style={{background:'var(--sea)',color:'#fff',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}><Icon.Check/></div>
-        <h1 className="ig-display" style={{fontSize:28,marginBottom:8}}>Merci !</h1>
-        <p>Vos informations ont bien été transmises. Votre établissement complètera votre dossier avant votre arrivée.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="ig-hero" style={{maxWidth:520}}>
-      <h1 className="ig-display" style={{fontSize:28,marginBottom:8}}>Bienvenue chez Indie Group</h1>
-      <p style={{marginBottom:20}}>Remplissez ce formulaire pour préparer votre arrivée. Ces informations restent confidentielles et ne sont visibles que par votre établissement et l'équipe RH.</p>
-      {ONBOARDING_CHAMPS.map(champ)}
-      {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-      <button className="ig-btn ig-btn-primary" onClick={envoyer} disabled={envoiEnCours} style={{marginTop:14,width:'100%',justifyContent:'center'}}>{envoiEnCours ? "Envoi…" : "Envoyer mes informations"}</button>
-    </div>
-  );
-}
 
 // ---------- Modal fiche salarié RH (création / édition) ----------
 // ---------- Documents du salarié (dossier Google Drive, archivé par année) ----------
@@ -3925,24 +3812,23 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
             <thead>
               <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)',verticalAlign:'bottom'}}>
                 {entete(RH_CHAMPS_BASE[0], 56)}
-                {entete(RH_CHAMPS_BASE[1], 56)}
-                {entete(RH_CHAMPS_BASE[2], 110)}
-                {entete(RH_CHAMPS_BASE[3], 100)}
-                {entete(RH_CHAMPS_BASE[4], 110)}
-                {entete(RH_CHAMPS_BASE[5], 170)}
-                {entete(RH_CHAMPS_BASE[6], 130)}
-                {entete(RH_CHAMPS_BASE[7], 120)}
-                {entete(RH_CHAMPS_BASE[8], 80)}
+                {entete(RH_CHAMPS_BASE[1], 110)}
+                {entete(RH_CHAMPS_BASE[2], 100)}
+                {entete(RH_CHAMPS_BASE[3], 110)}
+                {entete(RH_CHAMPS_BASE[4], 170)}
+                {entete(RH_CHAMPS_BASE[5], 130)}
+                {entete(RH_CHAMPS_BASE[6], 120)}
+                {entete(RH_CHAMPS_BASE[7], 80)}
+                {entete(RH_CHAMPS_BASE[8], 120)}
                 {entete(RH_CHAMPS_BASE[9], 120)}
-                {entete(RH_CHAMPS_BASE[10], 120)}
-                {entete(RH_CHAMPS_BASE[11], 140)}
+                {entete(RH_CHAMPS_BASE[10], 140)}
+                {entete(RH_CHAMPS_BASE[11], 120)}
                 <th style={{padding:'8px 10px'}}></th>
               </tr>
             </thead>
             <tbody>
               {listeAffichee.map((s) => (
                 <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.couleur || (s.date_fin ? '#FBE2DC' : undefined)}}>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.staff_party} onChange={(e)=>sauverCellule(s.id,'staff_party',e.target.checked)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:100}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
@@ -3954,6 +3840,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:140}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:120}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
                   <td style={{padding:'4px 6px',display:'flex',gap:6,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button>
@@ -4004,9 +3891,6 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
 
 // ---------- Application principale ----------
 export default function App() {
-  // Lien d'onboarding public (envoyé aux nouveaux salariés) : ?onboarding=1
-  // contourne tout le reste de l'appli, aucune connexion nécessaire.
-  const [modeOnboarding] = useState(() => new URLSearchParams(window.location.search).get("onboarding") === "1");
   const [role, setRole] = useState(null);     // 'manager' | 'salarie' | 'rh'
   const [askCode, setAskCode] = useState(false);
   const [askRH, setAskRH] = useState(false);
@@ -4062,9 +3946,7 @@ export default function App() {
   }
 
   let content;
-  if (modeOnboarding) {
-    content = <OnboardingForm restaurants={restaurants} />;
-  } else if (askCode) {
+  if (askCode) {
     content = <CodeGate onOk={(estSuperviseur)=>{
       setAskCode(false);
       setRole('manager');
