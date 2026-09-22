@@ -372,6 +372,7 @@ const RhAdmin = {
   lister: () => appelerRhAdmin("lister"),
   creer: ({ email, motDePasse, resto, unite }) => appelerRhAdmin("creer", { email, motDePasse, resto, unite }),
   supprimer: (id) => appelerRhAdmin("supprimer", { id }),
+  changerMotDePasse: ({ user_id, motDePasse }) => appelerRhAdmin("changerMotDePasse", { user_id, motDePasse }),
 };
 
 const RhSalaries = {
@@ -3762,6 +3763,8 @@ function AccesRHModal({ restaurants, onClose }) {
   const [motDePasse, setMotDePasse] = useState("");
   const [resto, setResto] = useState(restaurants[0] || "");
   const [unite, setUnite] = useState("SALLE");
+  const [editionMdp, setEditionMdp] = useState(null); // user_id du compte en cours d'édition, ou null
+  const [nouveauMdp, setNouveauMdp] = useState("");
 
   function charger() {
     setListe(null);
@@ -3788,6 +3791,17 @@ function AccesRHModal({ restaurants, onClose }) {
     charger();
   }
 
+  async function validerMdp(a) {
+    if (busy) return;
+    if (!nouveauMdp || nouveauMdp.length < 6) { setErreur("Le mot de passe doit faire au moins 6 caractères."); return; }
+    setBusy(true); setErreur(""); setFlash("");
+    const r = await RhAdmin.changerMotDePasse({ user_id: a.user_id, motDePasse: nouveauMdp });
+    setBusy(false);
+    if (!r.ok) { setErreur(r.erreur || "Échec du changement de mot de passe."); return; }
+    setFlash(`Mot de passe mis à jour pour ${a.email}.`);
+    setEditionMdp(null); setNouveauMdp("");
+  }
+
   return (
     <div className="ig-overlay" onClick={onClose}>
       <div className="ig-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:560}}>
@@ -3803,14 +3817,27 @@ function AccesRHModal({ restaurants, onClose }) {
             <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
               <tbody>
                 {liste.map((a) => (
-                  <tr key={a.id} style={{borderBottom:'1px solid var(--line)'}}>
-                    <td style={{padding:'8px 10px'}}>{a.email}{a.superviseur && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:9,letterSpacing:'.4px'}}>SUPERVISEUR</span>}</td>
-                    <td style={{padding:'8px 10px'}}>{a.resto}</td>
-                    <td style={{padding:'8px 10px'}}>{a.unite === "SALLE" ? "Salle" : a.unite === "CUISINE" ? "Cuisine" : "Tous"}</td>
-                    <td style={{padding:'8px 10px',textAlign:'right'}}>
-                      {!a.superviseur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(a)}>Retirer</button>}
-                    </td>
-                  </tr>
+                  <React.Fragment key={a.id}>
+                    <tr style={{borderBottom: editionMdp===a.user_id ? 'none' : '1px solid var(--line)'}}>
+                      <td style={{padding:'8px 10px'}}>{a.email}{a.superviseur && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:9,letterSpacing:'.4px'}}>SUPERVISEUR</span>}</td>
+                      <td style={{padding:'8px 10px'}}>{a.resto}</td>
+                      <td style={{padding:'8px 10px'}}>{a.unite === "SALLE" ? "Salle" : a.unite === "CUISINE" ? "Cuisine" : "Tous"}</td>
+                      <td style={{padding:'8px 10px',textAlign:'right',whiteSpace:'nowrap'}}>
+                        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setEditionMdp(editionMdp===a.user_id ? null : a.user_id); setNouveauMdp(""); setErreur(""); }}>Mot de passe</button>
+                        {!a.superviseur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(a)} style={{marginLeft:6}}>Retirer</button>}
+                      </td>
+                    </tr>
+                    {editionMdp === a.user_id && (
+                      <tr style={{borderBottom:'1px solid var(--line)'}}>
+                        <td colSpan={4} style={{padding:'0 10px 10px'}}>
+                          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                            <input type="password" value={nouveauMdp} autoFocus onChange={(e)=>setNouveauMdp(e.target.value)} placeholder="Nouveau mot de passe (6 caractères min.)" style={{flex:1}} />
+                            <button className="ig-btn ig-btn-primary ig-btn-sm" onClick={()=>validerMdp(a)} disabled={busy}>{busy ? "…" : "Valider"}</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

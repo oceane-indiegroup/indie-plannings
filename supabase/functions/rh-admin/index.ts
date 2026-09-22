@@ -90,7 +90,7 @@ Deno.serve(async (req) => {
         if (r.ok) { const u = await r.json(); emails[id as string] = u?.email || "(email introuvable)"; }
       }
       const resultat = lignes.map((l: { id: number; user_id: string; resto: string; unite: string; superviseur: boolean }) => ({
-        id: l.id, email: emails[l.user_id] || "(compte supprimé)", resto: l.resto, unite: l.unite, superviseur: l.superviseur,
+        id: l.id, user_id: l.user_id, email: emails[l.user_id] || "(compte supprimé)", resto: l.resto, unite: l.unite, superviseur: l.superviseur,
       }));
       return json({ ok: true, acces: resultat });
     }
@@ -135,6 +135,25 @@ Deno.serve(async (req) => {
         return json({ error: "droit_non_enregistre", detail }, 500);
       }
       return json({ ok: true, email, resto, unite });
+    }
+
+    // ---- Changement du mot de passe d'un compte existant ----
+    // Un mot de passe une fois enregistré ne peut jamais être relu (même par nous) : on ne
+    // peut que le remplacer par un nouveau, ce que fait cette action.
+    if (action === "changerMotDePasse") {
+      const { user_id, motDePasse } = corps;
+      if (!user_id || !motDePasse) return json({ error: "champs_manquants" }, 400);
+      if (motDePasse.length < 6) return json({ error: "mot_de_passe_trop_court" }, 400);
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${user_id}`, {
+        method: "PUT",
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ password: motDePasse }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        return json({ error: "changement_echoue", detail }, 500);
+      }
+      return json({ ok: true });
     }
 
     // ---- Retrait d'un accès précis ----
