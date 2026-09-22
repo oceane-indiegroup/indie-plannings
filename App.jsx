@@ -4195,7 +4195,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
             </thead>
             <tbody>
               {listeAffichee.map((s) => (
-                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.couleur || (s.date_fin ? '#FBE2DC' : undefined)}}>
+                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.couleur || (s.date_fin && s.date_fin < aujourdHui ? '#FBE2DC' : undefined)}}>
                   <td style={{padding:'4px 6px'}}>
                     <input type="checkbox" checked={selection.has(s.id)} onChange={(e)=>{
                       setSelection((sel) => { const n = new Set(sel); if (e.target.checked) n.add(s.id); else n.delete(s.id); return n; });
