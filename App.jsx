@@ -436,6 +436,16 @@ const RhSalaries = {
     });
     return counts;
   },
+  async supprimer(id) {
+    const { error } = await supabase.from("rh_salaries").delete().eq("id", id);
+    if (error) { console.error("RhSalaries.supprimer:", error.message); return false; }
+    return true;
+  },
+  async supprimerPlusieurs(ids) {
+    const { error } = await supabase.from("rh_salaries").delete().in("id", ids);
+    if (error) { console.error("RhSalaries.supprimerPlusieurs:", error.message); return false; }
+    return true;
+  },
 };
 
 // ---------- Prévisionnel de recrutement (postes à pourvoir, avant l'onboarding) ----------
@@ -3878,10 +3888,12 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [filtreCouleurs, setFiltreCouleurs] = useState(null); // Set des couleurs affichées, null = toutes
   const [saisonActive, setSaisonActive] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const [selection, setSelection] = useState(new Set());
 
   useEffect(() => {
     let on = true;
     setListe(null);
+    setSelection(new Set());
     RhSalaries.list(resto, unite).then((l) => {
       if (!on) return;
       setListe(l);
@@ -3920,6 +3932,20 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     const maj = await RhSalaries.maj(edition.id, patch);
     if (maj) { setListe(liste.map((s) => (s.id === maj.id ? maj : s))); setEdition(null); montrerFlash("Fiche mise à jour."); }
     else montrerErreur("La sauvegarde a échoué. Réessayez, ou contactez le support si ça persiste.");
+  }
+  async function supprimer(s) {
+    if (!confirm(`Supprimer définitivement la fiche de ${s.prenom || ""} ${s.nom || ""} ? Cette action est irréversible.`)) return;
+    const ok = await RhSalaries.supprimer(s.id);
+    if (ok) { setListe(liste.filter((x) => x.id !== s.id)); setSelection((sel) => { const n = new Set(sel); n.delete(s.id); return n; }); montrerFlash("Fiche supprimée."); }
+    else montrerErreur("La suppression a échoué. Réessayez.");
+  }
+  async function supprimerSelection() {
+    if (selection.size === 0) return;
+    if (!confirm(`Supprimer définitivement ${selection.size} fiche${selection.size>1?'s':''} sélectionnée${selection.size>1?'s':''} ? Cette action est irréversible.`)) return;
+    const ids = Array.from(selection);
+    const ok = await RhSalaries.supprimerPlusieurs(ids);
+    if (ok) { setListe(liste.filter((s) => !selection.has(s.id))); setSelection(new Set()); montrerFlash(`${ids.length} fiche${ids.length>1?'s':''} supprimée${ids.length>1?'s':''}.`); }
+    else montrerErreur("La suppression a échoué. Réessayez.");
   }
 
   // Édition directe dans le tableau (comme un tableur) : met à jour l'affichage tout de
@@ -4025,6 +4051,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
           })}
         </div>
         {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); }}>✕ Réinitialiser les filtres</button>}
+        {selection.size > 0 && (
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={supprimerSelection} style={{marginLeft:'auto',color:'var(--coral-d)'}}>
+            🗑 Supprimer la sélection ({selection.size})
+          </button>
+        )}
       </div>
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
@@ -4033,6 +4064,14 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,whiteSpace:'nowrap'}}>
             <thead>
               <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)',verticalAlign:'bottom'}}>
+                <th style={{padding:'8px 6px'}}>
+                  <input type="checkbox"
+                    checked={listeAffichee.length > 0 && listeAffichee.every((s) => selection.has(s.id))}
+                    onChange={(e)=>{
+                      if (e.target.checked) setSelection(new Set(listeAffichee.map((s)=>s.id)));
+                      else setSelection(new Set());
+                    }} />
+                </th>
                 {entete(RH_CHAMPS_BASE[0], 56)}
                 {entete(RH_CHAMPS_BASE[1], 110)}
                 {entete(RH_CHAMPS_BASE[2], 100)}
@@ -4051,6 +4090,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
             <tbody>
               {listeAffichee.map((s) => (
                 <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.couleur || (s.date_fin ? '#FBE2DC' : undefined)}}>
+                  <td style={{padding:'4px 6px'}}>
+                    <input type="checkbox" checked={selection.has(s.id)} onChange={(e)=>{
+                      setSelection((sel) => { const n = new Set(sel); if (e.target.checked) n.add(s.id); else n.delete(s.id); return n; });
+                    }} />
+                  </td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:100}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
@@ -4066,6 +4110,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px',display:'flex',gap:6,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button>
+                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(s)} style={{color:'var(--coral-d)'}}>Supprimer</button>
                   </td>
                 </tr>
               ))}
