@@ -4202,6 +4202,10 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
   const [importMsg, setImportMsg] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [compteursRH, setCompteursRH] = useState({}); // effectif réel par établissement (rh_salaries)
+  // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
+  // est la première ; d'autres sections viendront s'ajouter à côté par la suite.
+  const [sousSection, setSousSection] = useState("registre");
+  const SOUS_SECTIONS_RH = [{ cle: "registre", label: "Registre embauche" }];
 
   useEffect(() => {
     let on = true;
@@ -4259,7 +4263,12 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
         )}
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion}>Déconnexion</button>
       </div>
-      <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      <div className="ig-noprint" style={{display:'flex',gap:8,marginBottom:16}}>
+        {SOUS_SECTIONS_RH.map((s) => (
+          <button key={s.cle} className={"ig-btn ig-btn-sm "+(sousSection===s.cle?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setSousSection(s.cle)}>{s.label}</button>
+        ))}
+      </div>
+      {sousSection === "registre" && <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />}
       {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>
   );
