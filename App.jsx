@@ -380,6 +380,18 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Exporte le suivi "Repos hebdo non pris" d'un établissement/unité/mois vers un onglet
+  // dédié du Google Sheet, pour un réimport ailleurs (paie...). Réservé au superviseur.
+  async exporterReposHebdo(resto, unite, mois) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "exporterReposHebdo", resto, unite, mois } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
 };
 
 // ---------- Gestion des accès RH (créer/retirer un compte directeur/chef) ----------
@@ -4235,13 +4247,14 @@ function AccesRHModal({ restaurants, onClose }) {
 }
 
 // ---------- Repos hebdomadaire non pris : suivi mensuel + montant à payer ----------
-function ReposHebdoRH({ resto, unite }) {
+function ReposHebdoRH({ resto, unite, superviseur }) {
   const auj = new Date();
   const [annee, setAnnee] = useState(auj.getFullYear());
   const [moisNum, setMoisNum] = useState(auj.getMonth() + 1); // 1..12
   const mois = `${annee}-${String(moisNum).padStart(2, "0")}`;
   const [liste, setListe] = useState(null);
   const [genBusy, setGenBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [erreur, setErreur] = useState("");
   const [flash, setFlash] = useState("");
 
@@ -4265,6 +4278,15 @@ function ReposHebdoRH({ resto, unite }) {
       montrerFlash("Liste mise à jour avec les salariés actuellement sous contrat pour ce mois.");
     } else montrerErreur("Échec de la génération. Réessayez.");
     setGenBusy(false);
+  }
+
+  async function exporter() {
+    if (exportBusy) return;
+    setExportBusy(true); setErreur("");
+    const r = await RhSheetSync.exporterReposHebdo(resto, unite, mois);
+    setExportBusy(false);
+    if (!r.ok) { montrerErreur(`Échec de l'export : ${r.erreur || "erreur inconnue"}`); return; }
+    montrerFlash(`${r.exportes} ligne${r.exportes>1?'s':''} exportée${r.exportes>1?'s':''} dans l'onglet "${r.onglet}" du Google Sheet.`);
   }
 
   async function majRepos(l, valeur) {
@@ -4301,9 +4323,16 @@ function ReposHebdoRH({ resto, unite }) {
             <button key={i} className={"ig-btn ig-btn-sm "+(moisNum===i+1?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setMoisNum(i + 1)}>{n.slice(0,3)}</button>
           ))}
         </div>
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto'}} onClick={generer} disabled={genBusy}>
-          {genBusy ? "Génération…" : "↻ Générer la liste du mois"}
-        </button>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          {superviseur && (
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={exporter} disabled={exportBusy || liste.length === 0}>
+              {exportBusy ? "Export…" : "↓ Exporter vers le Sheet"}
+            </button>
+          )}
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={generer} disabled={genBusy}>
+            {genBusy ? "Génération…" : "↻ Générer la liste du mois"}
+          </button>
+        </div>
       </div>
       {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
       {flash && <div style={{color:'var(--sea)',fontSize:13,marginBottom:10,fontWeight:600}}>{flash}</div>}
@@ -4447,7 +4476,7 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
       ) : sousSection === "registre" ? (
         <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
       ) : sousSection === "repos_hebdo" && (
-        <ReposHebdoRH resto={restoActif} unite={uniteActive} />
+        <ReposHebdoRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
       )}
       {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>

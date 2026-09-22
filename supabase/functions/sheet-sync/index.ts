@@ -383,6 +383,45 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, archives: salaries.length, onglet: titreOnglet });
     }
 
+    // ---- Export du suivi "Repos hebdo non pris" d'un établissement/unité/mois vers un
+    // onglet dédié du Sheet ("Repos <resto> <unite> <mois>"), pour qu'Océane puisse le
+    // réimporter ailleurs (paie...). Réservé au superviseur. ----
+    if (action === "exporterReposHebdo") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+      const { resto, unite, mois } = corps;
+      if (!resto || !unite || !mois) return json({ error: "champs_manquants" }, 400);
+
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/rh_repos_hebdo?resto=eq.${encodeURIComponent(resto)}&unite=eq.${encodeURIComponent(unite)}&mois=eq.${encodeURIComponent(mois)}&order=nom.asc`,
+        { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
+      );
+      if (!res.ok) return json({ error: "lecture_echouee", detail: await res.text() }, 500);
+      const lignes = await res.json();
+
+      const grille: string[][] = [["UNITE", "NOM", "PRENOM", "SALAIRE NET", "NET / JOUR", "REPOS NON PRIS", "MONTANT A PAYER"]];
+      for (const l of lignes as Record<string, unknown>[]) {
+        const salaire = typeof l.salaire_net === "number" ? l.salaire_net : null;
+        const netJour = salaire != null ? salaire / 30 : null;
+        const reposNonPris = typeof l.repos_non_pris === "number" ? l.repos_non_pris : 0;
+        const montant = netJour != null ? netJour * reposNonPris : null;
+        grille.push([
+          String(l.unite ?? ""), String(l.nom ?? ""), String(l.prenom ?? ""),
+          salaire != null ? String(salaire) : "", netJour != null ? netJour.toFixed(2) : "",
+          String(reposNonPris), montant != null ? montant.toFixed(2) : "",
+        ]);
+      }
+
+      const titreOnglet = `Repos ${resto} ${unite} ${mois}`.slice(0, 100);
+      const jeton = await jetonAcces();
+      await assurerOnglet(jeton, titreOnglet);
+      await ecrireGrilleComplete(jeton, titreOnglet, grille);
+
+      return json({ ok: true, exportes: lignes.length, onglet: titreOnglet });
+    }
+
     // ---- Rattrapage en un clic : relit tout le Sheet et crée en base les salariés qui
     // s'y trouvent déjà mais que l'app n'a jamais reçus (onboardés avant que la synchro
     // automatique ne soit en place). Réservé au superviseur. Les fiches déjà existantes en
