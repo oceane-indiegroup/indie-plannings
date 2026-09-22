@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "./supabaseClient";
 // Photo de fond de l'écran d'accueil : chargée en chemin public (pas un import), pour que le
 // build ne casse jamais si le fichier est absent ou pas encore uploadé — au pire, pas de photo.
@@ -3633,19 +3634,33 @@ function PastilleCouleur({ valeur, taille = 20, onClick, titre }) {
 }
 function SelecteurCouleurLigne({ valeur, onChoisir }) {
   const [ouvert, setOuvert] = useState(false);
+  const [pos, setPos] = useState(null);
+  const ancre = useRef(null);
+  // Le tableau des salariés défile dans un conteneur à hauteur limitée (overflow:auto) :
+  // un menu positionné en "absolute" y serait rogné dès que la ligne n'est pas tout en
+  // haut. On le sort donc du tableau (portal) et on le positionne en "fixed" par rapport
+  // à l'écran, calculé depuis la position réelle du bouton au moment du clic.
+  function ouvrir() {
+    if (ancre.current) {
+      const r = ancre.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 128) });
+    }
+    setOuvert(true);
+  }
   return (
-    <span style={{position:'relative',display:'inline-block'}}>
-      <PastilleCouleur valeur={valeur} titre="Couleur de la ligne" onClick={()=>setOuvert(!ouvert)} />
-      {ouvert && (
+    <span style={{position:'relative',display:'inline-block'}} ref={ancre}>
+      <PastilleCouleur valeur={valeur} titre="Couleur de la ligne" onClick={ouvrir} />
+      {ouvert && pos && createPortal(
         <>
-          <div style={{position:'fixed',inset:0,zIndex:40}} onClick={()=>setOuvert(false)} />
-          <div className="ig-card" style={{position:'absolute',top:'100%',right:0,marginTop:4,zIndex:41,padding:8,display:'flex',gap:6,flexWrap:'wrap',width:120,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+          <div style={{position:'fixed',inset:0,zIndex:200}} onClick={()=>setOuvert(false)} />
+          <div className="ig-card" style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:8,display:'flex',gap:6,flexWrap:'wrap',width:120,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
             {RH_PALETTE_COULEURS.map((p) => (
               <PastilleCouleur key={p.valeur || 'aucune'} valeur={p.valeur} titre={p.label} taille={22}
                 onClick={()=>{ onChoisir(p.valeur || null); setOuvert(false); }} />
             ))}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </span>
   );
