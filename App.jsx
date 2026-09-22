@@ -4236,7 +4236,10 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     const r = await RhSheetSync.importerTout(restoActif || undefined);
     setImportBusy(false);
     if (!r.ok) { setImportMsg(`Échec de l'import : ${r.erreur || "erreur inconnue"}`); return; }
-    setImportMsg(r.importes > 0 ? `${r.importes} salarié${r.importes>1?'s':''} importé${r.importes>1?'s':''} depuis le Sheet.` : "Rien à importer : tout est déjà à jour.");
+    const morceaux = [];
+    if (r.importes > 0) morceaux.push(`${r.importes} nouvelle${r.importes>1?'s':''} fiche${r.importes>1?'s':''}`);
+    if (r.completes > 0) morceaux.push(`${r.completes} fiche${r.completes>1?'s':''} complétée${r.completes>1?'s':''} (dates/heures manquantes)`);
+    setImportMsg(morceaux.length > 0 ? `Import terminé : ${morceaux.join(", ")}.` : "Rien à importer : tout est déjà à jour.");
     setRefreshKey((k) => k + 1);
   }
 
