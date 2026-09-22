@@ -3700,6 +3700,62 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
   );
 }
 
+// ---------- Filtre par colonne façon tableur (menu déroulant : tri + case à cocher par valeur) ----------
+const RH_DATE_CHAMPS = new Set(["date_debut", "date_fin", "date_prolongation_fin"]);
+function rhValeurBrute(s, cle) {
+  if (cle === "staff_party") return s.staff_party ? "Oui" : "Non";
+  const v = s[cle];
+  return (v === null || v === undefined || v === "") ? "" : String(v);
+}
+function rhValeurLabel(cle, brute) {
+  if (brute === "") return "(Vides)";
+  if (RH_DATE_CHAMPS.has(cle)) return fmtDate(new Date(brute + "T00:00:00"));
+  return brute;
+}
+
+function MenuFiltreColonne({ options, selection, onValider, onTrier, onFermer }) {
+  const [brouillon, setBrouillon] = useState(() => new Set(selection || options.map((o) => o.brute)));
+  const [recherche, setRecherche] = useState("");
+  const visibles = options.filter((o) => normTxt(o.label).includes(normTxt(recherche)));
+
+  function toggle(brute) {
+    const next = new Set(brouillon);
+    if (next.has(brute)) next.delete(brute); else next.add(brute);
+    setBrouillon(next);
+  }
+
+  return (
+    <>
+      <div style={{position:'fixed',inset:0,zIndex:40}} onClick={onFermer} />
+      <div className="ig-card" style={{position:'absolute',top:'100%',left:0,marginTop:4,zIndex:41,width:235,padding:10,fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:13,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{width:'100%',justifyContent:'flex-start',marginBottom:4}} onClick={()=>{ onTrier('asc'); onFermer(); }}>↑ Trier de A à Z</button>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{width:'100%',justifyContent:'flex-start',marginBottom:8}} onClick={()=>{ onTrier('desc'); onFermer(); }}>↓ Trier de Z à A</button>
+        <div style={{borderTop:'1px solid var(--sand-2)',paddingTop:8,marginBottom:8}}>
+          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher…" style={{width:'100%',padding:'5px 8px',fontSize:12,borderRadius:7,border:'1.5px solid var(--line)',marginBottom:6}} />
+          <div style={{fontSize:11,marginBottom:6}}>
+            <a href="#" onClick={(e)=>{ e.preventDefault(); setBrouillon(new Set(options.map((o)=>o.brute))); }} style={{color:'var(--sea)',fontWeight:600}}>Tout sélectionner</a>
+            {" – "}
+            <a href="#" onClick={(e)=>{ e.preventDefault(); setBrouillon(new Set()); }} style={{color:'var(--sea)',fontWeight:600}}>Effacer</a>
+          </div>
+          <div style={{maxHeight:200,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
+            {visibles.map((o) => (
+              <label key={o.brute} style={{display:'flex',alignItems:'center',gap:7,fontSize:12.5,cursor:'pointer'}}>
+                <input type="checkbox" checked={brouillon.has(o.brute)} onChange={()=>toggle(o.brute)} />
+                {o.label}
+              </label>
+            ))}
+            {visibles.length === 0 && <div className="ig-muted" style={{fontSize:12}}>Aucune valeur.</div>}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{flex:1}} onClick={onFermer}>Annuler</button>
+          <button className="ig-btn ig-btn-primary ig-btn-sm" style={{flex:1}} onClick={()=>{ onValider(brouillon.size === options.length ? null : brouillon); onFermer(); }}>OK</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ---------- Liste des salariés RH d'un établissement + unité ----------
 function ListeSalariesRH({ resto, unite, superviseur }) {
   const [liste, setListe] = useState(null);
@@ -3707,7 +3763,10 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [edition, setEdition] = useState(null);
   const [flash, setFlash] = useState("");
   const [erreur, setErreur] = useState("");
-  const [filtres, setFiltres] = useState({}); // { [cle]: texte tapé } — filtre par colonne, façon Excel
+  const [filtresValeurs, setFiltresValeurs] = useState({}); // { [cle]: Set des valeurs cochées } — absent = tout affiché
+  const [menuOuvert, setMenuOuvert] = useState(null); // clé de la colonne dont le menu est ouvert
+  const [triColonne, setTriColonne] = useState(null);
+  const [triSens, setTriSens] = useState('asc');
 
   useEffect(() => {
     let on = true;
@@ -3744,42 +3803,53 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
 
-  function setFiltre(cle, valeur) { setFiltres({ ...filtres, [cle]: valeur }); }
-  const filtresActifs = Object.values(filtres).some((v) => v);
+  const filtresActifs = Object.keys(filtresValeurs).length > 0;
 
-  // Filtre colonne par colonne, façon Excel : chaque case tapée doit correspondre
-  // (texte : "contient", insensible aux accents/majuscules ; Staff Party : Oui/Non exact).
+  // Filtre colonne par colonne, façon tableur : une colonne filtrée ne garde que les
+  // lignes dont la valeur fait partie des cases cochées dans son menu.
   function passeFiltres(s) {
     return RH_CHAMPS_BASE.every((c) => {
-      const f = filtres[c.cle];
-      if (!f) return true;
-      if (c.cle === "staff_party") return f === "Oui" ? !!s.staff_party : !s.staff_party;
-      return normTxt(String(s[c.cle] ?? "")).includes(normTxt(f));
+      const sel = filtresValeurs[c.cle];
+      if (!sel) return true;
+      return sel.has(rhValeurBrute(s, c.cle));
     });
   }
-  function triAlpha(a, b) {
-    return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+  function comparer(a, b) {
+    if (!triColonne) return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+    const cmp = rhValeurBrute(a, triColonne).localeCompare(rhValeurBrute(b, triColonne), "fr", { numeric: true });
+    return triSens === "desc" ? -cmp : cmp;
   }
   const filtres_ = liste.filter(passeFiltres);
   // Les salariés en fin de contrat (date de fin renseignée) passent en fin de liste,
   // surlignés, pour que l'effectif actif reste visible en premier.
   const listeAffichee = [
-    ...filtres_.filter((s) => !s.date_fin).sort(triAlpha),
-    ...filtres_.filter((s) => !!s.date_fin).sort(triAlpha),
+    ...filtres_.filter((s) => !s.date_fin).sort(comparer),
+    ...filtres_.filter((s) => !!s.date_fin).sort(comparer),
   ];
 
   function entete(c, largeur) {
+    const options = Array.from(new Set(liste.map((s) => rhValeurBrute(s, c.cle))))
+      .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+      .map((brute) => ({ brute, label: rhValeurLabel(c.cle, brute) }));
+    const selection = filtresValeurs[c.cle] || null;
     return (
-      <th key={c.cle} style={{padding:'8px 10px'}}>
-        <div style={{marginBottom:5}}>{c.label}</div>
-        {c.cle === "staff_party" ? (
-          <select value={filtres.staff_party || ""} onChange={(e)=>setFiltre('staff_party', e.target.value)} style={{width:largeur,fontSize:12,padding:'4px 6px',borderRadius:7,border:'1.5px solid var(--line)',fontWeight:400}}>
-            <option value="">Tous</option>
-            <option value="Oui">Oui</option>
-            <option value="Non">Non</option>
-          </select>
-        ) : (
-          <input value={filtres[c.cle] || ""} onChange={(e)=>setFiltre(c.cle, e.target.value)} placeholder="Filtrer…" style={{width:largeur,fontSize:12,padding:'4px 6px',borderRadius:7,border:'1.5px solid var(--line)',fontWeight:400}} />
+      <th key={c.cle} style={{padding:'8px 10px',position:'relative',minWidth:largeur}}>
+        <button onClick={()=>setMenuOuvert(menuOuvert === c.cle ? null : c.cle)}
+          style={{display:'flex',alignItems:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontWeight:700,padding:0,color: selection ? 'var(--coral-d)' : 'inherit'}}>
+          {c.label} <span style={{fontSize:10}}>▾</span>
+        </button>
+        {menuOuvert === c.cle && (
+          <MenuFiltreColonne
+            options={options}
+            selection={selection}
+            onValider={(nouvelle)=>{
+              const next = { ...filtresValeurs };
+              if (nouvelle === null) delete next[c.cle]; else next[c.cle] = nouvelle;
+              setFiltresValeurs(next);
+            }}
+            onTrier={(sens)=>{ setTriColonne(c.cle); setTriSens(sens); }}
+            onFermer={()=>setMenuOuvert(null)}
+          />
         )}
       </th>
     );
@@ -3789,7 +3859,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     <div>
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
-        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setFiltres({})}>✕ Réinitialiser les filtres</button>}
+        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setFiltresValeurs({})}>✕ Réinitialiser les filtres</button>}
       </div>
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
