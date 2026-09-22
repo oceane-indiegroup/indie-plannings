@@ -456,6 +456,48 @@ const RhSalaries = {
   },
 };
 
+// ---------- Repos hebdomadaire non pris (suivi mensuel + calcul du montant à payer) ----------
+const RhReposHebdo = {
+  async list(resto, unite, mois) {
+    const { data, error } = await supabase.from("rh_repos_hebdo").select("*")
+      .eq("resto", resto).eq("unite", unite).eq("mois", mois).order("nom", { ascending: true });
+    if (error) { console.error("RhReposHebdo.list:", error.message); return []; }
+    return data || [];
+  },
+  // Ajoute au mois choisi tous les salariés réellement sous contrat ce mois-là (pas les
+  // fiches "provisoire", pas encore vraiment onboardées), sans jamais toucher aux lignes
+  // déjà présentes (leur "repos non pris" déjà saisi n'est donc jamais écrasé).
+  async genererMois(resto, unite, mois) {
+    const debut = `${mois}-01`;
+    const finDate = new Date(Number(mois.slice(0, 4)), Number(mois.slice(5, 7)), 0);
+    const fin = finDate.toISOString().slice(0, 10);
+    const { data: salaries, error } = await supabase.from("rh_salaries").select("id, nom, prenom, salaire_net")
+      .eq("resto", resto).eq("unite", unite).eq("provisoire", false)
+      .not("date_debut", "is", null).lte("date_debut", fin)
+      .or(`date_fin.is.null,date_fin.gte.${debut}`);
+    if (error) { console.error("RhReposHebdo.genererMois (lecture):", error.message); return false; }
+    if (!salaries || salaries.length === 0) return true;
+    const lignes = salaries.map((s) => ({
+      resto, unite, mois, salarie_id: s.id, nom: s.nom, prenom: s.prenom, salaire_net: s.salaire_net,
+    }));
+    const { error: err2 } = await supabase.from("rh_repos_hebdo").upsert(lignes, {
+      onConflict: "resto,unite,mois,salarie_id", ignoreDuplicates: true,
+    });
+    if (err2) { console.error("RhReposHebdo.genererMois (écriture):", err2.message); return false; }
+    return true;
+  },
+  async maj(id, patch) {
+    const { data, error } = await supabase.from("rh_repos_hebdo").update(patch).eq("id", id).select().single();
+    if (error) { console.error("RhReposHebdo.maj:", error.message); return null; }
+    return data;
+  },
+  async supprimer(id) {
+    const { error } = await supabase.from("rh_repos_hebdo").delete().eq("id", id);
+    if (error) { console.error("RhReposHebdo.supprimer:", error.message); return false; }
+    return true;
+  },
+};
+
 // ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
 // Robustesse V2 : chaque confirmation n'écrit qu'UNE ligne, donc deux salariés
 // qui pointent en même temps ne s'écrasent plus. La forme rendue en mémoire est
@@ -4192,6 +4234,125 @@ function AccesRHModal({ restaurants, onClose }) {
   );
 }
 
+// ---------- Repos hebdomadaire non pris : suivi mensuel + montant à payer ----------
+function ReposHebdoRH({ resto, unite }) {
+  const auj = new Date();
+  const [annee, setAnnee] = useState(auj.getFullYear());
+  const [moisNum, setMoisNum] = useState(auj.getMonth() + 1); // 1..12
+  const mois = `${annee}-${String(moisNum).padStart(2, "0")}`;
+  const [liste, setListe] = useState(null);
+  const [genBusy, setGenBusy] = useState(false);
+  const [erreur, setErreur] = useState("");
+  const [flash, setFlash] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    setListe(null);
+    RhReposHebdo.list(resto, unite, mois).then((l) => { if (on) setListe(l); });
+    return () => { on = false; };
+  }, [resto, unite, mois]);
+
+  function montrerErreur(msg) { setErreur(msg); setTimeout(() => setErreur(""), 6000); }
+  function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 6000); }
+
+  async function generer() {
+    if (genBusy) return;
+    setGenBusy(true); setErreur("");
+    const ok = await RhReposHebdo.genererMois(resto, unite, mois);
+    if (ok) {
+      const l = await RhReposHebdo.list(resto, unite, mois);
+      setListe(l);
+      montrerFlash("Liste mise à jour avec les salariés actuellement sous contrat pour ce mois.");
+    } else montrerErreur("Échec de la génération. Réessayez.");
+    setGenBusy(false);
+  }
+
+  async function majRepos(l, valeur) {
+    const n = valeur === "" ? 0 : Number(valeur);
+    setListe(liste.map((x) => (x.id === l.id ? { ...x, repos_non_pris: n } : x)));
+    const maj = await RhReposHebdo.maj(l.id, { repos_non_pris: n });
+    if (!maj) montrerErreur("La sauvegarde a échoué pour cette case. Réessayez.");
+  }
+
+  async function retirer(l) {
+    if (!confirm(`Retirer ${l.prenom || ""} ${l.nom} de ce mois ?`)) return;
+    const ok = await RhReposHebdo.supprimer(l.id);
+    if (ok) setListe(liste.filter((x) => x.id !== l.id));
+    else montrerErreur("La suppression a échoué. Réessayez.");
+  }
+
+  if (liste === null) return <div className="ig-muted">Chargement…</div>;
+
+  // Taux journalier = salaire net ÷ 30 (convention standard), à ajuster si besoin depuis la fiche.
+  const netJour = (l) => (l.salaire_net != null ? l.salaire_net / 30 : null);
+  const montant = (l) => (netJour(l) != null ? netJour(l) * (l.repos_non_pris || 0) : null);
+  const totalRepos = liste.reduce((s, l) => s + (Number(l.repos_non_pris) || 0), 0);
+  const totalAPayer = liste.reduce((s, l) => s + (montant(l) || 0), 0);
+  const fmtEuro = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+
+  return (
+    <div>
+      <div className="ig-noprint" style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee - 1)}>◀</button>
+        <span style={{fontWeight:700,minWidth:44,textAlign:'center'}}>{annee}</span>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee + 1)}>▶</button>
+        <div style={{display:'flex',gap:4,flexWrap:'wrap',marginLeft:10}}>
+          {MOIS_NOMS.map((n, i) => (
+            <button key={i} className={"ig-btn ig-btn-sm "+(moisNum===i+1?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setMoisNum(i + 1)}>{n.slice(0,3)}</button>
+          ))}
+        </div>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto'}} onClick={generer} disabled={genBusy}>
+          {genBusy ? "Génération…" : "↻ Générer la liste du mois"}
+        </button>
+      </div>
+      {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
+      {flash && <div style={{color:'var(--sea)',fontSize:13,marginBottom:10,fontWeight:600}}>{flash}</div>}
+      <div className="ig-card" style={{padding:'12px 16px',marginBottom:14,display:'flex',gap:24,flexWrap:'wrap'}}>
+        <div><div className="ig-muted" style={{fontSize:12}}>Salariés</div><div style={{fontWeight:800,fontSize:18}}>{liste.length}</div></div>
+        <div><div className="ig-muted" style={{fontSize:12}}>Total repos non pris</div><div style={{fontWeight:800,fontSize:18}}>{totalRepos}</div></div>
+        <div><div className="ig-muted" style={{fontSize:12}}>Total à payer</div><div style={{fontWeight:800,fontSize:18,color:'var(--coral-d)'}}>{fmtEuro(totalAPayer)}</div></div>
+      </div>
+      {liste.length === 0 ? (
+        <div className="ig-muted">Aucun salarié pour {MOIS_NOMS[moisNum-1]} {annee}. Clique sur "↻ Générer la liste du mois" pour la remplir depuis les fiches sous contrat.</div>
+      ) : (
+        <div className="ig-card" style={{padding:'6px 10px',overflow:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead>
+              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)'}}>
+                <th style={{padding:'8px 10px'}}>Unité</th>
+                <th style={{padding:'8px 10px'}}>Nom</th>
+                <th style={{padding:'8px 10px'}}>Prénom</th>
+                <th style={{padding:'8px 10px'}}>Salaire net</th>
+                <th style={{padding:'8px 10px'}}>Net / jour</th>
+                <th style={{padding:'8px 10px'}}>Repos non pris</th>
+                <th style={{padding:'8px 10px'}}>Montant à payer</th>
+                <th style={{padding:'8px 10px'}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {liste.map((l) => (
+                <tr key={l.id} style={{borderTop:'1px solid var(--sand-2)'}}>
+                  <td style={{padding:'6px 10px'}}>{unite === "SALLE" ? "Salle" : "Cuisine"}</td>
+                  <td style={{padding:'6px 10px',fontWeight:800}}>{l.nom}</td>
+                  <td style={{padding:'6px 10px'}}>{l.prenom}</td>
+                  <td style={{padding:'6px 10px'}}>{l.salaire_net != null ? `${l.salaire_net} €` : <span className="ig-muted">—</span>}</td>
+                  <td style={{padding:'6px 10px'}}>{netJour(l) != null ? fmtEuro(netJour(l)) : <span className="ig-muted">—</span>}</td>
+                  <td style={{padding:'6px 10px'}}>
+                    <input type="number" min="0" className="ig-cell" style={{width:70}} value={l.repos_non_pris}
+                      onChange={(e)=>majRepos(l, e.target.value)} />
+                  </td>
+                  <td style={{padding:'6px 10px',fontWeight:700}}>{montant(l) != null ? fmtEuro(montant(l)) : <span className="ig-muted">—</span>}</td>
+                  <td style={{padding:'6px 10px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>retirer(l)} style={{color:'var(--coral-d)'}}>Retirer</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, onRenommerEtablissement, onSupprimerEtablissement, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
@@ -4205,7 +4366,10 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
   // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
   // est la première ; d'autres sections viendront s'ajouter à côté par la suite.
   const [sousSection, setSousSection] = useState(null);
-  const SOUS_SECTIONS_RH = [{ cle: "registre", label: "Registre embauche" }];
+  const SOUS_SECTIONS_RH = [
+    { cle: "registre", label: "Registre embauche" },
+    { cle: "repos_hebdo", label: "Repos hebdo non pris" },
+  ];
 
   useEffect(() => {
     let on = true;
@@ -4280,8 +4444,10 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
             ))}
           </div>
         </div>
-      ) : sousSection === "registre" && (
+      ) : sousSection === "registre" ? (
         <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      ) : sousSection === "repos_hebdo" && (
+        <ReposHebdoRH resto={restoActif} unite={uniteActive} />
       )}
       {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>

@@ -361,6 +361,60 @@ create policy directeur_scope_previsionnel on public.rh_previsionnel
   with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_previsionnel.resto and a.unite = rh_previsionnel.unite));
 
 -- ============================================================================
+--  Repos hebdomadaire non pris — suivi mensuel par salarié, avec calcul du
+--  montant à payer (indemnisation d'un repos hebdo obligatoire non accordé)
+-- ============================================================================
+--  Une ligne par salarié RÉELLEMENT sous contrat (provisoire = false) et par mois
+--  ("mois" au format 'AAAA-MM'). La liste du mois se génère automatiquement depuis
+--  rh_salaries (bornée par date_debut/date_fin, comme le Registre Embauche) : le
+--  directeur n'a plus qu'à saisir le nombre de repos non pris, le reste (net/jour,
+--  montant à payer, récap) se calcule tout seul. "nom"/"prenom"/"salaire_net" sont
+--  figés au moment de la génération du mois (comme l'ancien Google Sheet), pour que
+--  l'historique de paiement ne bouge jamais rétroactivement si la fiche RH change
+--  ensuite ; "salarie_id" reste un lien vers la fiche pour le confort d'affichage,
+--  mais n'est pas requis (mis à null si la fiche est supprimée un jour).
+create table if not exists public.rh_repos_hebdo (
+  id             bigint generated always as identity primary key,
+  resto          text not null,
+  unite          text not null check (unite in ('SALLE','CUISINE')),
+  mois           text not null, -- 'AAAA-MM', ex: '2026-01'
+  salarie_id     bigint references public.rh_salaries(id) on delete set null,
+  nom            text not null,
+  prenom         text,
+  salaire_net    numeric,
+  repos_non_pris numeric not null default 0,
+  cree_le        timestamptz not null default now(),
+  maj_le         timestamptz not null default now(),
+  unique (resto, unite, mois, salarie_id)
+);
+create index if not exists rh_repos_hebdo_scope_idx on public.rh_repos_hebdo (resto, unite, mois);
+
+create or replace function public.rh_repos_hebdo_touch()
+returns trigger language plpgsql as $$
+begin
+  new.maj_le = now();
+  return new;
+end;
+$$;
+drop trigger if exists rh_repos_hebdo_touch_trg on public.rh_repos_hebdo;
+create trigger rh_repos_hebdo_touch_trg before update on public.rh_repos_hebdo
+  for each row execute function public.rh_repos_hebdo_touch();
+
+alter table public.rh_repos_hebdo enable row level security;
+
+drop policy if exists superviseur_all_repos_hebdo on public.rh_repos_hebdo;
+create policy superviseur_all_repos_hebdo on public.rh_repos_hebdo
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur));
+
+drop policy if exists directeur_scope_repos_hebdo on public.rh_repos_hebdo;
+create policy directeur_scope_repos_hebdo on public.rh_repos_hebdo
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_repos_hebdo.resto and a.unite = rh_repos_hebdo.unite))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_repos_hebdo.resto and a.unite = rh_repos_hebdo.unite));
+
+-- ============================================================================
 --  Documents RH : dossier par salarié, archivé par établissement/unité/année
 -- ============================================================================
 --  Les documents (contrats, pièces d'identité...) sont gérés entièrement par le
