@@ -366,6 +366,18 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Archive de fin de saison : copie toutes les fiches d'une saison donnée dans un onglet
+  // dédié du Google Sheet. N'efface rien en base. Réservé au superviseur.
+  async archiverSaison(saison) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "archiverSaison", saison } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
 };
 
 // ---------- Gestion des accès RH (créer/retirer un compte directeur/chef) ----------
@@ -3814,20 +3826,43 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [triColonne, setTriColonne] = useState(null);
   const [triSens, setTriSens] = useState('asc');
   const [filtreCouleurs, setFiltreCouleurs] = useState(null); // Set des couleurs affichées, null = toutes
+  const [saisonActive, setSaisonActive] = useState(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
 
   useEffect(() => {
     let on = true;
     setListe(null);
-    RhSalaries.list(resto, unite).then((l) => { if (on) setListe(l); });
+    RhSalaries.list(resto, unite).then((l) => {
+      if (!on) return;
+      setListe(l);
+      const saisons = Array.from(new Set(l.map((s) => s.saison))).sort();
+      setSaisonActive(saisons.length ? saisons[saisons.length - 1] : String(new Date().getFullYear()));
+    });
     return () => { on = false; };
   }, [resto, unite]);
 
   function montrerFlash(msg) { setFlash(msg); setErreur(""); setTimeout(() => setFlash(""), 5000); }
   function montrerErreur(msg) { setErreur(msg); setTimeout(() => setErreur(""), 8000); }
+  function nouvelleSaison() {
+    const saisie = prompt("Libellé de la nouvelle saison (ex : 2027) :");
+    if (saisie && saisie.trim()) setSaisonActive(saisie.trim());
+  }
+  // Copie toutes les fiches de la saison affichée dans un onglet dédié du Google Sheet
+  // ("Archive <saison>"). N'efface rien en base : les fiches restent consultables ici en
+  // rebasculant sur l'onglet de cette saison. Réservé au superviseur.
+  async function archiverSaisonCourante() {
+    if (archiveBusy) return;
+    if (!confirm(`Archiver la saison ${saisonActive} vers le Google Sheet (onglet "Archive ${saisonActive}") ?`)) return;
+    setArchiveBusy(true); setErreur("");
+    const r = await RhSheetSync.archiverSaison(saisonActive);
+    setArchiveBusy(false);
+    if (!r.ok) { montrerErreur(`Échec de l'archivage : ${r.erreur || "erreur inconnue"}`); return; }
+    montrerFlash(r.archives > 0 ? `${r.archives} fiche${r.archives>1?'s':''} archivée${r.archives>1?'s':''} dans l'onglet "${r.onglet}".` : "Rien à archiver pour cette saison.");
+  }
 
   async function creer(patch) {
     const salarieId = idSalarie({ n: patch.nom, p: patch.prenom });
-    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, ...patch });
+    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, saison: saisonActive, ...patch });
     if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté."); }
     else montrerErreur("Impossible d'ajouter ce salarié (peut-être une fiche existe déjà pour ce nom). Vérifiez et réessayez.");
   }
@@ -3868,7 +3903,10 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     const cmp = rhValeurBrute(a, triColonne).localeCompare(rhValeurBrute(b, triColonne), "fr", { numeric: true });
     return triSens === "desc" ? -cmp : cmp;
   }
-  const filtres_ = liste.filter(passeFiltres);
+  const saisons = Array.from(new Set(liste.map((s) => s.saison))).sort();
+  if (saisonActive && !saisons.includes(saisonActive)) saisons.push(saisonActive);
+  const listeSaison = liste.filter((s) => s.saison === saisonActive);
+  const filtres_ = listeSaison.filter(passeFiltres);
   // Les salariés en fin de contrat (date de fin renseignée) passent en fin de liste,
   // surlignés, pour que l'effectif actif reste visible en premier.
   const listeAffichee = [
@@ -3877,7 +3915,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   ];
 
   function entete(c, largeur) {
-    const options = Array.from(new Set(liste.map((s) => rhValeurBrute(s, c.cle))))
+    const options = Array.from(new Set(listeSaison.map((s) => rhValeurBrute(s, c.cle))))
       .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
       .map((brute) => ({ brute, label: rhValeurLabel(c.cle, brute) }));
     const selection = filtresValeurs[c.cle] || null;
@@ -3906,6 +3944,17 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 
   return (
     <div>
+      <div className="ig-noprint" style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
+        {saisons.map((s) => (
+          <button key={s} className={"ig-btn ig-btn-sm "+(saisonActive===s?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setSaisonActive(s)}>Saison {s}</button>
+        ))}
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={nouvelleSaison}>+ Nouvelle saison</button>
+        {superviseur && (
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverSaisonCourante} disabled={archiveBusy} style={{marginLeft:'auto'}}>
+            {archiveBusy ? "Archivage…" : `↓ Archiver la saison ${saisonActive} vers le Sheet`}
+          </button>
+        )}
+      </div>
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
         <div style={{display:'flex',alignItems:'center',gap:5}}>
@@ -3915,7 +3964,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
             return (
               <span key={p.valeur || 'aucune'} style={{opacity: actif ? 1 : .3}}>
                 <PastilleCouleur valeur={p.valeur} titre={p.label} taille={18} onClick={() => {
-                  const toutes = new Set(liste.map((x) => x.couleur || ""));
+                  const toutes = new Set(listeSaison.map((x) => x.couleur || ""));
                   const base = filtreCouleurs || new Set(toutes);
                   const next = new Set(base);
                   if (next.has(p.valeur)) next.delete(p.valeur); else next.add(p.valeur);

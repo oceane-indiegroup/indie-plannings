@@ -144,6 +144,10 @@ create table if not exists public.rh_salaries (
   resto                 text not null,
   unite                 text not null check (unite in ('SALLE','CUISINE')),
   salarie_id            text not null,
+  -- Saison de la fiche (ex: "2026") : permet d'archiver une saison sur le Google Sheet
+  -- puis de repartir sur une liste vide pour la saison suivante, sans jamais rien
+  -- supprimer — l'ancienne saison reste consultable dans l'appli via un onglet dédié.
+  saison                text not null default to_char(now(), 'YYYY'),
   -- champs modifiables par le directeur/chef
   nom text, prenom text, telephone text, email text, poste text,
   date_debut date, date_fin date, salaire_net numeric, loge text,
@@ -160,15 +164,30 @@ create table if not exists public.rh_salaries (
   contact_urgence text,
   cree_le timestamptz not null default now(),
   maj_le  timestamptz not null default now(),
-  unique (resto, salarie_id)
+  unique (resto, salarie_id, saison)
 );
-create index if not exists rh_salaries_scope_idx on public.rh_salaries (resto, unite);
+create index if not exists rh_salaries_scope_idx on public.rh_salaries (resto, unite, saison);
 
 -- Ajout ultérieur (registre d'embauche) : "if not exists" pour rester sans risque
 -- à rejouer même si la table rh_salaries existe déjà.
 alter table public.rh_salaries add column if not exists staff_party boolean;
 alter table public.rh_salaries add column if not exists heures_contrat numeric;
 alter table public.rh_salaries add column if not exists date_prolongation_fin date;
+alter table public.rh_salaries add column if not exists saison text not null default to_char(now(), 'YYYY');
+
+-- La contrainte d'unicité portait à l'origine seulement sur (resto, salarie_id) : sans la
+-- saison dedans, réonboarder la même personne l'année suivante écraserait sa fiche archivée
+-- de la saison précédente au lieu d'en créer une nouvelle. Migration sans risque à rejouer.
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint where conname = 'rh_salaries_resto_salarie_id_key'
+  ) then
+    alter table public.rh_salaries drop constraint rh_salaries_resto_salarie_id_key;
+  end if;
+end $$;
+alter table public.rh_salaries drop constraint if exists rh_salaries_resto_salarie_id_saison_key;
+alter table public.rh_salaries add constraint rh_salaries_resto_salarie_id_saison_key unique (resto, salarie_id, saison);
 -- Couleur de la ligne dans le tableau RH (remplissage façon Excel), ex: '#FBE2DC'. NULL = aucune.
 alter table public.rh_salaries add column if not exists couleur text;
 

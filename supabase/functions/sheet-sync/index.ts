@@ -248,6 +248,43 @@ async function ecrireCellules(jeton: string, data: { range: string; values: stri
   if (!res.ok) throw new Error("sheet_ecriture_echec: " + (await res.text()));
 }
 
+// ---------- Helpers pour "archiverSaison" : écrit dans un ONGLET dédié (pas SHEET_TAB) ----------
+async function listerOnglets(jeton: string): Promise<string[]> {
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=sheets.properties.title`, {
+    headers: { Authorization: `Bearer ${jeton}` },
+  });
+  if (!res.ok) throw new Error("sheet_metadata_echec: " + (await res.text()));
+  const j = await res.json();
+  return (j.sheets || []).map((s: { properties: { title: string } }) => s.properties.title);
+}
+
+async function assurerOnglet(jeton: string, titre: string) {
+  const onglets = await listerOnglets(jeton);
+  if (onglets.includes(titre)) return;
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ requests: [{ addSheet: { properties: { title: titre } } }] }),
+  });
+  if (!res.ok) throw new Error("sheet_creation_onglet_echec: " + (await res.text()));
+}
+
+// Écrase entièrement le contenu d'un onglet avec une nouvelle grille : à chaque archivage
+// de la même saison, l'onglet repart d'une grille propre (pas d'accumulation de doublons).
+async function ecrireGrilleComplete(jeton: string, titre: string, grille: string[][]) {
+  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(`'${titre}'`)}:clear`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jeton}` },
+  });
+  if (!clearRes.ok) throw new Error("sheet_nettoyage_onglet_echec: " + (await clearRes.text()));
+  if (grille.length === 0) return;
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(`'${titre}'!A1`)}?valueInputOption=USER_ENTERED`,
+    { method: "PUT", headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" }, body: JSON.stringify({ values: grille }) },
+  );
+  if (!res.ok) throw new Error("sheet_ecriture_onglet_echec: " + (await res.text()));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   try {
@@ -256,6 +293,53 @@ Deno.serve(async (req: Request) => {
     }
     const corps = await req.json();
     const { action } = corps;
+
+    // ---- Archive de fin de saison : copie TOUTES les fiches salariés d'une saison donnée
+    // dans un onglet dédié du Sheet ("Archive <saison>"), tous établissements confondus.
+    // N'efface RIEN en base : les fiches restent consultables dans l'appli via l'onglet de
+    // saison correspondant. Réservé au superviseur. ----
+    if (action === "archiverSaison") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+      const { saison } = corps;
+      if (!saison) return json({ error: "champs_manquants" }, 400);
+
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/rh_salaries?saison=eq.${encodeURIComponent(saison)}&order=resto.asc,nom.asc`,
+        { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
+      );
+      if (!res.ok) return json({ error: "lecture_echouee", detail: await res.text() }, 500);
+      const salaries = await res.json();
+      if (salaries.length === 0) return json({ ok: true, archives: 0 });
+
+      const colonnes = [
+        "resto", "unite", "saison", "nom", "prenom", "poste", "telephone", "email",
+        "date_debut", "date_fin", "salaire_net", "heures_contrat", "loge", "staff_party",
+        "civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville",
+        "secu", "mutuelle", "affiliation_mutuelle", "iban", "bic", "salaire_brut", "vehicule",
+        "promesse_embauche", "periode_essai_jours", "date_fin_periode_essai", "type_contrat",
+        "heures_semaine", "heures_sup", "niveau", "echelon", "code_pcs", "due", "statut_payfit",
+        "contact_urgence",
+      ];
+      const grille: string[][] = [colonnes];
+      for (const s of salaries) {
+        grille.push(colonnes.map((c) => {
+          const v = (s as Record<string, unknown>)[c];
+          if (v === null || v === undefined) return "";
+          if (c === "mutuelle" || c === "staff_party") return v ? "Oui" : "Non";
+          return String(v);
+        }));
+      }
+
+      const titreOnglet = `Archive ${saison}`.slice(0, 100);
+      const jeton = await jetonAcces();
+      await assurerOnglet(jeton, titreOnglet);
+      await ecrireGrilleComplete(jeton, titreOnglet, grille);
+
+      return json({ ok: true, archives: salaries.length, onglet: titreOnglet });
+    }
 
     // ---- Rattrapage en un clic : relit tout le Sheet et crée en base les salariés qui
     // s'y trouvent déjà mais que l'app n'a jamais reçus (onboardés avant que la synchro
@@ -305,7 +389,7 @@ Deno.serve(async (req: Request) => {
 
       if (aInserer.length === 0) return json({ ok: true, importes: 0, ignores });
 
-      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id`, {
+      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison`, {
         method: "POST",
         headers: {
           apikey: SERVICE_ROLE_KEY,
@@ -348,7 +432,7 @@ Deno.serve(async (req: Request) => {
       const mutuelleVal = valeurPour("mutuelle");
       if (mutuelleVal !== null) ligne.mutuelle = normaliser(mutuelleVal).startsWith("oui");
 
-      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id`, {
+      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison`, {
         method: "POST",
         headers: {
           apikey: SERVICE_ROLE_KEY,
