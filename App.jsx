@@ -2154,14 +2154,44 @@ function ManagerView({ resto, onBack, superviseur }) {
     }
   }
 
-  // Équipe effective : salariés du fichier + ajouts, moins ceux dont le contrat est terminé.
+  // Salariés RH (saison en cours de cet établissement) : intégrés automatiquement au
+  // planning, bornés par leur date de début/fin de contrat — sans ressaisie manuelle.
+  const [rhTeam, setRhTeam] = useState([]);
+  useEffect(() => {
+    let on = true;
+    RhSalaries.list(resto).then((lignes) => {
+      if (!on) return;
+      if (lignes.length === 0) { setRhTeam([]); return; }
+      const derniere = [...new Set(lignes.map((l) => l.saison))].sort().slice(-1)[0];
+      setRhTeam(
+        lignes.filter((l) => l.saison === derniere).map((l) => ({
+          n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—", u: l.unite,
+          h: l.heures_contrat || l.heures_semaine || 35,
+          _rhDebut: l.date_debut, _rhFin: l.date_fin,
+        }))
+      );
+    });
+    return () => { on = false; };
+  }, [resto]);
+
+  // Équipe effective : salariés du fichier + ajouts manuels + salariés RH (bornés par leur
+  // contrat), moins ceux dont le contrat est terminé.
   const team = useMemo(() => {
     const base = EMPLOYEES.filter((e) => e.r === resto);
     const ajouts = roster.ajouts || [];
     const ajoutIds = new Set(ajouts.map((a) => idSalarie(a)));
-    // Une fiche "ajoutée" a priorité sur la fiche du fichier de même identifiant
+    // Un ajout manuel a priorité sur la fiche RH de même identifiant (permet de corriger
+    // ses heures/poste dans Planning sans attendre une mise à jour de la fiche RH).
+    const rhActifs = rhTeam.filter((e) => {
+      if (ajoutIds.has(idSalarie(e))) return false;
+      if (e._rhDebut && sem < e._rhDebut) return false; // contrat pas encore commencé cette semaine
+      if (e._rhFin && sem > e._rhFin) return false; // contrat terminé avant cette semaine
+      return true;
+    });
+    const rhIds = new Set(rhActifs.map((e) => idSalarie(e)));
+    // Une fiche "ajoutée" ou RH a priorité sur la fiche du fichier de même identifiant
     // (permet de corriger ses heures / son poste sans créer de doublon).
-    const tous = base.filter((e) => !ajoutIds.has(idSalarie(e))).concat(ajouts);
+    const tous = base.filter((e) => !ajoutIds.has(idSalarie(e)) && !rhIds.has(idSalarie(e))).concat(ajouts).concat(rhActifs);
     const supprimes = new Set(roster.supprimes || []);
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
@@ -2170,7 +2200,7 @@ function ManagerView({ resto, onBack, superviseur }) {
       // semaine affichée est <= date de fin ; masqué pour les semaines entièrement après.
       return !fin || sem <= fin;
     });
-  }, [resto, roster, sem]);
+  }, [resto, roster, sem, rhTeam]);
 
   // Équipe filtrée par la recherche (nom/prénom) et le filtre d'unité (salle/cuisine).
   const teamFiltre = useMemo(() => {
