@@ -3694,6 +3694,55 @@ function MenuFiltreColonne({ options, selection, onValider, onTrier, onFermer })
   );
 }
 
+// ---------- Menu déroulant "Couleur" (même look que MenuFiltreColonne) : trier par
+// couleur (celle choisie remonte en premier) + filtrer les couleurs affichées. ----------
+function MenuCouleur({ filtreCouleurs, triCouleur, toutesLesCouleurs, onFiltrer, onTrier, onFermer }) {
+  const [brouillon, setBrouillon] = useState(() => new Set(filtreCouleurs || toutesLesCouleurs));
+
+  function toggle(v) {
+    const next = new Set(brouillon);
+    if (next.has(v)) next.delete(v); else next.add(v);
+    setBrouillon(next);
+  }
+
+  return (
+    <>
+      <div style={{position:'fixed',inset:0,zIndex:40}} onClick={onFermer} />
+      <div className="ig-card" style={{position:'absolute',top:'100%',right:0,marginTop:4,zIndex:41,width:220,padding:10,fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:13,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+        <div className="ig-muted" style={{fontSize:11,marginBottom:6}}>Trier : cette couleur en premier</div>
+        <div style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+          {RH_PALETTE_COULEURS.filter((p) => p.valeur).map((p) => (
+            <span key={p.valeur} style={{opacity: triCouleur === p.valeur ? 1 : .4, outline: triCouleur === p.valeur ? '2px solid var(--ink)' : 'none', borderRadius:6}}>
+              <PastilleCouleur valeur={p.valeur} titre={p.label} taille={20} onClick={() => onTrier(triCouleur === p.valeur ? null : p.valeur)} />
+            </span>
+          ))}
+          {triCouleur && <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{padding:'2px 8px'}} onClick={()=>onTrier(null)}>✕</button>}
+        </div>
+        <div style={{borderTop:'1px solid var(--sand-2)',paddingTop:8,marginBottom:8}}>
+          <div style={{fontSize:11,marginBottom:6}}>
+            <a href="#" onClick={(e)=>{ e.preventDefault(); setBrouillon(new Set(toutesLesCouleurs)); }} style={{color:'var(--sea)',fontWeight:600}}>Tout sélectionner</a>
+            {" – "}
+            <a href="#" onClick={(e)=>{ e.preventDefault(); setBrouillon(new Set()); }} style={{color:'var(--sea)',fontWeight:600}}>Effacer</a>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:5}}>
+            {RH_PALETTE_COULEURS.map((p) => (
+              <label key={p.valeur || 'aucune'} style={{display:'flex',alignItems:'center',gap:7,fontSize:12.5,cursor:'pointer'}}>
+                <input type="checkbox" checked={brouillon.has(p.valeur)} onChange={()=>toggle(p.valeur)} />
+                <PastilleCouleur valeur={p.valeur} taille={14} />
+                {p.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{flex:1}} onClick={onFermer}>Annuler</button>
+          <button className="ig-btn ig-btn-primary ig-btn-sm" style={{flex:1}} onClick={()=>{ onFiltrer(brouillon.size >= toutesLesCouleurs.length ? null : brouillon); onFermer(); }}>OK</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ---------- Prévisionnel de recrutement : statuts affichables ----------
 const PREVISIONNEL_STATUTS = [
   { cle: "a_pourvoir", label: "À pourvoir" },
@@ -3894,6 +3943,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [triSens, setTriSens] = useState('asc');
   const [filtreCouleurs, setFiltreCouleurs] = useState(null); // Set des couleurs affichées, null = toutes
   const [triCouleur, setTriCouleur] = useState(null); // couleur à faire remonter en premier dans la liste
+  const [menuCouleurOuvert, setMenuCouleurOuvert] = useState(false);
   const [saisonActive, setSaisonActive] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [selection, setSelection] = useState(new Set());
@@ -4068,33 +4118,8 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
       </div>
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
-        <div style={{display:'flex',alignItems:'center',gap:5}}>
-          <span className="ig-muted" style={{fontSize:12}}>Filtrer par couleur :</span>
-          {RH_PALETTE_COULEURS.map((p) => {
-            const actif = !filtreCouleurs || filtreCouleurs.has(p.valeur);
-            return (
-              <span key={p.valeur || 'aucune'} style={{opacity: actif ? 1 : .3}}>
-                <PastilleCouleur valeur={p.valeur} titre={p.label} taille={18} onClick={() => {
-                  const toutes = new Set(listeSaison.map((x) => x.couleur || ""));
-                  const base = filtreCouleurs || new Set(toutes);
-                  const next = new Set(base);
-                  if (next.has(p.valeur)) next.delete(p.valeur); else next.add(p.valeur);
-                  setFiltreCouleurs(next.size >= toutes.size ? null : next);
-                }} />
-              </span>
-            );
-          })}
-        </div>
-        <div style={{display:'flex',alignItems:'center',gap:5}}>
-          <span className="ig-muted" style={{fontSize:12}}>Trier par couleur :</span>
-          {RH_PALETTE_COULEURS.filter((p) => p.valeur).map((p) => (
-            <span key={p.valeur} style={{opacity: triCouleur === p.valeur ? 1 : .35, outline: triCouleur === p.valeur ? '2px solid var(--ink)' : 'none', borderRadius:6}}>
-              <PastilleCouleur valeur={p.valeur} titre={`Trier : ${p.label} en premier`} taille={18} onClick={() => setTriCouleur(triCouleur === p.valeur ? null : p.valeur)} />
-            </span>
-          ))}
-          {triCouleur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setTriCouleur(null)}>✕</button>}
-        </div>
-        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); }}>✕ Réinitialiser les filtres</button>}
+        <span className="ig-muted" style={{fontSize:12}}>Filtre/tri par couleur : cliquez « Couleur ▾ » dans le tableau.</span>
+        {(filtresActifs || triCouleur) && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); setTriCouleur(null); }}>✕ Réinitialiser les filtres</button>}
         {selection.size > 0 && (
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={supprimerSelection} style={{marginLeft:'auto',color:'var(--coral-d)'}}>
             🗑 Supprimer la sélection ({selection.size})
@@ -4128,7 +4153,22 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                 {entete(RH_CHAMPS_BASE[9], 120)}
                 {entete(RH_CHAMPS_BASE[10], 140)}
                 {entete(RH_CHAMPS_BASE[11], 120)}
-                <th style={{padding:'8px 10px'}}></th>
+                <th style={{padding:'8px 10px',position:'relative'}}>
+                  <button onClick={()=>setMenuCouleurOuvert(!menuCouleurOuvert)}
+                    style={{display:'flex',alignItems:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontWeight:700,padding:0,color: (filtreCouleurs || triCouleur) ? 'var(--coral-d)' : 'inherit'}}>
+                    Couleur <span style={{fontSize:10}}>▾</span>
+                  </button>
+                  {menuCouleurOuvert && (
+                    <MenuCouleur
+                      filtreCouleurs={filtreCouleurs}
+                      triCouleur={triCouleur}
+                      toutesLesCouleurs={Array.from(new Set(listeSaison.map((x) => x.couleur || "")))}
+                      onFiltrer={setFiltreCouleurs}
+                      onTrier={setTriCouleur}
+                      onFermer={()=>setMenuCouleurOuvert(false)}
+                    />
+                  )}
+                </th>
               </tr>
             </thead>
             <tbody>
