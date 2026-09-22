@@ -446,6 +446,13 @@ const RhSalaries = {
     if (error) { console.error("RhSalaries.supprimerPlusieurs:", error.message); return false; }
     return true;
   },
+  // Retire des contrats terminés de la vue courante du directeur sans rien supprimer : bascule
+  // leur saison sur "Archives", consultable via l'onglet de saison dédié.
+  async archiverPlusieurs(ids) {
+    const { error } = await supabase.from("rh_salaries").update({ saison: "Archives" }).in("id", ids);
+    if (error) { console.error("RhSalaries.archiverPlusieurs:", error.message); return false; }
+    return true;
+  },
 };
 
 // ---------- Prévisionnel de recrutement (postes à pourvoir, avant l'onboarding) ----------
@@ -3506,7 +3513,7 @@ const RH_CHAMPS_BASE = [
   { cle: "salaire_net", label: "Salaire net", type: "number" },
   { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
   { cle: "date_prolongation_fin", label: "Date de prolongation de fin de contrat", type: "date" },
-  { cle: "loge", label: "Logé (préciser : seul, en colocation, non...)" },
+  { cle: "loge", label: "Logement" },
   { cle: "vehicule", label: "Véhicule" },
 ];
 const RH_CHAMPS_SENSIBLES = [
@@ -3963,6 +3970,23 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 
   const filtresActifs = Object.keys(filtresValeurs).length > 0 || !!filtreCouleurs;
 
+  // Retire les contrats terminés (date de fin passée) de l'onglet de saison courant, sans
+  // rien supprimer : ils basculent dans un onglet "Archives" pour ne plus encombrer la vue
+  // du directeur, tout en restant consultables si besoin.
+  const aujourdHui = new Date().toISOString().slice(0, 10);
+  const termines = liste.filter((s) => s.saison === saisonActive && s.date_fin && s.date_fin < aujourdHui);
+  async function archiverTermines() {
+    if (termines.length === 0) return;
+    if (!confirm(`Archiver ${termines.length} contrat${termines.length>1?'s':''} terminé${termines.length>1?'s':''} ? Ils ne seront plus visibles ici mais resteront consultables dans l'onglet "Saison Archives".`)) return;
+    const ids = termines.map((s) => s.id);
+    const ok = await RhSalaries.archiverPlusieurs(ids);
+    if (ok) {
+      setListe(liste.map((s) => (ids.includes(s.id) ? { ...s, saison: "Archives" } : s)));
+      setSelection((sel) => { const n = new Set(sel); ids.forEach((id) => n.delete(id)); return n; });
+      montrerFlash(`${ids.length} contrat${ids.length>1?'s':''} archivé${ids.length>1?'s':''}.`);
+    } else montrerErreur("L'archivage a échoué. Réessayez.");
+  }
+
   // Filtre colonne par colonne, façon tableur : une colonne filtrée ne garde que les
   // lignes dont la valeur fait partie des cases cochées dans son menu. Le filtre par
   // couleur (au-dessus du tableau) s'applique en plus, sur la couleur de toute la ligne.
@@ -4025,6 +4049,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
           <button key={s} className={"ig-btn ig-btn-sm "+(saisonActive===s?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setSaisonActive(s)}>Saison {s}</button>
         ))}
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={nouvelleSaison}>+ Nouvelle saison</button>
+        {termines.length > 0 && (
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverTermines} style={{marginLeft: superviseur ? 0 : 'auto'}}>
+            📦 Archiver les {termines.length} contrat{termines.length>1?'s':''} terminé{termines.length>1?'s':''}
+          </button>
+        )}
         {superviseur && (
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverSaisonCourante} disabled={archiveBusy} style={{marginLeft:'auto'}}>
             {archiveBusy ? "Archivage…" : `↓ Archiver la saison ${saisonActive} vers le Sheet`}
