@@ -420,6 +420,21 @@ const RhSalaries = {
     RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch });
     return data;
   },
+  // Effectif réel par établissement (saison la plus récente de chaque établissement),
+  // pour l'écran de choix d'établissement de l'Espace RH — distinct du roster Planning.
+  async compterParResto() {
+    const { data, error } = await supabase.from("rh_salaries").select("resto, saison");
+    if (error) { console.error("RhSalaries.compterParResto:", error.message); return {}; }
+    const parResto = {};
+    (data || []).forEach((r) => { (parResto[r.resto] ||= []).push(r.saison); });
+    const counts = {};
+    Object.keys(parResto).forEach((resto) => {
+      const saisons = parResto[resto];
+      const derniere = [...saisons].sort().slice(-1)[0];
+      counts[resto] = saisons.filter((s) => s === derniere).length;
+    });
+    return counts;
+  },
 };
 
 // ---------- Prévisionnel de recrutement (postes à pourvoir, avant l'onboarding) ----------
@@ -3165,13 +3180,16 @@ function EmployeeView({ resto, emp, onBack }) {
 }
 
 // ---------- Sélecteur de restaurant ----------
-function RestoPicker({ restaurants, onPick, onAdd }) {
+// compteurs : optionnel — quand fourni (ex: depuis l'Espace RH), remplace le calcul
+// interne (basé sur le roster Planning) par des effectifs fournis par l'appelant.
+function RestoPicker({ restaurants, onPick, onAdd, compteurs }) {
   const [form, setForm] = useState(false);
   const [nom, setNom] = useState("");
   const [err, setErr] = useState("");
-  const [counts, setCounts] = useState({}); // effectif RÉEL par restaurant (fiches + ajouts − retirés)
+  const [countsInternes, setCountsInternes] = useState({}); // effectif Planning (fiches + ajouts − retirés)
 
   useEffect(() => {
+    if (compteurs) return; // effectifs déjà fournis par le parent
     let on = true;
     Promise.all(restaurants.map((r) => Store.get(kRoster(r)).then((rs) => [r, rs]))).then((paires) => {
       if (!on) return;
@@ -3185,10 +3203,11 @@ function RestoPicker({ restaurants, onPick, onAdd }) {
         const tous = base.filter((e) => !ajoutIds.has(idSalarie(e))).concat(ajouts);
         res[r] = tous.filter((e) => !supprimes.has(idSalarie(e))).length;
       });
-      setCounts(res);
+      setCountsInternes(res);
     });
     return () => { on = false; };
-  }, [restaurants]);
+  }, [restaurants, compteurs]);
+  const counts = compteurs || countsInternes;
 
   function valider() {
     const propre = nom.trim();
@@ -3208,7 +3227,7 @@ function RestoPicker({ restaurants, onPick, onAdd }) {
           <button key={r} className="ig-resto" onClick={() => onPick(r)}>
             <div>
               <div className="nm">{r}</div>
-              <div className="ct">{counts[r] != null ? counts[r] : EMPLOYEES.filter((e)=>e.r===r).length} salariés</div>
+              <div className="ct">{counts[r] != null ? counts[r] : (compteurs ? 0 : EMPLOYEES.filter((e)=>e.r===r).length)} salariés</div>
             </div>
             <Icon.Chevron />
           </button>
@@ -4158,7 +4177,7 @@ function AccesRHModal({ restaurants, onClose }) {
   );
 }
 
-function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
+function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
   const [restoActif, setRestoActif] = useState(estSuperviseur ? null : scopes[0].resto);
@@ -4168,6 +4187,13 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
   const [importMsg, setImportMsg] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [ongletRH, setOngletRH] = useState("salaries"); // salaries | previsionnel
+  const [compteursRH, setCompteursRH] = useState({}); // effectif réel par établissement (rh_salaries)
+
+  useEffect(() => {
+    let on = true;
+    RhSalaries.compterParResto().then((c) => { if (on) setCompteursRH(c); });
+    return () => { on = false; };
+  }, [refreshKey]);
 
   // Rattrapage en un clic : va chercher dans le Google Sheet les salariés déjà onboardés
   // mais jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique),
@@ -4190,7 +4216,7 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
         </div>
-        <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={()=>{}} />
+        <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} />
         {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
       </>
     );
@@ -4325,7 +4351,7 @@ export default function App() {
   } else if (role === "manager") {
     content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "rh") {
-    content = <EspaceRH acces={rhAcces} restaurants={restaurants} onBack={reset} onDeconnexion={deconnexionRH} />;
+    content = <EspaceRH acces={rhAcces} restaurants={restaurants} onAjouterEtablissement={ajouterEtablissement} onBack={reset} onDeconnexion={deconnexionRH} />;
   } else if (role === "salarie" && !emp) {
     content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setRole(null)} />;
   } else {
