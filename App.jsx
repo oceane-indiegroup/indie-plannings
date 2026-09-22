@@ -4204,7 +4204,7 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
   const [compteursRH, setCompteursRH] = useState({}); // effectif réel par établissement (rh_salaries)
   // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
   // est la première ; d'autres sections viendront s'ajouter à côté par la suite.
-  const [sousSection, setSousSection] = useState("registre");
+  const [sousSection, setSousSection] = useState(null);
   const SOUS_SECTIONS_RH = [{ cle: "registre", label: "Registre embauche" }];
 
   useEffect(() => {
@@ -4247,12 +4247,15 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:14,marginBottom:14,flexWrap:'wrap'}}>
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={estSuperviseur ? ()=>setRestoActif(null) : onBack}><Icon.Back/> {estSuperviseur ? "Établissements" : "Retour"}</button>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{
+          if (sousSection) { setSousSection(null); return; }
+          if (estSuperviseur) setRestoActif(null); else onBack();
+        }}><Icon.Back/> {sousSection ? "Sections" : (estSuperviseur ? "Établissements" : "Retour")}</button>
         <div>
           <div className="ig-eyebrow" style={{margin:0}}>Espace RH{estSuperviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{restoActif}</h2>
         </div>
-        {estSuperviseur && (
+        {estSuperviseur && sousSection && (
           <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
             {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
             <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
@@ -4263,12 +4266,23 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
         )}
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion}>Déconnexion</button>
       </div>
-      <div className="ig-noprint" style={{display:'flex',gap:8,marginBottom:16}}>
-        {SOUS_SECTIONS_RH.map((s) => (
-          <button key={s.cle} className={"ig-btn ig-btn-sm "+(sousSection===s.cle?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setSousSection(s.cle)}>{s.label}</button>
-        ))}
-      </div>
-      {sousSection === "registre" && <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />}
+      {!sousSection ? (
+        <div>
+          <div className="ig-eyebrow">Étape 2</div>
+          <h2 className="ig-section-title">Choisissez une section</h2>
+          <p className="ig-muted">{SOUS_SECTIONS_RH.length} section{SOUS_SECTIONS_RH.length>1?'s':''} pour {restoActif}.</p>
+          <div className="ig-resto-grid">
+            {SOUS_SECTIONS_RH.map((s) => (
+              <button key={s.cle} className="ig-resto" onClick={()=>setSousSection(s.cle)}>
+                <div><div className="nm">{s.label}</div></div>
+                <Icon.Chevron />
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : sousSection === "registre" && (
+        <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      )}
       {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>
   );
