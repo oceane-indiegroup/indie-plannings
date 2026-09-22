@@ -263,10 +263,11 @@ drop policy if exists anon_onboarding_update on public.rh_salaries;
 -- ============================================================================
 --  Documents RH : dossier par salarié, archivé par établissement/unité/année
 -- ============================================================================
---  Bucket privé (jamais public). Chemin de chaque fichier :
---    <établissement>/<SALLE ou CUISINE>/<année>/<identifiant salarié>/<nom du fichier>
---  Rien n'est jamais écrasé d'une année sur l'autre : les documents d'une année
---  passée restent accessibles, exactement comme demandé.
+--  Les documents sont maintenant de vrais fichiers déposés dans le Google Drive
+--  "REGISTRE DU PERSONNEL" (via la fonction Edge "drive-docs" — voir
+--  supabase/functions/drive-docs). Le bucket Supabase ci-dessous n'est plus
+--  utilisé pour les nouveaux documents ; il ne reste ici que si d'anciens
+--  fichiers y avaient déjà été déposés avant ce changement.
 insert into storage.buckets (id, name, public)
 values ('rh-documents', 'rh-documents', false)
 on conflict (id) do nothing;

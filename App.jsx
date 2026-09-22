@@ -377,33 +377,61 @@ const RhSalaries = {
   },
 };
 
-// ---------- Documents RH : dossier par salarié, classé par établissement/unité/année ----------
-// Bucket privé "rh-documents", chemin <resto>/<unite>/<année>/<salarie_id>/<fichier> — les
-// documents des années précédentes restent accessibles (rien n'est jamais écrasé par année).
+// ---------- Documents RH : vrais fichiers déposés dans le Google Drive "REGISTRE DU PERSONNEL" ----------
+// Tout passe par la fonction Supabase "drive-docs" (jamais d'appel direct à l'API Google
+// depuis le navigateur : la clé du compte de service Google reste côté serveur).
+// Chemin dans le Drive : REGISTRE DU PERSONNEL / <resto> / <année> / <SALLE|CUISINE> / <NOM_Prénom>
+// — classé et archivé par année, comme le dossier créé automatiquement par l'ancien Google Form.
+function nomDossierDrive(nom, prenom) {
+  const p = String(prenom || "").trim();
+  return `${String(nom || "").trim().toUpperCase()}_${p.charAt(0).toUpperCase()}${p.slice(1).toLowerCase()}`;
+}
+
+function fichierEnBase64(fichier) {
+  return new Promise((resolve, reject) => {
+    const lecteur = new FileReader();
+    lecteur.onload = () => resolve(String(lecteur.result).split(",")[1] || "");
+    lecteur.onerror = reject;
+    lecteur.readAsDataURL(fichier);
+  });
+}
+
 const RhDocuments = {
-  dossier(resto, unite, annee, salarieId) {
-    return `${resto}/${unite}/${annee}/${salarieId}`;
+  // Appelé juste après l'envoi du formulaire d'onboarding public (sans connexion) : crée
+  // tout de suite le dossier de l'année en cours dans le Drive, prêt à recevoir des documents.
+  async creerDossierOnboarding({ resto, unite, nom, prenom }) {
+    const annee = new Date().getFullYear();
+    const { error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "ensureFolderPublic", resto, unite, annee, nom, prenom },
+    });
+    if (error) console.error("RhDocuments.creerDossierOnboarding:", error.message);
   },
-  async lister(resto, unite, annee, salarieId) {
-    const { data, error } = await supabase.storage.from("rh-documents").list(this.dossier(resto, unite, annee, salarieId));
-    if (error) { console.error("RhDocuments.lister:", error.message); return []; }
-    return (data || []).filter((f) => f.name && !f.name.startsWith("."));
+  async lister(resto, unite, annee, nom, prenom) {
+    const { data, error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "list", resto, unite, annee, nom, prenom },
+    });
+    if (error) { console.error("RhDocuments.lister:", error.message); return null; }
+    return data?.fichiers || [];
   },
-  async uploader(resto, unite, annee, salarieId, fichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${fichier.name}`;
-    const { error } = await supabase.storage.from("rh-documents").upload(chemin, fichier, { upsert: true });
+  async uploader(resto, unite, annee, nom, prenom, fichier) {
+    const base64 = await fichierEnBase64(fichier);
+    const { error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "upload", resto, unite, annee, nom, prenom, nomFichier: fichier.name, type: fichier.type, base64 },
+    });
     if (error) { console.error("RhDocuments.uploader:", error.message); return false; }
     return true;
   },
-  async lienTelechargement(resto, unite, annee, salarieId, nomFichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${nomFichier}`;
-    const { data, error } = await supabase.storage.from("rh-documents").createSignedUrl(chemin, 60);
-    if (error) { console.error("RhDocuments.lienTelechargement:", error.message); return null; }
-    return data.signedUrl;
+  async ouvrir(resto, unite, annee, nom, prenom, fileId) {
+    const { data, error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "download", resto, unite, annee, nom, prenom, fileId },
+    });
+    if (error) { console.error("RhDocuments.ouvrir:", error.message); return null; }
+    return data instanceof Blob ? URL.createObjectURL(data) : null;
   },
-  async supprimer(resto, unite, annee, salarieId, nomFichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${nomFichier}`;
-    const { error } = await supabase.storage.from("rh-documents").remove([chemin]);
+  async supprimer(resto, unite, annee, nom, prenom, fileId) {
+    const { error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "supprimer", resto, unite, annee, nom, prenom, fileId },
+    });
     if (error) { console.error("RhDocuments.supprimer:", error.message); return false; }
     return true;
   },
@@ -3509,7 +3537,10 @@ function OnboardingForm({ restaurants }) {
     Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
     const ok = await RhSalaries.onboarder(patch);
     setEnvoiEnCours(false);
-    if (ok === true) setEnvoye(true);
+    if (ok === true) {
+      RhDocuments.creerDossierOnboarding({ resto: f.resto, unite: f.unite, nom: f.nom, prenom: f.prenom });
+      setEnvoye(true);
+    }
     else if (ok === "existe_deja") setErr("Une fiche existe déjà pour ce nom dans cet établissement. Contactez votre responsable pour la compléter.");
     else setErr("Une erreur est survenue lors de l'envoi. Réessayez, ou contactez votre établissement.");
   }
@@ -3536,50 +3567,61 @@ function OnboardingForm({ restaurants }) {
 }
 
 // ---------- Modal fiche salarié RH (création / édition) ----------
-// ---------- Documents du salarié (dossier archivé par année) ----------
-function DocumentsSalarie({ resto, unite, salarieId }) {
+// ---------- Documents du salarié (dossier Google Drive, archivé par année) ----------
+function DocumentsSalarie({ resto, unite, salarie }) {
   const anneesDisponibles = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i);
   const [annee, setAnnee] = useState(anneesDisponibles[0]);
   const [fichiers, setFichiers] = useState(null);
   const [enCours, setEnCours] = useState(false);
+  const [erreur, setErreur] = useState("");
   const fileRef = useRef(null);
+  const { nom, prenom } = salarie;
 
   useEffect(() => {
     let on = true;
     setFichiers(null);
-    RhDocuments.lister(resto, unite, annee, salarieId).then((f) => { if (on) setFichiers(f); });
+    setErreur("");
+    RhDocuments.lister(resto, unite, annee, nom, prenom).then((f) => {
+      if (!on) return;
+      if (f === null) setErreur("Impossible de charger les documents. Réessayez.");
+      setFichiers(f || []);
+    });
     return () => { on = false; };
-  }, [resto, unite, annee, salarieId]);
+  }, [resto, unite, annee, nom, prenom]);
 
   async function ajouterFichier(e) {
     const fichier = e.target.files[0];
     if (!fichier) return;
     setEnCours(true);
-    await RhDocuments.uploader(resto, unite, annee, salarieId, fichier);
-    const f = await RhDocuments.lister(resto, unite, annee, salarieId);
-    setFichiers(f);
+    setErreur("");
+    const ok = await RhDocuments.uploader(resto, unite, annee, nom, prenom, fichier);
+    if (ok) { const f = await RhDocuments.lister(resto, unite, annee, nom, prenom); setFichiers(f || []); }
+    else setErreur("L'envoi du document a échoué. Réessayez.");
     setEnCours(false);
     if (fileRef.current) fileRef.current.value = "";
   }
 
-  async function ouvrir(nom) {
-    const url = await RhDocuments.lienTelechargement(resto, unite, annee, salarieId, nom);
+  async function ouvrir(fileId) {
+    const url = await RhDocuments.ouvrir(resto, unite, annee, nom, prenom, fileId);
     if (url) window.open(url, "_blank");
+    else setErreur("Impossible d'ouvrir ce document.");
   }
 
-  async function supprimer(nom) {
-    const ok = await RhDocuments.supprimer(resto, unite, annee, salarieId, nom);
-    if (ok) setFichiers(fichiers.filter((f) => f.name !== nom));
+  async function supprimer(fileId) {
+    const ok = await RhDocuments.supprimer(resto, unite, annee, nom, prenom, fileId);
+    if (ok) setFichiers(fichiers.filter((f) => f.id !== fileId));
+    else setErreur("La suppression a échoué.");
   }
 
   return (
     <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid var(--sand-2)'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-        <div style={{fontWeight:600,fontSize:13}}>Documents</div>
+        <div style={{fontWeight:600,fontSize:13}}>Documents (Google Drive)</div>
         <select value={annee} onChange={(e)=>setAnnee(Number(e.target.value))} style={{padding:'5px 8px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:13}}>
           {anneesDisponibles.map((a) => (<option key={a} value={a}>{a}</option>))}
         </select>
       </div>
+      {erreur && <div style={{color:'var(--coral-d)',fontSize:12,marginBottom:8,fontWeight:600}}>{erreur}</div>}
       {fichiers === null ? (
         <div className="ig-muted" style={{fontSize:13}}>Chargement…</div>
       ) : fichiers.length === 0 ? (
@@ -3587,10 +3629,10 @@ function DocumentsSalarie({ resto, unite, salarieId }) {
       ) : (
         <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
           {fichiers.map((f) => (
-            <div key={f.name} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
+            <div key={f.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
               <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>ouvrir(f.name)}>Ouvrir</button>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={()=>supprimer(f.name)}>Suppr.</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>ouvrir(f.id)}>Ouvrir</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={()=>supprimer(f.id)}>Suppr.</button>
             </div>
           ))}
         </div>
@@ -3647,7 +3689,7 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
           </>
         )}
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-        {salarie && <DocumentsSalarie resto={resto} unite={unite} salarieId={salarie.salarie_id} />}
+        {salarie && <DocumentsSalarie resto={resto} unite={unite} salarie={salarie} />}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
           <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
