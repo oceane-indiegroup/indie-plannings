@@ -166,14 +166,18 @@ create table if not exists public.rh_salaries (
   maj_le  timestamptz not null default now(),
   unique (resto, salarie_id, saison)
 );
-create index if not exists rh_salaries_scope_idx on public.rh_salaries (resto, unite, saison);
 
 -- Ajout ultérieur (registre d'embauche) : "if not exists" pour rester sans risque
--- à rejouer même si la table rh_salaries existe déjà.
+-- à rejouer même si la table rh_salaries existe déjà. IMPORTANT : ces colonnes doivent
+-- être ajoutées AVANT tout index/contrainte qui les référence ci-dessous, sinon "create
+-- table if not exists" (no-op si la table existe déjà) laisserait la colonne absente au
+-- moment de créer l'index, avec une erreur "column does not exist".
 alter table public.rh_salaries add column if not exists staff_party boolean;
 alter table public.rh_salaries add column if not exists heures_contrat numeric;
 alter table public.rh_salaries add column if not exists date_prolongation_fin date;
 alter table public.rh_salaries add column if not exists saison text not null default to_char(now(), 'YYYY');
+
+create index if not exists rh_salaries_scope_idx on public.rh_salaries (resto, unite, saison);
 
 -- La contrainte d'unicité portait à l'origine seulement sur (resto, salarie_id) : sans la
 -- saison dedans, réonboarder la même personne l'année suivante écraserait sa fiche archivée
