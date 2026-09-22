@@ -377,57 +377,6 @@ const RhSalaries = {
   },
 };
 
-// ---------- Documents RH : vrais fichiers déposés dans le Google Drive "REGISTRE DU PERSONNEL" ----------
-// Tout passe par la fonction Supabase "drive-docs" (jamais d'appel direct à l'API Google
-// depuis le navigateur : la clé du compte de service Google reste côté serveur).
-// Chemin dans le Drive : REGISTRE DU PERSONNEL / <resto> / <année> / <SALLE|CUISINE> / <NOM_Prénom>
-// — classé et archivé par année, comme le dossier créé automatiquement par l'ancien Google Form.
-function nomDossierDrive(nom, prenom) {
-  const p = String(prenom || "").trim();
-  return `${String(nom || "").trim().toUpperCase()}_${p.charAt(0).toUpperCase()}${p.slice(1).toLowerCase()}`;
-}
-
-function fichierEnBase64(fichier) {
-  return new Promise((resolve, reject) => {
-    const lecteur = new FileReader();
-    lecteur.onload = () => resolve(String(lecteur.result).split(",")[1] || "");
-    lecteur.onerror = reject;
-    lecteur.readAsDataURL(fichier);
-  });
-}
-
-const RhDocuments = {
-  async lister(resto, unite, annee, nom, prenom) {
-    const { data, error } = await supabase.functions.invoke("drive-docs", {
-      body: { action: "list", resto, unite, annee, nom, prenom },
-    });
-    if (error) { console.error("RhDocuments.lister:", error.message); return null; }
-    return data?.fichiers || [];
-  },
-  async uploader(resto, unite, annee, nom, prenom, fichier) {
-    const base64 = await fichierEnBase64(fichier);
-    const { error } = await supabase.functions.invoke("drive-docs", {
-      body: { action: "upload", resto, unite, annee, nom, prenom, nomFichier: fichier.name, type: fichier.type, base64 },
-    });
-    if (error) { console.error("RhDocuments.uploader:", error.message); return false; }
-    return true;
-  },
-  async ouvrir(resto, unite, annee, nom, prenom, fileId) {
-    const { data, error } = await supabase.functions.invoke("drive-docs", {
-      body: { action: "download", resto, unite, annee, nom, prenom, fileId },
-    });
-    if (error) { console.error("RhDocuments.ouvrir:", error.message); return null; }
-    return data instanceof Blob ? URL.createObjectURL(data) : null;
-  },
-  async supprimer(resto, unite, annee, nom, prenom, fileId) {
-    const { error } = await supabase.functions.invoke("drive-docs", {
-      body: { action: "supprimer", resto, unite, annee, nom, prenom, fileId },
-    });
-    if (error) { console.error("RhDocuments.supprimer:", error.message); return false; }
-    return true;
-  },
-};
-
 // ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
 // Robustesse V2 : chaque confirmation n'écrit qu'UNE ligne, donc deux salariés
 // qui pointent en même temps ne s'écrasent plus. La forme rendue en mémoire est
@@ -3455,81 +3404,6 @@ const RH_CHAMPS_SENSIBLES = [
 ];
 
 // ---------- Modal fiche salarié RH (création / édition) ----------
-// ---------- Documents du salarié (dossier Google Drive, archivé par année) ----------
-function DocumentsSalarie({ resto, unite, salarie }) {
-  const anneesDisponibles = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i);
-  const [annee, setAnnee] = useState(anneesDisponibles[0]);
-  const [fichiers, setFichiers] = useState(null);
-  const [enCours, setEnCours] = useState(false);
-  const [erreur, setErreur] = useState("");
-  const fileRef = useRef(null);
-  const { nom, prenom } = salarie;
-
-  useEffect(() => {
-    let on = true;
-    setFichiers(null);
-    setErreur("");
-    RhDocuments.lister(resto, unite, annee, nom, prenom).then((f) => {
-      if (!on) return;
-      if (f === null) setErreur("Impossible de charger les documents. Réessayez.");
-      setFichiers(f || []);
-    });
-    return () => { on = false; };
-  }, [resto, unite, annee, nom, prenom]);
-
-  async function ajouterFichier(e) {
-    const fichier = e.target.files[0];
-    if (!fichier) return;
-    setEnCours(true);
-    setErreur("");
-    const ok = await RhDocuments.uploader(resto, unite, annee, nom, prenom, fichier);
-    if (ok) { const f = await RhDocuments.lister(resto, unite, annee, nom, prenom); setFichiers(f || []); }
-    else setErreur("L'envoi du document a échoué. Réessayez.");
-    setEnCours(false);
-    if (fileRef.current) fileRef.current.value = "";
-  }
-
-  async function ouvrir(fileId) {
-    const url = await RhDocuments.ouvrir(resto, unite, annee, nom, prenom, fileId);
-    if (url) window.open(url, "_blank");
-    else setErreur("Impossible d'ouvrir ce document.");
-  }
-
-  async function supprimer(fileId) {
-    const ok = await RhDocuments.supprimer(resto, unite, annee, nom, prenom, fileId);
-    if (ok) setFichiers(fichiers.filter((f) => f.id !== fileId));
-    else setErreur("La suppression a échoué.");
-  }
-
-  return (
-    <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid var(--sand-2)'}}>
-      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-        <div style={{fontWeight:600,fontSize:13}}>Documents (Google Drive)</div>
-        <select value={annee} onChange={(e)=>setAnnee(Number(e.target.value))} style={{padding:'5px 8px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:13}}>
-          {anneesDisponibles.map((a) => (<option key={a} value={a}>{a}</option>))}
-        </select>
-      </div>
-      {erreur && <div style={{color:'var(--coral-d)',fontSize:12,marginBottom:8,fontWeight:600}}>{erreur}</div>}
-      {fichiers === null ? (
-        <div className="ig-muted" style={{fontSize:13}}>Chargement…</div>
-      ) : fichiers.length === 0 ? (
-        <div className="ig-muted" style={{fontSize:13,marginBottom:8}}>Aucun document pour {annee}.</div>
-      ) : (
-        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
-          {fichiers.map((f) => (
-            <div key={f.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
-              <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>ouvrir(f.id)}>Ouvrir</button>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={()=>supprimer(f.id)}>Suppr.</button>
-            </div>
-          ))}
-        </div>
-      )}
-      <input ref={fileRef} type="file" onChange={ajouterFichier} disabled={enCours} style={{fontSize:13}} />
-    </div>
-  );
-}
-
 function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose }) {
   const [f, setF] = useState(() => {
     const base = {};
@@ -3577,7 +3451,6 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
           </>
         )}
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-        {salarie && <DocumentsSalarie resto={resto} unite={unite} salarie={salarie} />}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
           <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>

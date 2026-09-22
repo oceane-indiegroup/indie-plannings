@@ -5,13 +5,15 @@
 //   - action "formSubmit"  : appelée par un petit script Google Apps Script (déclenché à
 //                            chaque réponse du vrai Google Form) -> crée la fiche dans l'appli.
 //
-// La clé du compte de service Google (le même que pour "drive-docs") ne quitte jamais ce
-// serveur. Les colonnes du Sheet sont retrouvées par LEUR TEXTE (pas par lettre de colonne)
-// pour ne rien écrire dans la mauvaise case même si Océane réorganise ses colonnes plus tard.
+// La clé du compte de service Google ne quitte jamais ce serveur. Les colonnes du Sheet
+// sont retrouvées par LEUR TEXTE (pas par lettre de colonne) pour ne rien écrire dans la
+// mauvaise case même si Océane réorganise ses colonnes plus tard. Cette fonction ne
+// touche jamais à Google Drive : la création des dossiers/documents des salariés reste
+// entièrement gérée par le système Apps Script existant d'Océane.
 //
 // Variables d'environnement à définir (Supabase → Edge Functions → sheet-sync → Secrets) :
-//   GOOGLE_SA_EMAIL         même valeur que pour la fonction drive-docs
-//   GOOGLE_SA_PRIVATE_KEY   même valeur que pour la fonction drive-docs
+//   GOOGLE_SA_EMAIL         l'adresse du compte de service Google (créé dans Google Cloud)
+//   GOOGLE_SA_PRIVATE_KEY   sa clé privée
 //   SHEET_ID                l'identifiant du Google Sheet "onboarding" (dans son URL, après /d/)
 //   SHEET_TAB                le nom exact de l'onglet (ex: "Form_Responses1")
 //   FORM_WEBHOOK_SECRET     un mot de passe inventé par vous, collé aussi dans le script Apps Script

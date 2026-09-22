@@ -277,11 +277,11 @@ drop policy if exists anon_onboarding_update on public.rh_salaries;
 -- ============================================================================
 --  Documents RH : dossier par salarié, archivé par établissement/unité/année
 -- ============================================================================
---  Les documents sont maintenant de vrais fichiers déposés dans le Google Drive
---  "REGISTRE DU PERSONNEL" (via la fonction Edge "drive-docs" — voir
---  supabase/functions/drive-docs). Le bucket Supabase ci-dessous n'est plus
---  utilisé pour les nouveaux documents ; il ne reste ici que si d'anciens
---  fichiers y avaient déjà été déposés avant ce changement.
+--  Les documents (contrats, pièces d'identité...) sont gérés entièrement par le
+--  système Apps Script existant d'Océane (dossier + fichiers créés automatiquement
+--  à l'envoi du Google Form), pas par l'appli. Le bucket Supabase ci-dessous n'est
+--  plus utilisé ; il ne reste ici que si d'anciens fichiers y avaient déjà été
+--  déposés avant la mise en place de ce système.
 insert into storage.buckets (id, name, public)
 values ('rh-documents', 'rh-documents', false)
 on conflict (id) do nothing;
