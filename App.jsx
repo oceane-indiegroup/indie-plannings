@@ -341,6 +341,20 @@ const Store = {
 };
 
 // ---------- RH : fiches salariés (table dédiée, cloisonnée par établissement + unité) ----------
+// ---------- Synchro vers le Google Sheet "onboarding" existant ----------
+// Ne bloque jamais l'appli : appelée en tâche de fond après chaque écriture réussie dans
+// rh_salaries, elle répercute les mêmes champs dans le Sheet qu'Océane continue de tenir
+// à jour elle-même. Passe par la fonction Supabase "sheet-sync" (clé Google côté serveur).
+const RhSheetSync = {
+  async upsert({ resto, unite, nom, prenom, champs }) {
+    if (!resto || !nom || !prenom) return;
+    const { error } = await supabase.functions.invoke("sheet-sync", {
+      body: { action: "upsertRow", resto, unite, nom, prenom, champs },
+    });
+    if (error) console.error("RhSheetSync.upsert:", error.message);
+  },
+};
+
 const RhSalaries = {
   async list(resto, unite) {
     let q = supabase.from("rh_salaries").select("*").eq("resto", resto);
@@ -352,11 +366,13 @@ const RhSalaries = {
   async creer(row) {
     const { data, error } = await supabase.from("rh_salaries").insert(row).select().single();
     if (error) { console.error("RhSalaries.creer:", error.message); return null; }
+    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data });
     return data;
   },
   async maj(id, patch) {
     const { data, error } = await supabase.from("rh_salaries").update(patch).eq("id", id).select().single();
     if (error) { console.error("RhSalaries.maj:", error.message); return null; }
+    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch });
     return data;
   },
   // Soumission publique du formulaire d'onboarding (sans connexion) : crée la fiche,
@@ -373,6 +389,7 @@ const RhSalaries = {
       if (error.code === "23505") return "existe_deja";
       return false;
     }
+    RhSheetSync.upsert({ resto: row.resto, unite: row.unite, nom: row.nom, prenom: row.prenom, champs: row });
     return true;
   },
 };
