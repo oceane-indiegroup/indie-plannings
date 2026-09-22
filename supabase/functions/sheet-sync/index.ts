@@ -1,3 +1,6 @@
+// VERSION 4 (diagnostic étendu) — pour vérifier après collage que c'est bien CE code-ci
+// qui est actif : cherche "VERSION 4" avec Ctrl+F, il doit apparaître ici.
+//
 // Fonction Edge Supabase : garde le Google Sheet "onboarding" d'Océane synchronisé avec
 // l'appli, dans les deux sens :
 //   - action "upsertRow"   : appelée par l'appli après chaque création/modification d'une
@@ -178,9 +181,25 @@ async function lireFeuille(jeton: string): Promise<string[][]> {
     headers: { Authorization: `Bearer ${jeton}` },
   });
   if (!res.ok) {
+    const detailValues = await res.text();
+    // Diagnostic supplémentaire : le compte voit-il le fichier du tout (même sans
+    // préciser d'onglet) ? Si oui, la liste des vrais noms d'onglets apparaît ci-dessous,
+    // ce qui permet de voir tout de suite si SHEET_TAB ne correspond à aucun d'eux.
+    let diagMeta = "";
+    try {
+      const metaRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=properties.title,sheets.properties.title`,
+        { headers: { Authorization: `Bearer ${jeton}` } },
+      );
+      diagMeta = metaRes.ok
+        ? `metadata OK: ${await metaRes.text()}`
+        : `metadata ECHEC (${metaRes.status}): ${await metaRes.text()}`;
+    } catch (e) {
+      diagMeta = "metadata ECHEC (exception): " + String(e);
+    }
     throw new Error(
       `sheet_lecture_echec (SHEET_ID="${SHEET_ID}", SHEET_TAB="${SHEET_TAB}", compte="${GOOGLE_SA_EMAIL}"): ` +
-        (await res.text()),
+        detailValues + " || " + diagMeta,
     );
   }
   const j = await res.json();
