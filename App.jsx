@@ -542,6 +542,7 @@ const CSS = `
 }
 .ig-display { font-family: 'Inter', system-ui, sans-serif; }
 .ig-wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+.ig-wrap-rh { max-width: none; }
 
 .ig-topbar {
   background: var(--ink); color: var(--sand);
@@ -3431,7 +3432,7 @@ const RH_CHAMPS_BASE = [
   { cle: "salaire_net", label: "Salaire net", type: "number" },
   { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
   { cle: "date_prolongation_fin", label: "Date de prolongation de fin de contrat", type: "date" },
-  { cle: "loge", label: "Logé", type: "bool" },
+  { cle: "loge", label: "Logé (préciser : seul, en colocation, non...)" },
 ];
 const RH_CHAMPS_SENSIBLES = [
   { cle: "civilite", label: "Civilité" },
@@ -3706,8 +3707,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [edition, setEdition] = useState(null);
   const [flash, setFlash] = useState("");
   const [erreur, setErreur] = useState("");
-  const [recherche, setRecherche] = useState("");
-  const [tri, setTri] = useState("alpha"); // alpha | date_debut
+  const [filtres, setFiltres] = useState({}); // { [cle]: texte tapé } — filtre par colonne, façon Excel
 
   useEffect(() => {
     let on = true;
@@ -3744,49 +3744,78 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
 
-  const q = normTxt(recherche);
-  const listeAffichee = liste
-    .filter((s) => !q || normTxt(`${s.prenom} ${s.nom}`).includes(q))
-    .sort((a, b) => {
-      if (tri === "date_debut") return (a.date_debut || "").localeCompare(b.date_debut || "");
-      return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+  function setFiltre(cle, valeur) { setFiltres({ ...filtres, [cle]: valeur }); }
+  const filtresActifs = Object.values(filtres).some((v) => v);
+
+  // Filtre colonne par colonne, façon Excel : chaque case tapée doit correspondre
+  // (texte : "contient", insensible aux accents/majuscules ; Staff Party : Oui/Non exact).
+  function passeFiltres(s) {
+    return RH_CHAMPS_BASE.every((c) => {
+      const f = filtres[c.cle];
+      if (!f) return true;
+      if (c.cle === "staff_party") return f === "Oui" ? !!s.staff_party : !s.staff_party;
+      return normTxt(String(s[c.cle] ?? "")).includes(normTxt(f));
     });
+  }
+  function triAlpha(a, b) {
+    return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+  }
+  const filtres_ = liste.filter(passeFiltres);
+  // Les salariés en fin de contrat (date de fin renseignée) passent en fin de liste,
+  // surlignés, pour que l'effectif actif reste visible en premier.
+  const listeAffichee = [
+    ...filtres_.filter((s) => !s.date_fin).sort(triAlpha),
+    ...filtres_.filter((s) => !!s.date_fin).sort(triAlpha),
+  ];
+
+  function entete(c, largeur) {
+    return (
+      <th key={c.cle} style={{padding:'8px 10px'}}>
+        <div style={{marginBottom:5}}>{c.label}</div>
+        {c.cle === "staff_party" ? (
+          <select value={filtres.staff_party || ""} onChange={(e)=>setFiltre('staff_party', e.target.value)} style={{width:largeur,fontSize:12,padding:'4px 6px',borderRadius:7,border:'1.5px solid var(--line)',fontWeight:400}}>
+            <option value="">Tous</option>
+            <option value="Oui">Oui</option>
+            <option value="Non">Non</option>
+          </select>
+        ) : (
+          <input value={filtres[c.cle] || ""} onChange={(e)=>setFiltre(c.cle, e.target.value)} placeholder="Filtrer…" style={{width:largeur,fontSize:12,padding:'4px 6px',borderRadius:7,border:'1.5px solid var(--line)',fontWeight:400}} />
+        )}
+      </th>
+    );
+  }
 
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
-        <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{flex:'1 1 200px',minWidth:0}} />
-        <select value={tri} onChange={(e)=>setTri(e.target.value)} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-          <option value="alpha">Ordre alphabétique</option>
-          <option value="date_debut">Date de début de contrat</option>
-        </select>
+        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setFiltres({})}>✕ Réinitialiser les filtres</button>}
       </div>
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
-      {listeAffichee.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun salarié pour l'instant."}</div> : (
+      {listeAffichee.length === 0 ? <div className="ig-muted">{filtresActifs ? "Aucun salarié ne correspond aux filtres." : "Aucun salarié pour l'instant."}</div> : (
         <div className="ig-card" style={{padding:'6px 10px',overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,whiteSpace:'nowrap'}}>
             <thead>
-              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)'}}>
-                <th style={{padding:'8px 10px'}}>Staff Party</th>
-                <th style={{padding:'8px 10px'}}>Heure CT</th>
-                <th style={{padding:'8px 10px'}}>Nom</th>
-                <th style={{padding:'8px 10px'}}>Prénom</th>
-                <th style={{padding:'8px 10px'}}>Tél</th>
-                <th style={{padding:'8px 10px'}}>Mail</th>
-                <th style={{padding:'8px 10px'}}>Poste occupé</th>
-                <th style={{padding:'8px 10px'}}>Date début contrat</th>
-                <th style={{padding:'8px 10px'}}>Salaire net</th>
-                <th style={{padding:'8px 10px'}}>Date de fin de CT</th>
-                <th style={{padding:'8px 10px'}}>Date de prolongation</th>
-                <th style={{padding:'8px 10px'}}>Logement</th>
+              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)',verticalAlign:'bottom'}}>
+                {entete(RH_CHAMPS_BASE[0], 56)}
+                {entete(RH_CHAMPS_BASE[1], 56)}
+                {entete(RH_CHAMPS_BASE[2], 110)}
+                {entete(RH_CHAMPS_BASE[3], 100)}
+                {entete(RH_CHAMPS_BASE[4], 110)}
+                {entete(RH_CHAMPS_BASE[5], 170)}
+                {entete(RH_CHAMPS_BASE[6], 130)}
+                {entete(RH_CHAMPS_BASE[7], 120)}
+                {entete(RH_CHAMPS_BASE[8], 80)}
+                {entete(RH_CHAMPS_BASE[9], 120)}
+                {entete(RH_CHAMPS_BASE[10], 120)}
+                {entete(RH_CHAMPS_BASE[11], 140)}
                 <th style={{padding:'8px 10px'}}></th>
               </tr>
             </thead>
             <tbody>
               {listeAffichee.map((s) => (
-                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)'}}>
+                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.date_fin ? '#FBE2DC' : undefined}}>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.staff_party} onChange={(e)=>sauverCellule(s.id,'staff_party',e.target.checked)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
@@ -3794,11 +3823,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:110}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:170}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:130}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:80}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.loge} onChange={(e)=>sauverCellule(s.id,'loge',e.target.checked)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:140}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
                   <td style={{padding:'4px 6px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button></td>
                 </tr>
               ))}
@@ -3976,7 +4005,7 @@ export default function App() {
           )}
         </div>
       </div>
-      <div className="ig-wrap" style={{paddingTop:24,paddingBottom:60}}>
+      <div className={"ig-wrap" + (role === "rh" ? " ig-wrap-rh" : "")} style={{paddingTop:24,paddingBottom:60}}>
         {content}
       </div>
     </div>
