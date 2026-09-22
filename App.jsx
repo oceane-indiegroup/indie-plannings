@@ -3421,7 +3421,6 @@ function RHLoginForm({ onOk, onCancel }) {
 // Champs "de base" éditables par un directeur/chef ; les autres (sensibles) sont réservés
 // au superviseur — et de toute façon verrouillés en base par rh_salaries_guard côté serveur.
 const RH_CHAMPS_BASE = [
-  { cle: "staff_party", label: "Staff Party", type: "bool" },
   { cle: "heures_contrat", label: "Heure CT", type: "number" },
   { cle: "nom", label: "Nom" },
   { cle: "prenom", label: "Prénom" },
@@ -3433,8 +3432,10 @@ const RH_CHAMPS_BASE = [
   { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
   { cle: "date_prolongation_fin", label: "Date de prolongation de fin de contrat", type: "date" },
   { cle: "loge", label: "Logé (préciser : seul, en colocation, non...)" },
+  { cle: "vehicule", label: "Véhicule" },
 ];
 const RH_CHAMPS_SENSIBLES = [
+  { cle: "staff_party", label: "Staff Party", type: "bool" },
   { cle: "civilite", label: "Civilité" },
   { cle: "date_naissance", label: "Date de naissance", type: "date" },
   { cle: "lieu_naissance", label: "Lieu de naissance" },
@@ -3448,7 +3449,6 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "iban", label: "IBAN" },
   { cle: "bic", label: "BIC" },
   { cle: "salaire_brut", label: "Salaire brut de base", type: "number" },
-  { cle: "vehicule", label: "Véhicule" },
   { cle: "promesse_embauche", label: "Promesse d'embauche" },
   { cle: "periode_essai_jours", label: "Période d'essai (jours)", type: "number" },
   { cle: "date_fin_periode_essai", label: "Fin de période d'essai", type: "date" },
@@ -3925,24 +3925,23 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
             <thead>
               <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)',verticalAlign:'bottom'}}>
                 {entete(RH_CHAMPS_BASE[0], 56)}
-                {entete(RH_CHAMPS_BASE[1], 56)}
-                {entete(RH_CHAMPS_BASE[2], 110)}
-                {entete(RH_CHAMPS_BASE[3], 100)}
-                {entete(RH_CHAMPS_BASE[4], 110)}
-                {entete(RH_CHAMPS_BASE[5], 170)}
-                {entete(RH_CHAMPS_BASE[6], 130)}
-                {entete(RH_CHAMPS_BASE[7], 120)}
-                {entete(RH_CHAMPS_BASE[8], 80)}
+                {entete(RH_CHAMPS_BASE[1], 110)}
+                {entete(RH_CHAMPS_BASE[2], 100)}
+                {entete(RH_CHAMPS_BASE[3], 110)}
+                {entete(RH_CHAMPS_BASE[4], 170)}
+                {entete(RH_CHAMPS_BASE[5], 130)}
+                {entete(RH_CHAMPS_BASE[6], 120)}
+                {entete(RH_CHAMPS_BASE[7], 80)}
+                {entete(RH_CHAMPS_BASE[8], 120)}
                 {entete(RH_CHAMPS_BASE[9], 120)}
-                {entete(RH_CHAMPS_BASE[10], 120)}
-                {entete(RH_CHAMPS_BASE[11], 140)}
+                {entete(RH_CHAMPS_BASE[10], 140)}
+                {entete(RH_CHAMPS_BASE[11], 120)}
                 <th style={{padding:'8px 10px'}}></th>
               </tr>
             </thead>
             <tbody>
               {listeAffichee.map((s) => (
                 <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.couleur || (s.date_fin ? '#FBE2DC' : undefined)}}>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.staff_party} onChange={(e)=>sauverCellule(s.id,'staff_party',e.target.checked)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:100}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
@@ -3954,6 +3953,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:140}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:120}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
                   <td style={{padding:'4px 6px',display:'flex',gap:6,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button>

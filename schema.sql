@@ -216,12 +216,13 @@ begin
     from public.rh_acces where user_id = auth.uid();
   if not est_superviseur then
     if tg_op = 'UPDATE' then
+      new.staff_party := old.staff_party;
       new.civilite := old.civilite; new.date_naissance := old.date_naissance;
       new.lieu_naissance := old.lieu_naissance; new.nationalite := old.nationalite;
       new.adresse := old.adresse; new.code_postal := old.code_postal; new.ville := old.ville;
       new.secu := old.secu; new.mutuelle := old.mutuelle; new.affiliation_mutuelle := old.affiliation_mutuelle;
       new.iban := old.iban; new.bic := old.bic; new.salaire_brut := old.salaire_brut;
-      new.vehicule := old.vehicule; new.promesse_embauche := old.promesse_embauche;
+      new.promesse_embauche := old.promesse_embauche;
       new.periode_essai_jours := old.periode_essai_jours; new.date_fin_periode_essai := old.date_fin_periode_essai;
       new.type_contrat := old.type_contrat; new.heures_semaine := old.heures_semaine; new.heures_sup := old.heures_sup;
       new.niveau := old.niveau; new.echelon := old.echelon; new.code_pcs := old.code_pcs; new.due := old.due;
@@ -230,10 +231,11 @@ begin
       new.carte_vitale_url := old.carte_vitale_url; new.carte_mutuelle_url := old.carte_mutuelle_url;
       new.contact_urgence := old.contact_urgence;
     else
+      new.staff_party := null;
       new.civilite := null; new.date_naissance := null; new.lieu_naissance := null; new.nationalite := null;
       new.adresse := null; new.code_postal := null; new.ville := null; new.secu := null;
       new.mutuelle := null; new.affiliation_mutuelle := null; new.iban := null; new.bic := null;
-      new.salaire_brut := null; new.vehicule := null; new.promesse_embauche := null;
+      new.salaire_brut := null; new.promesse_embauche := null;
       new.periode_essai_jours := null; new.date_fin_periode_essai := null; new.type_contrat := null;
       new.heures_semaine := null; new.heures_sup := null; new.niveau := null; new.echelon := null;
       new.code_pcs := null; new.due := null; new.statut_payfit := null;
