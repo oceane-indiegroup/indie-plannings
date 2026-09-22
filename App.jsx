@@ -3982,13 +3982,13 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                 </th>
                 {entete(RH_CHAMPS_BASE[0], 56)}
                 {entete(RH_CHAMPS_BASE[1], 110)}
-                {entete(RH_CHAMPS_BASE[2], 100)}
+                {entete(RH_CHAMPS_BASE[2], 105)}
                 {entete(RH_CHAMPS_BASE[3], 110)}
                 {entete(RH_CHAMPS_BASE[4], 170)}
                 {entete(RH_CHAMPS_BASE[5], 130)}
-                {entete(RH_CHAMPS_BASE[6], 120)}
-                {entete(RH_CHAMPS_BASE[7], 80)}
-                {entete(RH_CHAMPS_BASE[8], 120)}
+                {entete(RH_CHAMPS_BASE[6], 130)}
+                {entete(RH_CHAMPS_BASE[7], 90)}
+                {entete(RH_CHAMPS_BASE[8], 130)}
                 {entete(RH_CHAMPS_BASE[9], 120)}
                 {entete(RH_CHAMPS_BASE[10], 140)}
                 {entete(RH_CHAMPS_BASE[11], 120)}
@@ -4020,16 +4020,16 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   </td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
                   <td style={{padding:'4px 6px'}}>
-                    <input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} />
+                    <input className="ig-cell" value={s.nom || ""} style={{width:110,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} />
                     {s.provisoire && <span title="Créée par le directeur, en attente de l'onboarding réel via le Form" style={{display:'inline-block',marginTop:2,padding:'1px 5px',borderRadius:20,background:'var(--sand-2)',color:'var(--ink-2)',fontSize:9,fontWeight:700,letterSpacing:'.3px'}}>À CONFIRMER</span>}
                   </td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:100}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:105,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:110}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:170}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:130}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:80}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:90,fontSize:15,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:140}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:120}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
