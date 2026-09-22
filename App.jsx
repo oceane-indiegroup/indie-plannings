@@ -3231,7 +3231,7 @@ function EmployeeView({ resto, emp, onBack }) {
 // ---------- Sélecteur de restaurant ----------
 // compteurs : optionnel — quand fourni (ex: depuis l'Espace RH), remplace le calcul
 // interne (basé sur le roster Planning) par des effectifs fournis par l'appelant.
-function RestoPicker({ restaurants, onPick, onAdd, compteurs }) {
+function RestoPicker({ restaurants, onPick, onAdd, compteurs, ajoutes, onRenommer, onSupprimer }) {
   const [form, setForm] = useState(false);
   const [nom, setNom] = useState("");
   const [err, setErr] = useState("");
@@ -3265,6 +3265,17 @@ function RestoPicker({ restaurants, onPick, onAdd, compteurs }) {
     onAdd(propre);
     setNom(""); setErr(""); setForm(false);
   }
+  function renommer(r) {
+    const nouveau = prompt(`Renommer « ${r} » en :`, r);
+    if (nouveau == null) return;
+    const propre = nouveau.trim();
+    if (!propre || propre === r) return;
+    if (restaurants.some((x) => x !== r && normTxt(x) === normTxt(propre))) { alert("Cet établissement existe déjà."); return; }
+    onRenommer(r, propre);
+  }
+  function supprimerTuile(r) {
+    if (confirm(`Supprimer l'établissement « ${r} » ?`)) onSupprimer(r);
+  }
 
   return (
     <div>
@@ -3272,15 +3283,38 @@ function RestoPicker({ restaurants, onPick, onAdd, compteurs }) {
       <h2 className="ig-section-title">Choisissez votre restaurant</h2>
       <p className="ig-muted">{restaurants.length} établissements du groupe.</p>
       <div className="ig-resto-grid">
-        {restaurants.map((r) => (
-          <button key={r} className="ig-resto" onClick={() => onPick(r)}>
-            <div>
-              <div className="nm">{r}</div>
-              <div className="ct">{counts[r] != null ? counts[r] : (compteurs ? 0 : EMPLOYEES.filter((e)=>e.r===r).length)} salariés</div>
+        {restaurants.map((r) => {
+          const estAjoute = ajoutes && ajoutes.has(r);
+          const ct = <div className="ct">{counts[r] != null ? counts[r] : (compteurs ? 0 : EMPLOYEES.filter((e)=>e.r===r).length)} salariés</div>;
+          if (!estAjoute) {
+            return (
+              <button key={r} className="ig-resto" onClick={() => onPick(r)}>
+                <div>
+                  <div className="nm">{r}</div>
+                  {ct}
+                </div>
+                <Icon.Chevron />
+              </button>
+            );
+          }
+          // Établissement créé depuis l'appli (pas du fichier de base) : on peut corriger
+          // son intitulé ou le retirer si créé par erreur.
+          return (
+            <div key={r} className="ig-resto" onClick={() => onPick(r)} style={{cursor:'pointer'}}>
+              <div>
+                <div className="nm">{r}</div>
+                {ct}
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:2}}>
+                <button type="button" title="Renommer" className="ig-btn ig-btn-ghost ig-btn-sm" style={{padding:'2px 6px'}}
+                  onClick={(e)=>{ e.stopPropagation(); renommer(r); }}>✎</button>
+                <button type="button" title="Supprimer" className="ig-btn ig-btn-ghost ig-btn-sm" style={{padding:'2px 6px',color:'var(--coral-d)'}}
+                  onClick={(e)=>{ e.stopPropagation(); supprimerTuile(r); }}>🗑</button>
+                <Icon.Chevron />
+              </div>
             </div>
-            <Icon.Chevron />
-          </button>
-        ))}
+          );
+        })}
         <button className="ig-resto" style={{borderStyle:'dashed',color:'var(--coral-d)',justifyContent:'center'}} onClick={()=>{ setForm(true); setErr(""); }}>
           <div className="nm">+ Nouvel établissement</div>
         </button>
@@ -4362,7 +4396,7 @@ function AccesRHModal({ restaurants, onClose }) {
   );
 }
 
-function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconnexion }) {
+function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, onRenommerEtablissement, onSupprimerEtablissement, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
   const [restoActif, setRestoActif] = useState(estSuperviseur ? null : scopes[0].resto);
@@ -4405,7 +4439,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
         </div>
-        <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} />
+        <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} ajoutes={new Set(etabsAjoutes)} onRenommer={onRenommerEtablissement} onSupprimer={onSupprimerEtablissement} />
         {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
       </>
     );
@@ -4485,6 +4519,22 @@ export default function App() {
     setEtabsAjoutes(next);
     Store.set(kEtablissements, next);
   }
+  // Renommer/supprimer ne s'appliquent qu'aux établissements ajoutés depuis l'appli
+  // (pas ceux du fichier de base) : on corrige juste l'intitulé stocké, en évitant les
+  // doublons. Sûr tant qu'aucun salarié/planning n'est encore rattaché à l'ancien nom.
+  function renommerEtablissement(ancien, nouveau) {
+    const propre = nouveau.trim();
+    if (!propre || propre === ancien) return;
+    if (restaurants.some((r) => r !== ancien && normTxt(r) === normTxt(propre))) return;
+    const next = etabsAjoutes.map((r) => (r === ancien ? propre : r));
+    setEtabsAjoutes(next);
+    Store.set(kEtablissements, next);
+  }
+  function supprimerEtablissement(nom) {
+    const next = etabsAjoutes.filter((r) => r !== nom);
+    setEtabsAjoutes(next);
+    Store.set(kEtablissements, next);
+  }
 
   function reset() { setRole(null); setAskCode(false); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); }
   async function deconnexion() {
@@ -4540,7 +4590,7 @@ export default function App() {
   } else if (role === "manager") {
     content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "rh") {
-    content = <EspaceRH acces={rhAcces} restaurants={restaurants} onAjouterEtablissement={ajouterEtablissement} onBack={reset} onDeconnexion={deconnexionRH} />;
+    content = <EspaceRH acces={rhAcces} restaurants={restaurants} etabsAjoutes={etabsAjoutes} onAjouterEtablissement={ajouterEtablissement} onRenommerEtablissement={renommerEtablissement} onSupprimerEtablissement={supprimerEtablissement} onBack={reset} onDeconnexion={deconnexionRH} />;
   } else if (role === "salarie" && !emp) {
     content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setRole(null)} />;
   } else {
