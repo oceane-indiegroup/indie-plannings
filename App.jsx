@@ -4020,10 +4020,10 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
       .map((brute) => ({ brute, label: rhValeurLabel(c.cle, brute) }));
     const selection = filtresValeurs[c.cle] || null;
     return (
-      <th key={c.cle} style={{padding:'8px 10px',position:'relative',minWidth:largeur}}>
+      <th key={c.cle} style={{padding:'8px 10px',position:'relative',minWidth:largeur,maxWidth:largeur,whiteSpace:'normal'}}>
         <button onClick={()=>setMenuOuvert(menuOuvert === c.cle ? null : c.cle)}
-          style={{display:'flex',alignItems:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontWeight:700,padding:0,color: selection ? 'var(--coral-d)' : 'inherit'}}>
-          {c.label} <span style={{fontSize:10}}>▾</span>
+          style={{display:'flex',alignItems:'flex-start',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontWeight:700,padding:0,textAlign:'left',whiteSpace:'normal',lineHeight:1.25,color: selection ? 'var(--coral-d)' : 'inherit'}}>
+          <span>{c.label}</span> <span style={{fontSize:10,flexShrink:0}}>▾</span>
         </button>
         {menuOuvert === c.cle && (
           <MenuFiltreColonne
@@ -4089,10 +4089,10 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
       {listeAffichee.length === 0 ? <div className="ig-muted">{filtresActifs ? "Aucun salarié ne correspond aux filtres." : "Aucun salarié pour l'instant."}</div> : (
-        <div className="ig-card" style={{padding:'6px 10px',overflowX:'auto'}}>
+        <div className="ig-card" style={{padding:'6px 10px',overflow:'auto',maxHeight:'70vh'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,whiteSpace:'nowrap'}}>
             <thead>
-              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)',verticalAlign:'bottom'}}>
+              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)',verticalAlign:'bottom',background:'var(--sand)',position:'sticky',top:0,zIndex:1}}>
                 <th style={{padding:'8px 6px'}}>
                   <input type="checkbox"
                     checked={listeAffichee.length > 0 && listeAffichee.every((s) => selection.has(s.id))}
