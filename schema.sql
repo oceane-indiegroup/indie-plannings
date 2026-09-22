@@ -266,18 +266,12 @@ create policy directeur_scope_rh on public.rh_salaries
   using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_salaries.resto and a.unite = rh_salaries.unite))
   with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_salaries.resto and a.unite = rh_salaries.unite));
 
--- SALARIÉS (anonymes) : formulaire d'onboarding public. Écriture seule
--- (création uniquement, jamais de mise à jour) — pas de lecture, pour qu'un
--- lien d'onboarding ne permette jamais de consulter les fiches des autres
--- salariés. Un upsert exigerait un droit de lecture (SELECT) pour détecter
--- les conflits, ce qu'on ne veut pas ouvrir à un lien public ; le doublon
--- éventuel (fiche déjà créée pour ce nom) est donc signalé côté appli au
--- moment de l'envoi plutôt que fusionné automatiquement en base.
+-- L'onboarding public (formulaire de l'appli, sans connexion) n'existe plus : c'est
+-- désormais le vrai Google Form d'Océane, relié à l'appli par la fonction Edge
+-- "sheet-sync" (action "formSubmit"), qui écrit avec la clé "service role" — donc en
+-- contournant les policies RLS, pas au travers d'elles. Aucun accès anonyme en écriture
+-- n'est donc plus nécessaire sur rh_salaries ; ces anciennes policies sont retirées.
 drop policy if exists anon_onboarding_insert on public.rh_salaries;
-create policy anon_onboarding_insert on public.rh_salaries
-  for insert to anon
-  with check (true);
-
 drop policy if exists anon_onboarding_update on public.rh_salaries;
 
 -- ============================================================================
