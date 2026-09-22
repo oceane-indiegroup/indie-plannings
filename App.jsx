@@ -3981,13 +3981,15 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   }
 
   async function creer(patch) {
-    const salarieId = idSalarie({ n: patch.nom, p: patch.prenom });
-    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, saison: saisonActive, ...patch });
+    const nomMaj = (patch.nom || "").toUpperCase();
+    const salarieId = idSalarie({ n: nomMaj, p: patch.prenom });
+    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, saison: saisonActive, ...patch, nom: nomMaj });
     if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté."); }
     else montrerErreur("Impossible d'ajouter ce salarié (peut-être une fiche existe déjà pour ce nom). Vérifiez et réessayez.");
   }
   async function modifier(patch) {
-    const maj = await RhSalaries.maj(edition.id, patch);
+    const majPatch = patch.nom != null ? { ...patch, nom: patch.nom.toUpperCase() } : patch;
+    const maj = await RhSalaries.maj(edition.id, majPatch);
     if (maj) { setListe(liste.map((s) => (s.id === maj.id ? maj : s))); setEdition(null); montrerFlash("Fiche mise à jour."); }
     else montrerErreur("La sauvegarde a échoué. Réessayez, ou contactez le support si ça persiste.");
   }
@@ -4012,6 +4014,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     setListe(liste.map((s) => (s.id === id ? { ...s, [cle]: valeur } : s)));
   }
   async function sauverCellule(id, cle, valeur) {
+    if (cle === 'nom' && typeof valeur === 'string') valeur = valeur.toUpperCase();
     majCellule(id, cle, valeur);
     const maj = await RhSalaries.maj(id, { [cle]: valeur });
     if (!maj) montrerErreur("La sauvegarde a échoué pour cette case. Réessayez.");
