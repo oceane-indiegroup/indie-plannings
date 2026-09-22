@@ -15,7 +15,7 @@
 //   SHEET_ID                l'identifiant du Google Sheet "onboarding" (dans son URL, après /d/)
 //   SHEET_TAB                le nom exact de l'onglet (ex: "Form_Responses1")
 //   FORM_WEBHOOK_SECRET     un mot de passe inventé par vous, collé aussi dans le script Apps Script
-// SUPABASE_URL, SUPABASE_ANON_KEY et SUPABASE_SERVICE_ROLE_KEY sont fournis automatiquement.
+// SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis automatiquement.
 
 const GOOGLE_SA_EMAIL = Deno.env.get("GOOGLE_SA_EMAIL") ?? "";
 const GOOGLE_SA_PRIVATE_KEY = (Deno.env.get("GOOGLE_SA_PRIVATE_KEY") ?? "").replace(/\\n/g, "\n");
@@ -23,7 +23,6 @@ const SHEET_ID = Deno.env.get("SHEET_ID") ?? "";
 const SHEET_TAB = Deno.env.get("SHEET_TAB") ?? "";
 const FORM_WEBHOOK_SECRET = Deno.env.get("FORM_WEBHOOK_SECRET") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const CORS = {
@@ -236,12 +235,9 @@ Deno.serve(async (req: Request) => {
       });
       if (!insRes.ok) return json({ error: "insertion_echouee", detail: await insRes.text() }, 500);
 
-      // Crée aussi tout de suite le dossier Drive de l'année en cours (best-effort).
-      fetch(`${SUPABASE_URL}/functions/v1/drive-docs`, {
-        method: "POST",
-        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "ensureFolderPublic", resto, unite: unite.toUpperCase(), annee: new Date().getFullYear(), nom, prenom }),
-      }).catch((e) => console.error("appel drive-docs:", e));
+      // Le dossier Drive du salarié est déjà créé par le système Apps Script existant
+      // d'Océane (déclenché sur le même envoi de formulaire) : on ne le recrée pas ici,
+      // pour ne jamais produire un dossier en double avec un nom légèrement différent.
 
       return json({ ok: true });
     }
