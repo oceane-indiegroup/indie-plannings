@@ -435,24 +435,75 @@ Deno.serve(async (req: Request) => {
         aInserer.push(ligne);
       }
 
-      if (aInserer.length === 0) return json({ ok: true, importes: 0, ignores });
+      if (aInserer.length === 0) return json({ ok: true, importes: 0, completes: 0, ignores });
 
-      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison`, {
-        method: "POST",
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          "Content-Type": "application/json",
-          Prefer: "resolution=ignore-duplicates,return=representation",
-        },
-        body: JSON.stringify(aInserer),
-      });
-      if (!insRes.ok) {
-        const detail = await insRes.text();
-        return json({ error: "import_echoue", detail }, 500);
+      // Beaucoup de ces salariés existent déjà en base : créés automatiquement à leur vraie
+      // soumission du Google Form, qui ne capture QUE les champs de base (pas les dates de
+      // contrat, heures, type de contrat, niveau, échelon — ajoutés ensuite à la main dans le
+      // registre). On complète donc aussi les fiches déjà là, mais UNIQUEMENT les champs
+      // encore vides (jamais un champ qu'un directeur aurait déjà renseigné/modifié).
+      const CHAMPS_COMPLETABLES = ["date_debut", "date_fin", "date_fin_periode_essai", "heures_contrat", "heures_sup", "salaire_net", "type_contrat", "niveau", "echelon"];
+      const existants: Record<string, Record<string, unknown>> = {};
+      {
+        const filtreResto = restoDemande ? `&resto=eq.${encodeURIComponent(restoDemande)}` : "";
+        const champsExist = ["id", "resto", "salarie_id", "saison", ...CHAMPS_COMPLETABLES].join(",");
+        const existRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?select=${champsExist}${filtreResto}`, {
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+        });
+        if (existRes.ok) {
+          const lignesExist = await existRes.json();
+          for (const l of lignesExist) {
+            const cleF = `${l.resto}::${l.salarie_id}`;
+            // Une personne peut avoir des fiches sur plusieurs saisons (archives) : on ne
+            // complète que la plus récente.
+            if (!existants[cleF] || String(l.saison) > String(existants[cleF].saison)) existants[cleF] = l;
+          }
+        }
       }
-      const inserees = await insRes.json();
-      return json({ ok: true, importes: inserees.length, ignores: ignores + (aInserer.length - inserees.length) });
+
+      const aInsererFinal: Record<string, unknown>[] = [];
+      const patchs: { id: unknown; patch: Record<string, unknown> }[] = [];
+      for (const ligne of aInserer) {
+        const cleF = `${ligne.resto}::${ligne.salarie_id}`;
+        const existant = existants[cleF];
+        if (!existant) { aInsererFinal.push(ligne); continue; }
+        const patch: Record<string, unknown> = {};
+        for (const c of CHAMPS_COMPLETABLES) {
+          if (existant[c] == null && (ligne as Record<string, unknown>)[c] != null) patch[c] = (ligne as Record<string, unknown>)[c];
+        }
+        if (Object.keys(patch).length > 0) patchs.push({ id: existant.id, patch });
+      }
+
+      let importes = 0;
+      if (aInsererFinal.length > 0) {
+        const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison`, {
+          method: "POST",
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "resolution=ignore-duplicates,return=representation",
+          },
+          body: JSON.stringify(aInsererFinal),
+        });
+        if (!insRes.ok) {
+          const detail = await insRes.text();
+          return json({ error: "import_echoue", detail }, 500);
+        }
+        importes = (await insRes.json()).length;
+      }
+
+      let completes = 0;
+      for (const { id, patch } of patchs) {
+        const majRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${id}`, {
+          method: "PATCH",
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify(patch),
+        });
+        if (majRes.ok) completes++;
+      }
+
+      return json({ ok: true, importes, completes, ignores: ignores + (aInsererFinal.length - importes) });
     }
 
     // ---- Un vrai Google Form a été soumis (via le script Apps Script) ----
