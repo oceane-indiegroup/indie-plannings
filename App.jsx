@@ -353,6 +353,19 @@ const RhSheetSync = {
     });
     if (error) console.error("RhSheetSync.upsert:", error.message);
   },
+  // Rattrapage en un clic : crée en base les salariés déjà présents dans le Sheet mais
+  // jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique).
+  // Ne touche jamais aux fiches déjà existantes. Réservé au superviseur.
+  async importerTout() {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "importerTout" } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
 };
 
 // ---------- Gestion des accès RH (créer/retirer un compte directeur/chef) ----------
@@ -3885,11 +3898,29 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
   const [restoActif, setRestoActif] = useState(estSuperviseur ? null : scopes[0].resto);
   const [uniteActive, setUniteActive] = useState(estSuperviseur ? null : scopes[0].unite);
   const [gestionAcces, setGestionAcces] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Rattrapage en un clic : va chercher dans le Google Sheet les salariés déjà onboardés
+  // mais jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique),
+  // et les crée en base. Ne touche jamais aux fiches déjà existantes.
+  async function importerDepuisSheet() {
+    if (importBusy) return;
+    setImportBusy(true); setImportMsg("");
+    const r = await RhSheetSync.importerTout();
+    setImportBusy(false);
+    if (!r.ok) { setImportMsg(`Échec de l'import : ${r.erreur || "erreur inconnue"}`); return; }
+    setImportMsg(r.importes > 0 ? `${r.importes} salarié${r.importes>1?'s':''} importé${r.importes>1?'s':''} depuis le Sheet.` : "Rien à importer : tout est déjà à jour.");
+    setRefreshKey((k) => k + 1);
+  }
 
   if (estSuperviseur && !restoActif) {
     return (
       <>
-        <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',marginBottom:10}}>
+        <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:10,alignItems:'center'}}>
+          {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
         </div>
         <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={()=>{}} />
@@ -3907,7 +3938,9 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
           <h2 className="ig-section-title">{restoActif}</h2>
         </div>
         {estSuperviseur && (
-          <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
+            {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
             <button className={"ig-btn ig-btn-sm "+(uniteActive==='SALLE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('SALLE')}>Salle</button>
             <button className={"ig-btn ig-btn-sm "+(uniteActive==='CUISINE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('CUISINE')}>Cuisine</button>
             <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
@@ -3915,7 +3948,7 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
         )}
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion}>Déconnexion</button>
       </div>
-      <ListeSalariesRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
       {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>
   );

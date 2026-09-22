@@ -174,6 +174,27 @@ async function autorise(userId: string, resto: string, unite: string): Promise<b
   return lignes.some((l: { resto: string; unite: string }) => l.resto === resto && (l.unite === unite || l.unite === "TOUS"));
 }
 
+// Pour "importerTout" (opération globale, à réserver au superviseur) : le jeton est
+// vérifié auprès de Supabase Auth lui-même (signature + expiration contrôlées côté
+// serveur), pas juste décodé localement comme pour les autres actions ci-dessus.
+async function utilisateurAuthentifie(authHeader: string): Promise<{ id: string } | null> {
+  if (!authHeader) return null;
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { Authorization: authHeader, apikey: SERVICE_ROLE_KEY },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.id ? { id: data.id } : null;
+}
+async function verifierSuperviseur(userId: string): Promise<boolean> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rh_acces?user_id=eq.${userId}&superviseur=is.true&select=id&limit=1`, {
+    headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+  });
+  if (!res.ok) return false;
+  const lignes = await res.json();
+  return Array.isArray(lignes) && lignes.length > 0;
+}
+
 // Lit tout le Sheet en un seul appel (en-têtes + données), jusqu'à 3000 lignes / colonne BZ.
 async function lireFeuille(jeton: string): Promise<string[][]> {
   const plage = encodeURIComponent(`'${SHEET_TAB}'!A1:BZ3000`);
@@ -235,6 +256,72 @@ Deno.serve(async (req: Request) => {
     }
     const corps = await req.json();
     const { action } = corps;
+
+    // ---- Rattrapage en un clic : relit tout le Sheet et crée en base les salariés qui
+    // s'y trouvent déjà mais que l'app n'a jamais reçus (onboardés avant que la synchro
+    // automatique ne soit en place). Réservé au superviseur. Les fiches déjà existantes en
+    // base ne sont jamais touchées (ignore-duplicates) : on ne risque donc jamais d'écraser
+    // une modification faite depuis dans l'app. ----
+    if (action === "importerTout") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+      const jeton = await jetonAcces();
+      const grille = await lireFeuille(jeton);
+      if (grille.length < 2) return json({ ok: true, importes: 0, ignores: 0 });
+      const entetes = grille[0];
+
+      function valeurPourLigne(nv: Record<string, string>, cle: string): string | null {
+        for (const titre in nv) {
+          const champ = CHAMPS_SHEET.find((c) => c.cle === cle);
+          if (champ && champ.test(normaliser(titre))) return nv[titre] || null;
+        }
+        return null;
+      }
+
+      const aInserer: Record<string, unknown>[] = [];
+      let ignores = 0;
+      for (let i = 1; i < grille.length; i++) {
+        const nv: Record<string, string> = {};
+        entetes.forEach((h, j) => { nv[h] = grille[i][j] ?? ""; });
+
+        const resto = valeurPourLigne(nv, "resto");
+        const unite = valeurPourLigne(nv, "unite");
+        const nom = valeurPourLigne(nv, "nom");
+        const prenom = valeurPourLigne(nv, "prenom");
+        if (!resto || !unite || !nom || !prenom) { ignores++; continue; }
+
+        const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
+        ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence"].forEach((cle) => {
+          const v = valeurPourLigne(nv, cle);
+          if (v) ligne[cle] = cle === "date_naissance" ? versDateISO(v) : v;
+        });
+        const mutuelleVal = valeurPourLigne(nv, "mutuelle");
+        if (mutuelleVal) ligne.mutuelle = normaliser(mutuelleVal).startsWith("oui");
+
+        aInserer.push(ligne);
+      }
+
+      if (aInserer.length === 0) return json({ ok: true, importes: 0, ignores });
+
+      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id`, {
+        method: "POST",
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "resolution=ignore-duplicates,return=representation",
+        },
+        body: JSON.stringify(aInserer),
+      });
+      if (!insRes.ok) {
+        const detail = await insRes.text();
+        return json({ error: "import_echoue", detail }, 500);
+      }
+      const inserees = await insRes.json();
+      return json({ ok: true, importes: inserees.length, ignores: ignores + (aInserer.length - inserees.length) });
+    }
 
     // ---- Un vrai Google Form a été soumis (via le script Apps Script) ----
     if (action === "formSubmit") {
