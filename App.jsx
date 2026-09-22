@@ -3713,6 +3713,42 @@ function rhValeurLabel(cle, brute) {
   return brute;
 }
 
+// ---------- Couleur de ligne (façon remplissage de cellule Excel) ----------
+const RH_PALETTE_COULEURS = [
+  { valeur: "", label: "Aucune couleur" },
+  { valeur: "#FBE2DC", label: "Rouge clair" },
+  { valeur: "#FCE9C6", label: "Jaune clair" },
+  { valeur: "#D9F0DC", label: "Vert clair" },
+  { valeur: "#DCEAF5", label: "Bleu clair" },
+  { valeur: "#EAE0F3", label: "Violet clair" },
+  { valeur: "#E8DDC9", label: "Beige" },
+];
+function PastilleCouleur({ valeur, taille = 20, onClick, titre }) {
+  return (
+    <button onClick={onClick} title={titre} type="button"
+      style={{width:taille,height:taille,borderRadius:6,border: valeur ? '1.5px solid var(--line)' : '1.5px dashed var(--line)', background: valeur || '#fff', cursor:'pointer', padding:0, flex:'none'}} />
+  );
+}
+function SelecteurCouleurLigne({ valeur, onChoisir }) {
+  const [ouvert, setOuvert] = useState(false);
+  return (
+    <span style={{position:'relative',display:'inline-block'}}>
+      <PastilleCouleur valeur={valeur} titre="Couleur de la ligne" onClick={()=>setOuvert(!ouvert)} />
+      {ouvert && (
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:40}} onClick={()=>setOuvert(false)} />
+          <div className="ig-card" style={{position:'absolute',top:'100%',right:0,marginTop:4,zIndex:41,padding:8,display:'flex',gap:6,flexWrap:'wrap',width:120,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+            {RH_PALETTE_COULEURS.map((p) => (
+              <PastilleCouleur key={p.valeur || 'aucune'} valeur={p.valeur} titre={p.label} taille={22}
+                onClick={()=>{ onChoisir(p.valeur || null); setOuvert(false); }} />
+            ))}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
 function MenuFiltreColonne({ options, selection, onValider, onTrier, onFermer }) {
   const [brouillon, setBrouillon] = useState(() => new Set(selection || options.map((o) => o.brute)));
   const [recherche, setRecherche] = useState("");
@@ -3767,6 +3803,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [menuOuvert, setMenuOuvert] = useState(null); // clé de la colonne dont le menu est ouvert
   const [triColonne, setTriColonne] = useState(null);
   const [triSens, setTriSens] = useState('asc');
+  const [filtreCouleurs, setFiltreCouleurs] = useState(null); // Set des couleurs affichées, null = toutes
 
   useEffect(() => {
     let on = true;
@@ -3803,11 +3840,13 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
 
-  const filtresActifs = Object.keys(filtresValeurs).length > 0;
+  const filtresActifs = Object.keys(filtresValeurs).length > 0 || !!filtreCouleurs;
 
   // Filtre colonne par colonne, façon tableur : une colonne filtrée ne garde que les
-  // lignes dont la valeur fait partie des cases cochées dans son menu.
+  // lignes dont la valeur fait partie des cases cochées dans son menu. Le filtre par
+  // couleur (au-dessus du tableau) s'applique en plus, sur la couleur de toute la ligne.
   function passeFiltres(s) {
+    if (filtreCouleurs && !filtreCouleurs.has(s.couleur || "")) return false;
     return RH_CHAMPS_BASE.every((c) => {
       const sel = filtresValeurs[c.cle];
       if (!sel) return true;
@@ -3859,7 +3898,24 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     <div>
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
-        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setFiltresValeurs({})}>✕ Réinitialiser les filtres</button>}
+        <div style={{display:'flex',alignItems:'center',gap:5}}>
+          <span className="ig-muted" style={{fontSize:12}}>Filtrer par couleur :</span>
+          {RH_PALETTE_COULEURS.map((p) => {
+            const actif = !filtreCouleurs || filtreCouleurs.has(p.valeur);
+            return (
+              <span key={p.valeur || 'aucune'} style={{opacity: actif ? 1 : .3}}>
+                <PastilleCouleur valeur={p.valeur} titre={p.label} taille={18} onClick={() => {
+                  const toutes = new Set(liste.map((x) => x.couleur || ""));
+                  const base = filtreCouleurs || new Set(toutes);
+                  const next = new Set(base);
+                  if (next.has(p.valeur)) next.delete(p.valeur); else next.add(p.valeur);
+                  setFiltreCouleurs(next.size >= toutes.size ? null : next);
+                }} />
+              </span>
+            );
+          })}
+        </div>
+        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); }}>✕ Réinitialiser les filtres</button>}
       </div>
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
@@ -3885,7 +3941,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
             </thead>
             <tbody>
               {listeAffichee.map((s) => (
-                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.date_fin ? '#FBE2DC' : undefined}}>
+                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.couleur || (s.date_fin ? '#FBE2DC' : undefined)}}>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.staff_party} onChange={(e)=>sauverCellule(s.id,'staff_party',e.target.checked)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
@@ -3898,7 +3954,10 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:140}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
-                  <td style={{padding:'4px 6px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button></td>
+                  <td style={{padding:'4px 6px',display:'flex',gap:6,alignItems:'center'}}>
+                    <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
+                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
