@@ -1551,6 +1551,7 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
   const [mPoste, setMPoste] = useState(emp.po);
   const [mUnite, setMUnite] = useState(emp.u);
   const [mHeures, setMHeures] = useState(emp.h);
+  const [mDebut, setMDebut] = useState(emp._debut || "");
   const [mErr, setMErr] = useState(false);
   const lundi = lundiDeLaSemaine(semDate);
 
@@ -1640,6 +1641,11 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
                 </select>
               </div>
             </div>
+            <div className="ig-field">
+              <label>Date de début de contrat (optionnel)</label>
+              <input type="date" value={mDebut} onChange={(e)=>setMDebut(e.target.value)} />
+              <div className="ig-muted" style={{fontSize:12,marginTop:4}}>Si renseignée, le salarié n'apparaît sur le planning qu'à partir de cette semaine.</div>
+            </div>
             {(mNom.trim().toUpperCase() !== emp.n || mPrenom.trim() !== emp.p) && (
               <div className="ig-status-line" style={{marginTop:10,fontSize:13}}>Le nom/prénom change : ses semaines déjà passées resteront enregistrées sous "{emp.p} {emp.n}" (historique), et le nouveau nom s'appliquera à partir de maintenant.</div>
             )}
@@ -1648,7 +1654,7 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
               <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={()=>setMode(null)}>Retour</button>
               <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={()=>{
                 if (!mPrenom.trim() || !mNom.trim()) { setMErr(true); return; }
-                onModifier({ prenom: mPrenom, nom: mNom, poste: mPoste, unite: mUnite, heures: Number(mHeures) });
+                onModifier({ prenom: mPrenom, nom: mNom, poste: mPoste, unite: mUnite, heures: Number(mHeures), dateDebut: mDebut || null });
               }}>Enregistrer</button>
             </div>
           </div>
@@ -1689,11 +1695,12 @@ function AjoutModal({ resto, onAjouter, onClose }) {
   const [poste, setPoste] = useState("");
   const [unite, setUnite] = useState("SALLE");
   const [heures, setHeures] = useState(35);
+  const [dateDebut, setDateDebut] = useState("");
   const [err, setErr] = useState(false);
 
   function valider() {
     if (!prenom.trim() || !nom.trim()) { setErr(true); return; }
-    onAjouter({ prenom, nom, poste, unite, heures: Number(heures) });
+    onAjouter({ prenom, nom, poste, unite, heures: Number(heures), dateDebut: dateDebut || null });
   }
 
   return (
@@ -1733,6 +1740,11 @@ function AjoutModal({ resto, onAjouter, onClose }) {
               <option value={44}>44h</option>
             </select>
           </div>
+        </div>
+        <div className="ig-field">
+          <label>Date de début de contrat (optionnel)</label>
+          <input type="date" value={dateDebut} onChange={(e)=>setDateDebut(e.target.value)} />
+          <div className="ig-muted" style={{fontSize:12,marginTop:4}}>Si renseignée, le salarié n'apparaîtra sur le planning qu'à partir de cette semaine.</div>
         </div>
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>Prénom et nom sont obligatoires.</div>}
         <div style={{display:'flex',gap:10,marginTop:18}}>
@@ -2184,6 +2196,7 @@ function ManagerView({ resto, onBack, superviseur }) {
     const supprimes = new Set(roster.supprimes || []);
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
+      if (e._debut && sem < e._debut) return false; // ajout manuel : contrat pas encore commencé cette semaine
       const fin = (roster.departs || {})[idSalarie(e)];
       // fin = date de fin de contrat (AAAA-MM-JJ). Visible tant que le lundi de la
       // semaine affichée est <= date de fin ; masqué pour les semaines entièrement après.
@@ -2569,7 +2582,7 @@ function ManagerView({ resto, onBack, superviseur }) {
   // on l'en enlève — sinon le filtre d'effectif le masquerait aussitôt. Et si c'est une
   // fiche du fichier de base, on la réactive au lieu de créer un doublon.
   function ajouterSalarie(data) {
-    const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true };
+    const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true, _debut: data.dateDebut || null };
     const id = idSalarie(nouveau);
     const supprimes = (roster.supprimes || []).filter((x) => x !== id);
     const departs = { ...(roster.departs || {}) };
@@ -2587,7 +2600,7 @@ function ManagerView({ resto, onBack, superviseur }) {
   // et on masque l'ancienne fiche du fichier de base pour éviter un doublon. Les semaines
   // déjà passées restent enregistrées sous l'ancien nom (historique RH intact).
   function modifierSalarie(ancienEmp, data) {
-    const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true };
+    const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true, _debut: data.dateDebut || null };
     const ancienId = idSalarie(ancienEmp);
     const nouvelId = idSalarie(nouveau);
     const ajouts = [...(roster.ajouts || []).filter((a) => idSalarie(a) !== ancienId && idSalarie(a) !== nouvelId), nouveau];
