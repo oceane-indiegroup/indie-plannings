@@ -355,9 +355,10 @@ const RhSheetSync = {
   },
   // Rattrapage en un clic : crée en base les salariés déjà présents dans le Sheet mais
   // jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique).
-  // Ne touche jamais aux fiches déjà existantes. Réservé au superviseur.
-  async importerTout() {
-    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "importerTout" } });
+  // Ne touche jamais aux fiches déjà existantes. Réservé au superviseur. resto optionnel :
+  // s'il est précisé, seul cet établissement est importé (évite de mélanger avec les autres).
+  async importerTout(resto) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "importerTout", resto } });
     if (error) {
       let detail = error.message;
       try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
@@ -4227,11 +4228,12 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
 
   // Rattrapage en un clic : va chercher dans le Google Sheet les salariés déjà onboardés
   // mais jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique),
-  // et les crée en base. Ne touche jamais aux fiches déjà existantes.
+  // et les crée en base. Ne touche jamais aux fiches déjà existantes. Scopé sur l'établissement
+  // actif quand on en a choisi un (évite d'importer les autres établissements en même temps).
   async function importerDepuisSheet() {
     if (importBusy) return;
     setImportBusy(true); setImportMsg("");
-    const r = await RhSheetSync.importerTout();
+    const r = await RhSheetSync.importerTout(restoActif || undefined);
     setImportBusy(false);
     if (!r.ok) { setImportMsg(`Échec de l'import : ${r.erreur || "erreur inconnue"}`); return; }
     setImportMsg(r.importes > 0 ? `${r.importes} salarié${r.importes>1?'s':''} importé${r.importes>1?'s':''} depuis le Sheet.` : "Rien à importer : tout est déjà à jour.");
