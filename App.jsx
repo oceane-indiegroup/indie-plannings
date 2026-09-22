@@ -355,6 +355,25 @@ const RhSheetSync = {
   },
 };
 
+// ---------- Gestion des accès RH (créer/retirer un compte directeur/chef) ----------
+// Passe par la fonction Supabase "rh-admin" : le superviseur crée/gère les comptes
+// directement dans l'appli, sans jamais avoir besoin d'ouvrir Supabase.
+async function appelerRhAdmin(action, corps) {
+  const { data, error } = await supabase.functions.invoke("rh-admin", { body: { action, ...corps } });
+  if (error) {
+    let detail = error.message;
+    try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+    return { ok: false, erreur: detail };
+  }
+  if (data?.error) return { ok: false, erreur: data.error };
+  return data;
+}
+const RhAdmin = {
+  lister: () => appelerRhAdmin("lister"),
+  creer: ({ email, motDePasse, resto, unite }) => appelerRhAdmin("creer", { email, motDePasse, resto, unite }),
+  supprimer: (id) => appelerRhAdmin("supprimer", { id }),
+};
+
 const RhSalaries = {
   async list(resto, unite) {
     let q = supabase.from("rh_salaries").select("*").eq("resto", resto);
@@ -3731,14 +3750,125 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 }
 
 // ---------- Espace RH : point d'entrée après connexion individuelle ----------
+// ---------- Modal Gestion des accès RH (superviseur uniquement) ----------
+// Permet de créer un compte directeur/chef (ou de lui ajouter un établissement) et de
+// retirer un accès existant, sans jamais avoir besoin d'ouvrir Supabase.
+function AccesRHModal({ restaurants, onClose }) {
+  const [liste, setListe] = useState(null);
+  const [erreur, setErreur] = useState("");
+  const [flash, setFlash] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState("");
+  const [motDePasse, setMotDePasse] = useState("");
+  const [resto, setResto] = useState(restaurants[0] || "");
+  const [unite, setUnite] = useState("SALLE");
+
+  function charger() {
+    setListe(null);
+    RhAdmin.lister().then((r) => { if (r.ok) setListe(r.acces); else setErreur(r.erreur || "Chargement impossible."); });
+  }
+  useEffect(() => { charger(); }, []);
+
+  async function creer() {
+    if (busy) return;
+    if (!email.trim()) { setErreur("Renseignez l'email."); return; }
+    setBusy(true); setErreur(""); setFlash("");
+    const r = await RhAdmin.creer({ email: email.trim(), motDePasse, resto, unite });
+    setBusy(false);
+    if (!r.ok) { setErreur(r.erreur || "Échec de la création."); return; }
+    setFlash(`Accès créé pour ${email.trim()} (${resto} · ${unite === "SALLE" ? "Salle" : "Cuisine"}).`);
+    setEmail(""); setMotDePasse("");
+    charger();
+  }
+
+  async function supprimer(a) {
+    if (!confirm(`Retirer l'accès de ${a.email} à ${a.resto} (${a.unite === "SALLE" ? "Salle" : "Cuisine"}) ?`)) return;
+    const r = await RhAdmin.supprimer(a.id);
+    if (!r.ok) { setErreur(r.erreur || "Suppression impossible."); return; }
+    charger();
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:560}}>
+        <h3>Accès RH</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>Un compte par directeur/chef, cloisonné par établissement et par unité (Salle/Cuisine).</div>
+
+        <div style={{maxHeight:220,overflowY:'auto',border:'1px solid var(--line)',borderRadius:10,marginBottom:16}}>
+          {liste === null ? (
+            <div style={{padding:14}} className="ig-muted">Chargement…</div>
+          ) : liste.length === 0 ? (
+            <div style={{padding:14}} className="ig-muted">Aucun accès créé pour le moment.</div>
+          ) : (
+            <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
+              <tbody>
+                {liste.map((a) => (
+                  <tr key={a.id} style={{borderBottom:'1px solid var(--line)'}}>
+                    <td style={{padding:'8px 10px'}}>{a.email}{a.superviseur && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:9,letterSpacing:'.4px'}}>SUPERVISEUR</span>}</td>
+                    <td style={{padding:'8px 10px'}}>{a.resto}</td>
+                    <td style={{padding:'8px 10px'}}>{a.unite === "SALLE" ? "Salle" : a.unite === "CUISINE" ? "Cuisine" : "Tous"}</td>
+                    <td style={{padding:'8px 10px',textAlign:'right'}}>
+                      {!a.superviseur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(a)}>Retirer</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="ig-muted" style={{fontWeight:600,marginBottom:8}}>Ajouter un accès</div>
+        <div className="ig-field">
+          <label>Email</label>
+          <input type="email" value={email} onChange={(e)=>{ setEmail(e.target.value); setErreur(""); }} placeholder="prenom@indiegroup.fr" />
+        </div>
+        <div className="ig-field">
+          <label>Mot de passe (uniquement si le compte n'existe pas encore)</label>
+          <input type="password" value={motDePasse} onChange={(e)=>setMotDePasse(e.target.value)} placeholder="Au moins 6 caractères" />
+        </div>
+        <div className="ig-times">
+          <div className="ig-field" style={{margin:0}}>
+            <label>Établissement</label>
+            <select value={resto} onChange={(e)=>setResto(e.target.value)}>
+              {restaurants.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div className="ig-field" style={{margin:0}}>
+            <label>Unité</label>
+            <select value={unite} onChange={(e)=>setUnite(e.target.value)}>
+              <option value="SALLE">Salle</option>
+              <option value="CUISINE">Cuisine</option>
+            </select>
+          </div>
+        </div>
+        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:8,fontWeight:600}}>{erreur}</div>}
+        {flash && <div style={{color:'var(--sea)',fontSize:13,marginTop:8,fontWeight:600}}>{flash}</div>}
+        <div style={{display:'flex',gap:10,marginTop:16}}>
+          <button className="ig-btn ig-btn-ghost" onClick={onClose}>Fermer</button>
+          <button className="ig-btn ig-btn-primary" onClick={creer} disabled={busy}>{busy ? "Création…" : "Créer / ajouter cet accès"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
   const [restoActif, setRestoActif] = useState(estSuperviseur ? null : scopes[0].resto);
   const [uniteActive, setUniteActive] = useState(estSuperviseur ? null : scopes[0].unite);
+  const [gestionAcces, setGestionAcces] = useState(false);
 
   if (estSuperviseur && !restoActif) {
-    return <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={()=>{}} />;
+    return (
+      <>
+        <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',marginBottom:10}}>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
+        </div>
+        <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={()=>{}} />
+        {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
+      </>
+    );
   }
 
   return (
@@ -3753,11 +3883,13 @@ function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
           <div style={{marginLeft:'auto',display:'flex',gap:8}}>
             <button className={"ig-btn ig-btn-sm "+(uniteActive==='SALLE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('SALLE')}>Salle</button>
             <button className={"ig-btn ig-btn-sm "+(uniteActive==='CUISINE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('CUISINE')}>Cuisine</button>
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
           </div>
         )}
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion}>Déconnexion</button>
       </div>
       <ListeSalariesRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>
   );
 }
