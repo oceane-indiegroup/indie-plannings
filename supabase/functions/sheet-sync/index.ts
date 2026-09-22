@@ -217,7 +217,7 @@ Deno.serve(async (req: Request) => {
       const prenom = valeurPour("prenom");
       if (!resto || !unite || !nom || !prenom) return json({ error: "champs_manquants" }, 400);
 
-      const ligne: Record<string, unknown> = { resto, unite: unite.toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
+      const ligne: Record<string, unknown> = { resto, unite: unite.trim().toUpperCase(), salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom, prenom };
       ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence"].forEach((cle) => {
         const v = valeurPour(cle);
         if (v !== null) ligne[cle] = v;
@@ -235,7 +235,11 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify(ligne),
       });
-      if (!insRes.ok) return json({ error: "insertion_echouee", detail: await insRes.text() }, 500);
+      if (!insRes.ok) {
+        const detail = await insRes.text();
+        console.error("formSubmit insertion_echouee:", insRes.status, detail, JSON.stringify(ligne));
+        return json({ error: "insertion_echouee", detail }, 500);
+      }
 
       // Le dossier Drive du salarié est déjà créé par le système Apps Script existant
       // d'Océane (déclenché sur le même envoi de formulaire) : on ne le recrée pas ici,
