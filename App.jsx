@@ -1337,7 +1337,13 @@ async function analyserMappingPayFit(files, resto, ajouts) {
         if (!collaborateur) continue;
         const emp = matcherCollaborateurPayFit(String(collaborateur), resto, ajouts);
         if (!emp) { nonReconnus.add(String(collaborateur)); continue; }
-        trouves[idSalarie(emp)] = [colId >= 0 ? String(ligne[colId] || "") : "", colMat >= 0 ? String(ligne[colMat] || "") : ""];
+        const idVal = colId >= 0 ? String(ligne[colId] || "").trim() : "";
+        const matVal = colMat >= 0 ? String(ligne[colMat] || "").trim() : "";
+        // Une ligne sans identifiant n'apporte rien : on l'ignore plutôt que d'écraser une
+        // correspondance déjà enregistrée (sinon un export PayFit avec une ligne vide pour
+        // quelqu'un efface silencieusement son identifiant déjà connu).
+        if (!idVal) continue;
+        trouves[idSalarie(emp)] = [idVal, matVal];
       }
     }
   }
