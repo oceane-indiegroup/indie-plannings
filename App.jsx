@@ -377,33 +377,61 @@ const RhSalaries = {
   },
 };
 
-// ---------- Documents RH : dossier par salarié, classé par établissement/unité/année ----------
-// Bucket privé "rh-documents", chemin <resto>/<unite>/<année>/<salarie_id>/<fichier> — les
-// documents des années précédentes restent accessibles (rien n'est jamais écrasé par année).
+// ---------- Documents RH : vrais fichiers déposés dans le Google Drive "REGISTRE DU PERSONNEL" ----------
+// Tout passe par la fonction Supabase "drive-docs" (jamais d'appel direct à l'API Google
+// depuis le navigateur : la clé du compte de service Google reste côté serveur).
+// Chemin dans le Drive : REGISTRE DU PERSONNEL / <resto> / <année> / <SALLE|CUISINE> / <NOM_Prénom>
+// — classé et archivé par année, comme le dossier créé automatiquement par l'ancien Google Form.
+function nomDossierDrive(nom, prenom) {
+  const p = String(prenom || "").trim();
+  return `${String(nom || "").trim().toUpperCase()}_${p.charAt(0).toUpperCase()}${p.slice(1).toLowerCase()}`;
+}
+
+function fichierEnBase64(fichier) {
+  return new Promise((resolve, reject) => {
+    const lecteur = new FileReader();
+    lecteur.onload = () => resolve(String(lecteur.result).split(",")[1] || "");
+    lecteur.onerror = reject;
+    lecteur.readAsDataURL(fichier);
+  });
+}
+
 const RhDocuments = {
-  dossier(resto, unite, annee, salarieId) {
-    return `${resto}/${unite}/${annee}/${salarieId}`;
+  // Appelé juste après l'envoi du formulaire d'onboarding public (sans connexion) : crée
+  // tout de suite le dossier de l'année en cours dans le Drive, prêt à recevoir des documents.
+  async creerDossierOnboarding({ resto, unite, nom, prenom }) {
+    const annee = new Date().getFullYear();
+    const { error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "ensureFolderPublic", resto, unite, annee, nom, prenom },
+    });
+    if (error) console.error("RhDocuments.creerDossierOnboarding:", error.message);
   },
-  async lister(resto, unite, annee, salarieId) {
-    const { data, error } = await supabase.storage.from("rh-documents").list(this.dossier(resto, unite, annee, salarieId));
-    if (error) { console.error("RhDocuments.lister:", error.message); return []; }
-    return (data || []).filter((f) => f.name && !f.name.startsWith("."));
+  async lister(resto, unite, annee, nom, prenom) {
+    const { data, error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "list", resto, unite, annee, nom, prenom },
+    });
+    if (error) { console.error("RhDocuments.lister:", error.message); return null; }
+    return data?.fichiers || [];
   },
-  async uploader(resto, unite, annee, salarieId, fichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${fichier.name}`;
-    const { error } = await supabase.storage.from("rh-documents").upload(chemin, fichier, { upsert: true });
+  async uploader(resto, unite, annee, nom, prenom, fichier) {
+    const base64 = await fichierEnBase64(fichier);
+    const { error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "upload", resto, unite, annee, nom, prenom, nomFichier: fichier.name, type: fichier.type, base64 },
+    });
     if (error) { console.error("RhDocuments.uploader:", error.message); return false; }
     return true;
   },
-  async lienTelechargement(resto, unite, annee, salarieId, nomFichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${nomFichier}`;
-    const { data, error } = await supabase.storage.from("rh-documents").createSignedUrl(chemin, 60);
-    if (error) { console.error("RhDocuments.lienTelechargement:", error.message); return null; }
-    return data.signedUrl;
+  async ouvrir(resto, unite, annee, nom, prenom, fileId) {
+    const { data, error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "download", resto, unite, annee, nom, prenom, fileId },
+    });
+    if (error) { console.error("RhDocuments.ouvrir:", error.message); return null; }
+    return data instanceof Blob ? URL.createObjectURL(data) : null;
   },
-  async supprimer(resto, unite, annee, salarieId, nomFichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${nomFichier}`;
-    const { error } = await supabase.storage.from("rh-documents").remove([chemin]);
+  async supprimer(resto, unite, annee, nom, prenom, fileId) {
+    const { error } = await supabase.functions.invoke("drive-docs", {
+      body: { action: "supprimer", resto, unite, annee, nom, prenom, fileId },
+    });
     if (error) { console.error("RhDocuments.supprimer:", error.message); return false; }
     return true;
   },
@@ -461,10 +489,6 @@ const kPointages = (resto, sem) => `pointages:${slugKey(resto)}:${sem}`;
 const kRoster = (resto) => `roster:${slugKey(resto)}`;
 // Modèle de planning enregistré pour le restaurant : { idSalarie: { 0..6 } }
 const kModele = (resto) => `modele:${slugKey(resto)}`;
-// Shifts prêts à l'emploi pour le restaurant : [{ id, nom, debut, fin, pause }, ...]. Le
-// manager les prépare une fois, puis les applique d'un clic en remplissant une case du
-// planning, au lieu de retaper les mêmes horaires à chaque fois.
-const kShifts = (resto) => `shifts:${slugKey(resto)}`;
 // Correspondance PayFit (identifiant + matricule) tenue à jour par le superviseur, en plus
 // de PAYFIT_IDS codé en dur. Une clé PAR ÉTABLISSEMENT : chaque resto a son propre fichier
 // PayFit, on évite ainsi tout mélange entre établissements (homonymes, etc.).
@@ -480,10 +504,6 @@ const kExtras = (mois) => `extras:${mois}`;
 // Fiche juridique de chaque établissement (raison sociale, SIRET...) : nécessaire pour
 // générer les contrats de prêt. Clé unique, valeur = { [resto]: {...} }.
 const kEtablissementsJuridique = "etablissements_juridique";
-// Codes d'accès par établissement, choisis par le superviseur : un directeur qui tape ce
-// code arrive directement (et uniquement) sur cet établissement, sans pouvoir en choisir
-// un autre. Clé unique, valeur = { [resto]: "code" }.
-const kCodesEtablissements = "codes_etablissements";
 function cleMois(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 
 // ---------- Icônes (SVG inline, pas de dépendance) ----------
@@ -522,6 +542,7 @@ const CSS = `
 }
 .ig-display { font-family: 'Inter', system-ui, sans-serif; }
 .ig-wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+.ig-wrap-rh { max-width: none; }
 
 .ig-topbar {
   background: var(--ink); color: var(--sand);
@@ -793,7 +814,7 @@ function PlanningCell({ p, editable, onClick }) {
 }
 
 // ---------- Modal d'édition d'un créneau (manager) ----------
-function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
+function EditModal({ jour, jourLabel, emp, p, onSave, onClose }) {
   const [statut, setStatut] = useState(p.statut || STATUTS.TRAVAIL);
   const [debut, setDebut] = useState(p.debut || "09:00");
   const [fin, setFin] = useState(p.fin || "17:00");
@@ -820,14 +841,6 @@ function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
   }
   // Aperçu du total d'heures pour ce jour (hors pause), tient compte de la coupure.
   const apercu = dureeJour({ statut, debut, fin, pause, coupure, debut2, fin2 });
-  // Applique un shift prêt à l'emploi (préparé via "Gérer les shifts") : remplit
-  // instantanément début/fin/pause, sans coupure ni demi-journée.
-  function appliquerShift(s) {
-    setCoupure(false);
-    setDebut(s.debut);
-    setFin(s.fin);
-    setPause(s.pause);
-  }
 
   const montreHoraires = statut === STATUTS.TRAVAIL || statut === STATUTS.DEMI_CP;
   return (
@@ -853,18 +866,6 @@ function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
               <option value="am">Matin en congé (travaille l'après-midi)</option>
               <option value="pm">Après-midi en congé (travaille le matin)</option>
             </select>
-          </div>
-        )}
-        {statut === STATUTS.TRAVAIL && shifts && shifts.length > 0 && (
-          <div className="ig-field">
-            <label>Shifts prêts à l'emploi</label>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              {shifts.map((s) => (
-                <button key={s.id} type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>appliquerShift(s)} title={`${s.debut} – ${s.fin}${s.pause ? `, ${s.pause}h pause` : ''}`}>
-                  ⚡ {s.nom}
-                </button>
-              ))}
-            </div>
           </div>
         )}
         {montreHoraires && (
@@ -922,68 +923,6 @@ function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
   );
 }
 
-// ---------- Modal Gestion des shifts prêts à l'emploi ----------
-function ShiftsModal({ resto, shifts, onAjouter, onSupprimer, onClose }) {
-  const [nom, setNom] = useState("");
-  const [debut, setDebut] = useState("09:00");
-  const [fin, setFin] = useState("17:00");
-  const [pause, setPause] = useState(1);
-  const [err, setErr] = useState(false);
-
-  function valider() {
-    if (!nom.trim()) { setErr(true); return; }
-    onAjouter({ nom: nom.trim(), debut, fin, pause: Number(pause) });
-    setNom(""); setDebut("09:00"); setFin("17:00"); setPause(1); setErr(false);
-  }
-
-  return (
-    <div className="ig-overlay" onClick={onClose}>
-      <div className="ig-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Shifts prêts à l'emploi</h3>
-        <div className="ig-muted">{resto} · préparez des créneaux type (ex : "Matin", "Soir"), vos managers les appliqueront d'un clic en remplissant le planning.</div>
-
-        {shifts.length > 0 && (
-          <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:16}}>
-            {shifts.map((s) => (
-              <div key={s.id} style={{display:'flex',alignItems:'center',gap:10,border:'1.5px solid var(--line)',borderRadius:10,padding:'8px 12px'}}>
-                <div style={{flex:1}}>
-                  <b>{s.nom}</b>
-                  <div className="ig-muted" style={{fontSize:13}}>{s.debut} – {s.fin}{s.pause ? `, ${s.pause}h pause` : ''}</div>
-                </div>
-                <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>onSupprimer(s.id)}>Supprimer</button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="ig-field" style={{marginTop:18}}>
-          <label>Nom du shift</label>
-          <input value={nom} onChange={(e)=>{ setNom(e.target.value); setErr(false); }} placeholder="Ex : Matin" />
-        </div>
-        <div className="ig-times">
-          <div>
-            <input type="time" value={debut} onChange={(e)=>setDebut(e.target.value)} />
-            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Début</div>
-          </div>
-          <div>
-            <input type="time" value={fin} onChange={(e)=>setFin(e.target.value)} />
-            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Fin</div>
-          </div>
-          <div>
-            <input type="number" min="0" max="4" step="0.5" value={pause} onChange={(e)=>setPause(parseFloat(e.target.value) || 0)} />
-            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Pause (h)</div>
-          </div>
-        </div>
-        {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>Donnez un nom au shift.</div>}
-        <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
-          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>+ Ajouter ce shift</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ---------- Export PayFit (congés / absences) ----------
 // Reconstruit la structure exacte du modèle d'import PayFit fourni par le manager :
 // 33 colonnes (A à AG), 2 lignes d'en-tête groupées par type d'absence. Seules les
@@ -1015,12 +954,6 @@ function fmtDatePayFit(d) {
 // Retourne les noms des salariés sans identifiant PayFit connu (à compléter à la main).
 function exporterCongesPayFit(lignesAbsences, nomFichier, mapping) {
   const table = mapping || PAYFIT_IDS;
-  // Index normalisé (casse/accents ignorés) : une fiche resaisie autrement (ex: prénom en
-  // MAJUSCULES via "Modifier ses informations") donne un idSalarie différent de celui utilisé
-  // quand PAYFIT_IDS / la correspondance PayFit a été construite — sans ça, l'identifiant
-  // déjà connu du salarié devient introuvable à l'export.
-  const tableNorm = {};
-  Object.keys(table).forEach((k) => { tableNorm[normTxt(k.replace(/_/g, " "))] = table[k]; });
   const aoa = [];
   const ligne1 = [];
   PAYFIT_ENTETES_GROUPES.forEach(([label, n]) => { ligne1.push(label); for (let i = 1; i < n; i++) ligne1.push(""); });
@@ -1031,7 +964,7 @@ function exporterCongesPayFit(lignesAbsences, nomFichier, mapping) {
   lignesAbsences.forEach(({ emp, date, type, choix }) => {
     const row = new Array(33).fill("");
     const id = idSalarie(emp);
-    const pf = table[id] || tableNorm[normTxt(id.replace(/_/g, " "))];
+    const pf = table[id];
     row[0] = pf ? pf[0] : "";
     row[2] = pf ? pf[1] : "";
     row[3] = `${emp.p} ${emp.n}`;
@@ -1289,6 +1222,10 @@ function exporterRecapExtras(liste, mois, nomFichier) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
+// ---------- Import d'un planning existant depuis Excel ----------
+// Lit un classeur au format "PLANNING N / PLANNING CUISINE N" (une feuille par petit
+// groupe de salariés, tous pour la même semaine en général) : ligne 1 = semaine (dates),
+// puis par salarié 2 lignes (NOM, PRENOM) x 7 jours de 3 colonnes (début / "h" / pause-ou-OFF).
 // N'utilise XLSX.read() QUE sur un fichier que le superviseur choisit lui-même dans son
 // propre navigateur — jamais sur un contenu externe non fiable.
 function feuilleEnGrille(ws) {
@@ -1309,6 +1246,75 @@ function feuilleEnGrille(ws) {
   });
   return grille;
 }
+function fmtHeureImport(v) {
+  if (v == null) return null;
+  if (v instanceof Date) return String(v.getUTCHours()).padStart(2, "0") + ":" + String(v.getUTCMinutes()).padStart(2, "0");
+  if (typeof v === "number") {
+    const h = Math.floor(v), m = Math.round((v - h) * 60);
+    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  }
+  const s = String(v).trim().toUpperCase();
+  const m1 = s.match(/^(\d{1,2})H(\d{2})?$/);
+  if (m1) return String(Number(m1[1])).padStart(2, "0") + ":" + (m1[2] || "00");
+  const n = Number(s.replace(",", "."));
+  if (!isNaN(n)) { const h = Math.floor(n), mi = Math.round((n - h) * 60); return String(h).padStart(2, "0") + ":" + String(mi).padStart(2, "0"); }
+  return null;
+}
+function parsePauseImport(v) {
+  const s = (v == null ? "" : String(v)).toUpperCase();
+  const m = s.match(/(\d+)\s*H/);
+  if (m) return Number(m[1]);
+  const mm = s.match(/(\d+)\s*MIN/);
+  if (mm) return Number(mm[1]) / 60;
+  return 1; // valeur par défaut si la case pause est vide ou illisible
+}
+// Décode une feuille "PLANNING ..." en { sem, lundi, entries:[{emp,jours}], nonReconnus:[...] }.
+function parseSemaineDepuisFeuille(grille, resto, ajouts) {
+  const dateBrute = grille[0] && grille[0][1];
+  let lundiDate = dateBrute instanceof Date ? new Date(dateBrute.getUTCFullYear(), dateBrute.getUTCMonth(), dateBrute.getUTCDate()) : null;
+  if (!lundiDate) return null;
+  lundiDate = lundiDeLaSemaine(lundiDate);
+  const sem = cleSemaine(lundiDate);
+  const JOURS_COLS = [3, 6, 9, 12, 15, 18, 21]; // D,G,J,M,P,S,V (0-indexé)
+  const entries = [];
+  const nonReconnus = [];
+  const approximatifs = [];
+  let videsConsecutifs = 0;
+  for (let r = 3; r < grille.length; r += 3) {
+    const nom = grille[r] && grille[r][1];
+    const prenom = grille[r + 1] && grille[r + 1][1];
+    if (!nom && !prenom) { videsConsecutifs++; if (videsConsecutifs >= 3) break; continue; }
+    videsConsecutifs = 0;
+    if (!nom || !prenom) continue;
+    // Recherche exacte d'abord ; si ça échoue (ex: nom de famille abrégé dans le fichier
+    // source), on retente en tolérant les fautes/abréviations, mais seulement si un SEUL
+    // candidat ressort clairement — sinon on préfère signaler plutôt que deviner.
+    let emp = trouverSalarie(String(prenom), String(nom), resto, ajouts || []);
+    let approx = false;
+    if (!emp) {
+      const suggestions = suggererSalaries(String(prenom), String(nom), resto, ajouts || []);
+      if (suggestions.length === 1) { emp = suggestions[0]; approx = true; }
+    }
+    const jours = {};
+    JOURS_COLS.forEach((c, j) => {
+      const pauseCase = (grille[r][c + 2] != null) ? grille[r][c + 2] : grille[r + 1][c + 2];
+      const pauseTxt = pauseCase == null ? "" : String(pauseCase).trim().toUpperCase();
+      if (pauseTxt === "OFF") { jours[j] = { statut: STATUTS.OFF, debut: "", fin: "", pause: 0 }; return; }
+      const debut = fmtHeureImport(grille[r][c]);
+      const fin = fmtHeureImport(grille[r + 1][c]);
+      if (!debut || !fin) return; // rien de fiable pour ce jour : on n'écrit rien plutôt que de deviner
+      jours[j] = { statut: STATUTS.TRAVAIL, debut, fin, pause: parsePauseImport(pauseCase) };
+    });
+    if (emp) {
+      entries.push({ emp, jours });
+      if (approx) approximatifs.push(`"${prenom} ${nom}" → ${emp.p} ${emp.n}`);
+    } else {
+      nonReconnus.push(`${prenom} ${nom}`);
+    }
+  }
+  return { sem, lundi: lundiDate, entries, nonReconnus, approximatifs };
+}
+
 // ---------- Mise à jour de la correspondance PayFit (identifiant + matricule) ----------
 // Le manager peut réexporter, chaque mois, le modèle d'import vierge de PayFit (une ligne
 // par salarié : Identifiant, Matricule, Collaborateur = "Prénom NOM"). On le relit ici pour
@@ -1360,13 +1366,7 @@ async function analyserMappingPayFit(files, resto, ajouts) {
         if (!collaborateur) continue;
         const emp = matcherCollaborateurPayFit(String(collaborateur), resto, ajouts);
         if (!emp) { nonReconnus.add(String(collaborateur)); continue; }
-        const idVal = colId >= 0 ? String(ligne[colId] || "").trim() : "";
-        const matVal = colMat >= 0 ? String(ligne[colMat] || "").trim() : "";
-        // Une ligne sans identifiant n'apporte rien : on l'ignore plutôt que d'écraser une
-        // correspondance déjà enregistrée (sinon un export PayFit avec une ligne vide pour
-        // quelqu'un efface silencieusement son identifiant déjà connu).
-        if (!idVal) continue;
-        trouves[idSalarie(emp)] = [idVal, matVal];
+        trouves[idSalarie(emp)] = [colId >= 0 ? String(ligne[colId] || "") : "", colMat >= 0 ? String(ligne[colMat] || "") : ""];
       }
     }
   }
@@ -2068,7 +2068,7 @@ function VueGlobaleExtras() {
 }
 
 // ---------- Vue Manager ----------
-function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
+function ManagerView({ resto, onBack, superviseur }) {
   const [semDate, setSemDate] = useState(new Date());
   const [planning, setPlanning] = useState({}); // { idSalarie: { 0..6 } }
   const [pointages, setPointages] = useState({});
@@ -2089,12 +2089,13 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
   const [confirmLot, setConfirmLot] = useState(false); // confirmation du retrait en lot
   const [confirmForceModele, setConfirmForceModele] = useState(false); // confirmation de l'écrasement forcé par le modèle
   const [moisExport, setMoisExport] = useState(() => { const d = new Date(); return { annee: d.getFullYear(), mois: d.getMonth() + 1 }; }); // mois choisi pour l'export PayFit
+  const [importPreview, setImportPreview] = useState(null); // aperçu avant confirmation d'un import Excel
+  const [importEnCours, setImportEnCours] = useState(false);
   const [histo, setHisto] = useState(null); // { titre, cle, onRestaurer } | null
+  const fileImportRef = useRef(null);
   const [mappingPayfit, setMappingPayfit] = useState({}); // correspondance PayFit de CET établissement (Store), fusionnée avec PAYFIT_IDS
   const [majMappingEnCours, setMajMappingEnCours] = useState(false);
   const fileMappingRef = useRef(null);
-  const [shifts, setShifts] = useState([]); // shifts prêts à l'emploi de CET établissement
-  const [gererShifts, setGererShifts] = useState(false); // modal "Shifts prêts à l'emploi" ouverte
   const sem = cleSemaine(semDate);
 
   // Correspondance PayFit : propre à l'établissement affiché — rechargée si on change de resto.
@@ -2103,24 +2104,6 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
     Store.get(kPayfitMapping(resto)).then((m) => { if (on) setMappingPayfit(m || {}); });
     return () => { on = false; };
   }, [resto]);
-
-  // Shifts prêts à l'emploi : propres à l'établissement affiché.
-  useEffect(() => {
-    let on = true;
-    Store.get(kShifts(resto)).then((s) => { if (on) setShifts(Array.isArray(s) ? s : []); });
-    return () => { on = false; };
-  }, [resto]);
-  function ajouterShift(data) {
-    const nouveau = { id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, ...data };
-    const next = [...shifts, nouveau];
-    setShifts(next);
-    Store.set(kShifts(resto), next);
-  }
-  function supprimerShift(id) {
-    const next = shifts.filter((s) => s.id !== id);
-    setShifts(next);
-    Store.set(kShifts(resto), next);
-  }
   async function majMappingPayFit(files) {
     setMajMappingEnCours(true);
     try {
@@ -2356,73 +2339,53 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
     }
   }
 
-  // Émargement du mois entier en UN SEUL PDF (une page par semaine), pour archivage/contrôle.
-  const [emargementMoisEnCours, setEmargementMoisEnCours] = useState(false);
-  async function telechargerEmargementMois(annee, mois) {
-    setEmargementMoisEnCours(true);
+  // Import d'un planning depuis un fichier Excel existant (format "PLANNING N" /
+  // "PLANNING CUISINE N"). Analyse d'abord (aperçu, rien n'est écrit), puis confirmation
+  // semaine par semaine avant d'écrire réellement dans la base.
+  async function analyserImportPlanning(file) {
+    setImportEnCours(true);
     try {
-      const premierJour = new Date(annee, mois - 1, 1);
-      const dernierJour = new Date(annee, mois, 0);
-      const semaines = [];
-      for (let l = lundiDeLaSemaine(premierJour); l <= lundiDeLaSemaine(dernierJour); l = ajouterJours(l, 7)) {
-        semaines.push(l);
-      }
-      const donnees = await Promise.all(semaines.map(async (lundi) => {
-        const s = cleSemaine(lundi);
-        const [pl, pt] = await Promise.all([Store.get(kPlanning(resto, s)), Pointages.load(resto, s)]);
-        return { lundi, planning: pl || {}, pointages: pt || {} };
-      }));
-      const blocs = donnees.map(({ lundi, planning: pl, pointages: pt }, idx) => {
-        const dimanche = ajouterJours(lundi, 6);
-        const withPlanning = team.filter((e) => pl[idSalarie(e)]);
-        const list = withPlanning.length ? withPlanning : team;
-        const entetes = JOURS.map((j, i) => `<th>${j}<br><span style="font-weight:400">${fmtJour(ajouterJours(lundi, i))}</span></th>`).join("");
-        const lignes = list.map((e) => {
-          const plE = pl[idSalarie(e)];
-          const tot = plE ? totalHebdo(plE) : 0;
-          const jours = JOURS.map((j, i) => {
-            const p = plE ? plE[i] : null;
-            const ptE = pt[idSalarie(e)];
-            const ptJour = ptE ? ptE[i] : null;
-            const signe = p && (p.statut === STATUTS.TRAVAIL || p.statut === STATUTS.DEMI_CP)
-              ? !!(ptJour && ptJour.confirme) : undefined;
-            return `<td class="daycell">${celluleHTML(p, { signe })}</td>`;
-          }).join("");
-          const ptAll = pt[idSalarie(e)];
-          const signee = ptAll && ptAll.semaine && ptAll.semaine.signee;
-          const totCell = `${plE ? fmtHeures(tot) : "—"}${signee ? '<div class="sig signed">✓ semaine validée</div>' : '<div class="sig">signature ____</div>'}`;
-          return `<tr><td class="who"><b>${esc(e.n)}</b><br>${esc(e.p)}</td>${jours}<td class="daycell" style="text-align:center;font-weight:700">${totCell}</td></tr>`;
-        }).join("");
-        return `
-          <div${idx > 0 ? ' style="page-break-before:always;"' : ''}>
-            <h1>ÉMARGEMENT — ${esc(resto)}</h1>
-            <div class="sub">Semaine du ${fmtDate(lundi)} au ${fmtDate(dimanche)}</div>
-            <table>
-              <thead><tr><th class="who">Nom / Prénom</th>${entetes}<th>Total hebdo</th></tr></thead>
-              <tbody>${lignes}</tbody>
-            </table>
-          </div>`;
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: true });
+      const semaines = {};
+      wb.SheetNames.filter((n) => /^PLANNING/i.test(n)).forEach((n) => {
+        const grille = feuilleEnGrille(wb.Sheets[n]);
+        const res = parseSemaineDepuisFeuille(grille, resto, roster.ajouts || []);
+        if (!res) return;
+        if (!semaines[res.sem]) semaines[res.sem] = { sem: res.sem, lundi: res.lundi, entriesById: new Map(), nonReconnus: new Set(), approximatifs: new Set() };
+        res.entries.forEach(({ emp, jours }) => {
+          const id = idSalarie(emp);
+          const cur = semaines[res.sem].entriesById.get(id) || { emp, jours: {} };
+          semaines[res.sem].entriesById.set(id, { emp, jours: { ...cur.jours, ...jours } });
+        });
+        res.nonReconnus.forEach((n2) => semaines[res.sem].nonReconnus.add(n2));
+        (res.approximatifs || []).forEach((n2) => semaines[res.sem].approximatifs.add(n2));
       });
-      const corps = blocs.join("");
-      const styles = `
-        table { width:100%; border-collapse:collapse; font-size:10px; }
-        th,td { border:1px solid #15303B; padding:4px 5px; text-align:center; vertical-align:top; }
-        th { background:#E8DDC9; font-size:9px; text-transform:uppercase; letter-spacing:.4px; }
-        td.who { text-align:left; min-width:90px; }
-        .daycell { height:50px; }
-        .hrs { font-weight:700; } .pz { font-size:9px; color:#555; }
-        .sig { color:#aaa; font-size:8px; font-style:italic; }
-        .sig.signed { color:#2E7D86; font-weight:700; font-style:normal; }`;
-      const nomFichier = `Emargement_${slugKey(resto)}_${String(mois).padStart(2,"0")}-${annee}`;
-      const ok = imprimerDocument(`Emargement ${resto} — ${MOIS_NOMS[mois-1]} ${annee}`, corps, styles, nomFichier);
-      if (ok === false) montrerFlash("Impossible de générer le document. Réessayez.");
-      else if (ok === "download") montrerFlash("Le fichier a été téléchargé. Ouvrez-le, puis choisissez « Enregistrer au format PDF » à l'impression (une page par semaine).");
-      else montrerFlash(`Émargement de ${MOIS_NOMS[mois-1]} ${annee} prêt : ${semaines.length} semaine${semaines.length>1?'s':''}. Choisissez « Enregistrer au format PDF » dans la fenêtre d'impression.`);
+      const liste = Object.values(semaines)
+        .map((s) => ({ sem: s.sem, lundi: s.lundi, entries: [...s.entriesById.values()], nonReconnus: [...s.nonReconnus], approximatifs: [...s.approximatifs] }))
+        .sort((a, b) => a.sem.localeCompare(b.sem));
+      if (liste.length === 0) {
+        montrerFlash("Aucune feuille \"PLANNING…\" avec une semaine reconnaissable n'a été trouvée dans ce fichier.");
+      }
+      setImportPreview({ liste, fichierNom: file.name });
+    } catch (err) {
+      montrerFlash("Impossible de lire ce fichier : " + err.message);
     } finally {
-      setEmargementMoisEnCours(false);
+      setImportEnCours(false);
     }
   }
-
+  async function confirmerImportSemaine(item) {
+    const existant = (await Store.get(kPlanning(resto, item.sem))) || {};
+    const next = { ...existant };
+    item.entries.forEach(({ emp, jours }) => {
+      const id = idSalarie(emp);
+      next[id] = { ...(next[id] || {}), ...jours };
+    });
+    await Store.set(kPlanning(resto, item.sem), next);
+    if (item.sem === sem) setPlanning(next);
+    montrerFlash(`Semaine du ${fmtDate(item.lundi)} importée : ${item.entries.length} salarié${item.entries.length > 1 ? 's' : ''}.`);
+    setImportPreview((cur) => cur ? { ...cur, liste: cur.liste.filter((x) => x.sem !== item.sem) } : cur);
+  }
   function imprimerPlanning() {
     const lundi = lundiDeLaSemaine(semDate);
     const entetes = JOURS.map((j, i) => `<th>${JOURS_COURT[i]}<br><span style="font-weight:400">${fmtJour(ajouterJours(lundi, i))}</span></th>`).join("");
@@ -2636,7 +2599,7 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:14,marginBottom:6}}>
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> {onBackLabel || "Restaurants"}</button>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> Restaurants</button>
         <div>
           <div className="ig-eyebrow" style={{margin:0}}>Espace manager{superviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{resto}</h2>
@@ -2660,7 +2623,6 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
         <>
           <div className="ig-noprint" style={{display:'flex',gap:10,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
             <button className="ig-btn ig-btn-ghost" onClick={()=>setAjout(true)}>+ Ajouter un salarié</button>
-            <button className="ig-btn ig-btn-ghost" onClick={()=>setGererShifts(true)} title="Préparer des créneaux type (ex : Matin, Soir) à appliquer d'un clic dans le planning">⚡ Gérer les shifts</button>
             <button className="ig-btn ig-btn-ghost" onClick={()=>{ setModeSelect((v)=>!v); setSelection(new Set()); setConfirmLot(false); }} style={modeSelect?{borderColor:'var(--coral-d)',color:'var(--coral-d)'}:undefined}>🧹 {modeSelect?"Terminer le nettoyage":"Nettoyer l'effectif"}</button>
             <button className="ig-btn ig-btn-ghost" onClick={enregistrerModele} disabled={Object.keys(planning).length===0} title="Mémoriser les horaires de cette semaine comme modèle">★ Enregistrer comme modèle</button>
             {superviseur && (
@@ -2685,6 +2647,8 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
                 <button className="ig-btn ig-btn-ghost" onClick={()=>exporterPayFitMois(moisExport.annee, moisExport.mois)} disabled={exportEnCours} title="Export des CP / demi-CP / congés sans solde du mois choisi (1er au dernier jour), au format d'import PayFit">⬇ {exportEnCours ? "Génération…" : "Export PayFit (congés)"}</button>
                 <input ref={fileMappingRef} type="file" accept=".xlsx" multiple style={{display:'none'}} onChange={(e)=>{ const fs=[...e.target.files]; if (fs.length) majMappingPayFit(fs); e.target.value=""; }} />
                 <button className="ig-btn ig-btn-ghost" onClick={()=>fileMappingRef.current && fileMappingRef.current.click()} disabled={majMappingEnCours} title={`Recharger le(s) modèle(s) d'import PayFit pour l'effectif de ${resto} uniquement (Identifiant/Matricule/Collaborateur)`}>🔄 {majMappingEnCours ? "Analyse…" : `Mettre à jour PayFit — ${resto}`}</button>
+                <input ref={fileImportRef} type="file" accept=".xlsx" style={{display:'none'}} onChange={(e)=>{ const f=e.target.files[0]; if (f) analyserImportPlanning(f); e.target.value=""; }} />
+                <button className="ig-btn ig-btn-ghost" onClick={()=>fileImportRef.current && fileImportRef.current.click()} disabled={importEnCours} title="Importer un planning existant au format PLANNING N / PLANNING CUISINE N (fichier Excel)">📥 {importEnCours ? "Analyse…" : "Importer un planning (Excel)"}</button>
               </>
             )}
             {valide ? (
@@ -2693,6 +2657,30 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
               <button className="ig-btn ig-btn-primary" onClick={validerPlanning} disabled={Object.keys(planning).length===0} style={{background:'var(--sea)'}}><Icon.Check/> Valider le planning</button>
             )}
           </div>
+          {importPreview && (
+            <div className="ig-noprint ig-card" style={{padding:'16px 20px',marginBottom:14}}>
+              <div style={{fontWeight:700,marginBottom:10}}>Aperçu de l'import — {importPreview.fichierNom}</div>
+              {importPreview.liste.length === 0 ? (
+                <div className="ig-muted">Rien à importer dans ce fichier (voir le message ci-dessus).</div>
+              ) : importPreview.liste.map((item) => (
+                <div key={item.sem} style={{border:'1.5px solid var(--line)',borderRadius:12,padding:'12px 14px',marginBottom:10}}>
+                  <div style={{fontWeight:600,marginBottom:6}}>Semaine du {fmtDate(item.lundi)} au {fmtDate(ajouterJours(item.lundi,6))}</div>
+                  <div className="ig-muted" style={{marginBottom:8}}>{item.entries.length} salarié{item.entries.length>1?'s':''} reconnu{item.entries.length>1?'s':''} et prêt{item.entries.length>1?'s':''} à importer.</div>
+                  {item.nonReconnus.length > 0 && (
+                    <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:8}}>⚠ Non reconnu{item.nonReconnus.length>1?'s':''} dans l'effectif de {resto} : {item.nonReconnus.join(", ")}</div>
+                  )}
+                  {item.approximatifs.length > 0 && (
+                    <div style={{color:'#9A4A1B',fontSize:13,marginBottom:8}}>≈ Reconnu{item.approximatifs.length>1?'s':''} par approximation (à vérifier) : {item.approximatifs.join(" · ")}</div>
+                  )}
+                  <div style={{display:'flex',gap:8}}>
+                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setImportPreview((cur)=>cur ? {...cur, liste: cur.liste.filter((x)=>x.sem!==item.sem)} : cur)}>Ignorer cette semaine</button>
+                    <button className="ig-btn ig-btn-sm" style={{background:'var(--sea)',color:'#fff'}} disabled={item.entries.length===0} onClick={()=>confirmerImportSemaine(item)}>Confirmer l'import de cette semaine</button>
+                  </div>
+                </div>
+              ))}
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setImportPreview(null)}>Fermer l'aperçu</button>
+            </div>
+          )}
           {confirmForceModele && (
             <div className="ig-noprint ig-card" style={{padding:'12px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',borderColor:'var(--coral-d)'}}>
               <b style={{color:'var(--coral-d)'}}>Forcer le modèle sur toute la semaine ?</b>
@@ -2798,20 +2786,7 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
       )}
 
       {vue === "emargement" && (
-        <>
-          {superviseur && (
-            <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
-              <select value={moisExport.mois} onChange={(e)=>setMoisExport((m)=>({...m, mois:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-                {MOIS_NOMS.map((nom,i)=>(<option key={i} value={i+1}>{nom}</option>))}
-              </select>
-              <select value={moisExport.annee} onChange={(e)=>setMoisExport((m)=>({...m, annee:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-                {[moisExport.annee-1, moisExport.annee, moisExport.annee+1].filter((a,i,arr)=>arr.indexOf(a)===i).sort((a,b)=>a-b).map((a)=>(<option key={a} value={a}>{a}</option>))}
-              </select>
-              <button className="ig-btn ig-btn-ink" onClick={()=>telechargerEmargementMois(moisExport.annee, moisExport.mois)} disabled={emargementMoisEnCours} title="Un seul PDF avec toutes les semaines du mois choisi, une page par semaine — pour classer en cas de contrôle"><Icon.Print/> {emargementMoisEnCours ? "Génération…" : "Télécharger l'émargement du mois"}</button>
-            </div>
-          )}
-          <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
-        </>
+        <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
       )}
 
       {vue === "extra" && <ExtraTab resto={resto} superviseur={superviseur} />}
@@ -2822,14 +2797,9 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
           jourLabel={JOURS[edit.jour]}
           emp={edit.emp}
           p={(planning[idSalarie(edit.emp)] && planning[idSalarie(edit.emp)][edit.jour]) || {statut:STATUTS.TRAVAIL,debut:"09:00",fin:"17:00",pause:1}}
-          shifts={shifts}
           onSave={(data)=>saveCell(edit.emp, edit.jour, data)}
           onClose={()=>setEdit(null)}
         />
-      )}
-
-      {gererShifts && (
-        <ShiftsModal resto={resto} shifts={shifts} onAjouter={ajouterShift} onSupprimer={supprimerShift} onClose={()=>setGererShifts(false)} />
       )}
 
       {gestion && (() => {
@@ -3180,12 +3150,11 @@ function EmployeeView({ resto, emp, onBack }) {
 }
 
 // ---------- Sélecteur de restaurant ----------
-function RestoPicker({ restaurants, onPick, onAdd, superviseur }) {
+function RestoPicker({ restaurants, onPick, onAdd }) {
   const [form, setForm] = useState(false);
   const [nom, setNom] = useState("");
   const [err, setErr] = useState("");
   const [counts, setCounts] = useState({}); // effectif RÉEL par restaurant (fiches + ajouts − retirés)
-  const [gererCodes, setGererCodes] = useState(false); // modal "Gérer les codes d'accès" (superviseur)
 
   useEffect(() => {
     let on = true;
@@ -3234,14 +3203,6 @@ function RestoPicker({ restaurants, onPick, onAdd, superviseur }) {
         </button>
       </div>
 
-      {superviseur && (
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginTop:16}} onClick={()=>setGererCodes(true)}>
-          <Icon.Shield width={15} height={15}/> Gérer les codes d'accès par établissement
-        </button>
-      )}
-
-      {gererCodes && <CodesEtablissementsModal restaurants={restaurants} onClose={()=>setGererCodes(false)} />}
-
       {form && (
         <div className="ig-overlay" onClick={()=>setForm(false)}>
           <div className="ig-modal" onClick={(e)=>e.stopPropagation()}>
@@ -3259,83 +3220,6 @@ function RestoPicker({ restaurants, onPick, onAdd, superviseur }) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ---------- Modal superviseur : un code d'accès par établissement ----------
-// Un directeur qui saisit ce code sur l'écran manager arrive directement (et uniquement)
-// sur son établissement, sans jamais voir le sélecteur ni les autres restos.
-function CodesEtablissementsModal({ restaurants, onClose }) {
-  const [codes, setCodes] = useState(null); // null tant que non chargé
-  const [valeurs, setValeurs] = useState({});
-  const [enregistre, setEnregistre] = useState(""); // nom du resto qui vient d'être enregistré (feedback)
-  const [erreur, setErreur] = useState("");
-
-  useEffect(() => {
-    let on = true;
-    Store.get(kCodesEtablissements).then((v) => {
-      if (!on) return;
-      const init = v || {};
-      setCodes(init);
-      setValeurs(init);
-    });
-    return () => { on = false; };
-  }, []);
-
-  async function enregistrerUn(resto) {
-    const val = (valeurs[resto] || "").trim();
-    if (val && (val === CODE_MANAGER || val === CODE_SUPERVISEUR)) {
-      setErreur(`Ce code est déjà utilisé (code manager ou superviseur). Choisissez-en un autre pour ${resto}.`);
-      return;
-    }
-    const dejaPris = val && Object.keys(codes || {}).find((r) => r !== resto && codes[r] === val);
-    if (dejaPris) {
-      setErreur(`Ce code est déjà attribué à ${dejaPris}. Choisissez-en un autre pour ${resto}.`);
-      return;
-    }
-    const next = { ...(codes || {}) };
-    if (val) next[resto] = val; else delete next[resto];
-    setCodes(next);
-    setErreur("");
-    await Store.set(kCodesEtablissements, next);
-    setEnregistre(resto);
-    setTimeout(() => setEnregistre((r) => (r === resto ? "" : r)), 1500);
-  }
-
-  return (
-    <div className="ig-overlay" onClick={onClose}>
-      <div className="ig-modal" style={{maxWidth:480}} onClick={(e)=>e.stopPropagation()}>
-        <h3>Codes d'accès par établissement</h3>
-        <div className="ig-muted" style={{marginBottom:14}}>
-          Un directeur qui saisit ce code arrive directement sur cet établissement uniquement — pas de sélecteur, pas de visibilité sur les autres restos. Laissez vide pour ne pas attribuer de code (le resto reste accessible seulement via le code manager général).
-        </div>
-        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
-        {codes === null ? (
-          <div className="ig-muted">Chargement…</div>
-        ) : (
-          <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'50vh',overflowY:'auto'}}>
-            {restaurants.map((r) => (
-              <div key={r} style={{display:'flex',alignItems:'center',gap:8}}>
-                <div style={{flex:1,fontSize:14,fontWeight:600}}>{r}</div>
-                <input
-                  value={valeurs[r] || ""}
-                  onChange={(e)=>setValeurs({ ...valeurs, [r]: e.target.value })}
-                  onKeyDown={(e)=>{ if (e.key === 'Enter') enregistrerUn(r); }}
-                  placeholder="Aucun code"
-                  style={{width:120,fontSize:14,textAlign:'center',letterSpacing:'2px'}}
-                />
-                <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>enregistrerUn(r)}>
-                  {enregistre === r ? "✓ Enregistré" : "Enregistrer"}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={onClose}>Fermer</button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -3446,9 +3330,6 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
 // ---------- Écran de saisie du code manager ----------
 // Le manager tape un code court. En coulisses, l'app se connecte au compte Supabase
 // partagé (MANAGER_EMAIL / MANAGER_SECRET) : la base reste verrouillée en écriture.
-// Un code d'établissement (choisi par le superviseur, propre à un resto) fonctionne aussi :
-// il donne accès au manager mais uniquement sur cet établissement précis (onOk reçoit alors
-// le nom du resto imposé en 2ᵉ argument).
 function CodeGate({ onOk, onCancel }) {
   const [code, setCode] = useState("");
   const [erreur, setErreur] = useState("");
@@ -3456,31 +3337,14 @@ function CodeGate({ onOk, onCancel }) {
 
   async function valider() {
     if (busy) return;
-    const saisie = code.trim();
-    const estSuperviseur = saisie === CODE_SUPERVISEUR;
-    const estManagerGlobal = saisie === CODE_MANAGER;
+    const estSuperviseur = code === CODE_SUPERVISEUR;
+    if (!estSuperviseur && code !== CODE_MANAGER) { setErreur("Code incorrect. Réessayez."); setCode(""); return; }
     setErreur("");
     setBusy(true);
-    // On se connecte d'abord au compte manager partagé : les codes par établissement sont
-    // stockés dans la base et protégés en lecture, il faut être authentifié pour les lire.
     const { error } = await supabase.auth.signInWithPassword({ email: MANAGER_EMAIL, password: MANAGER_SECRET });
-    if (error) { setBusy(false); setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
-    let restoImpose = null;
-    if (!estSuperviseur && !estManagerGlobal) {
-      // Ni le code superviseur ni le code manager global : on regarde si c'est un code
-      // d'établissement (attribué par le superviseur à un resto précis).
-      const codes = (await Store.get(kCodesEtablissements)) || {};
-      restoImpose = Object.keys(codes).find((r) => codes[r] && String(codes[r]).trim() === saisie) || null;
-      if (!restoImpose) {
-        await supabase.auth.signOut();
-        setBusy(false);
-        setErreur("Code incorrect. Réessayez.");
-        setCode("");
-        return;
-      }
-    }
     setBusy(false);
-    onOk(estSuperviseur, restoImpose);
+    if (error) { setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
+    onOk(estSuperviseur);
   }
   function onKey(e) { if (e.key === "Enter") valider(); }
 
@@ -3568,7 +3432,7 @@ const RH_CHAMPS_BASE = [
   { cle: "salaire_net", label: "Salaire net", type: "number" },
   { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
   { cle: "date_prolongation_fin", label: "Date de prolongation de fin de contrat", type: "date" },
-  { cle: "loge", label: "Logé", type: "bool" },
+  { cle: "loge", label: "Logé (préciser : seul, en colocation, non...)" },
 ];
 const RH_CHAMPS_SENSIBLES = [
   { cle: "civilite", label: "Civilité" },
@@ -3674,7 +3538,10 @@ function OnboardingForm({ restaurants }) {
     Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
     const ok = await RhSalaries.onboarder(patch);
     setEnvoiEnCours(false);
-    if (ok === true) setEnvoye(true);
+    if (ok === true) {
+      RhDocuments.creerDossierOnboarding({ resto: f.resto, unite: f.unite, nom: f.nom, prenom: f.prenom });
+      setEnvoye(true);
+    }
     else if (ok === "existe_deja") setErr("Une fiche existe déjà pour ce nom dans cet établissement. Contactez votre responsable pour la compléter.");
     else setErr("Une erreur est survenue lors de l'envoi. Réessayez, ou contactez votre établissement.");
   }
@@ -3701,50 +3568,61 @@ function OnboardingForm({ restaurants }) {
 }
 
 // ---------- Modal fiche salarié RH (création / édition) ----------
-// ---------- Documents du salarié (dossier archivé par année) ----------
-function DocumentsSalarie({ resto, unite, salarieId }) {
+// ---------- Documents du salarié (dossier Google Drive, archivé par année) ----------
+function DocumentsSalarie({ resto, unite, salarie }) {
   const anneesDisponibles = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i);
   const [annee, setAnnee] = useState(anneesDisponibles[0]);
   const [fichiers, setFichiers] = useState(null);
   const [enCours, setEnCours] = useState(false);
+  const [erreur, setErreur] = useState("");
   const fileRef = useRef(null);
+  const { nom, prenom } = salarie;
 
   useEffect(() => {
     let on = true;
     setFichiers(null);
-    RhDocuments.lister(resto, unite, annee, salarieId).then((f) => { if (on) setFichiers(f); });
+    setErreur("");
+    RhDocuments.lister(resto, unite, annee, nom, prenom).then((f) => {
+      if (!on) return;
+      if (f === null) setErreur("Impossible de charger les documents. Réessayez.");
+      setFichiers(f || []);
+    });
     return () => { on = false; };
-  }, [resto, unite, annee, salarieId]);
+  }, [resto, unite, annee, nom, prenom]);
 
   async function ajouterFichier(e) {
     const fichier = e.target.files[0];
     if (!fichier) return;
     setEnCours(true);
-    await RhDocuments.uploader(resto, unite, annee, salarieId, fichier);
-    const f = await RhDocuments.lister(resto, unite, annee, salarieId);
-    setFichiers(f);
+    setErreur("");
+    const ok = await RhDocuments.uploader(resto, unite, annee, nom, prenom, fichier);
+    if (ok) { const f = await RhDocuments.lister(resto, unite, annee, nom, prenom); setFichiers(f || []); }
+    else setErreur("L'envoi du document a échoué. Réessayez.");
     setEnCours(false);
     if (fileRef.current) fileRef.current.value = "";
   }
 
-  async function ouvrir(nom) {
-    const url = await RhDocuments.lienTelechargement(resto, unite, annee, salarieId, nom);
+  async function ouvrir(fileId) {
+    const url = await RhDocuments.ouvrir(resto, unite, annee, nom, prenom, fileId);
     if (url) window.open(url, "_blank");
+    else setErreur("Impossible d'ouvrir ce document.");
   }
 
-  async function supprimer(nom) {
-    const ok = await RhDocuments.supprimer(resto, unite, annee, salarieId, nom);
-    if (ok) setFichiers(fichiers.filter((f) => f.name !== nom));
+  async function supprimer(fileId) {
+    const ok = await RhDocuments.supprimer(resto, unite, annee, nom, prenom, fileId);
+    if (ok) setFichiers(fichiers.filter((f) => f.id !== fileId));
+    else setErreur("La suppression a échoué.");
   }
 
   return (
     <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid var(--sand-2)'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-        <div style={{fontWeight:600,fontSize:13}}>Documents</div>
+        <div style={{fontWeight:600,fontSize:13}}>Documents (Google Drive)</div>
         <select value={annee} onChange={(e)=>setAnnee(Number(e.target.value))} style={{padding:'5px 8px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:13}}>
           {anneesDisponibles.map((a) => (<option key={a} value={a}>{a}</option>))}
         </select>
       </div>
+      {erreur && <div style={{color:'var(--coral-d)',fontSize:12,marginBottom:8,fontWeight:600}}>{erreur}</div>}
       {fichiers === null ? (
         <div className="ig-muted" style={{fontSize:13}}>Chargement…</div>
       ) : fichiers.length === 0 ? (
@@ -3752,10 +3630,10 @@ function DocumentsSalarie({ resto, unite, salarieId }) {
       ) : (
         <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
           {fichiers.map((f) => (
-            <div key={f.name} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
+            <div key={f.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
               <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>ouvrir(f.name)}>Ouvrir</button>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={()=>supprimer(f.name)}>Suppr.</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>ouvrir(f.id)}>Ouvrir</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={()=>supprimer(f.id)}>Suppr.</button>
             </div>
           ))}
         </div>
@@ -3812,7 +3690,7 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
           </>
         )}
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-        {salarie && <DocumentsSalarie resto={resto} unite={unite} salarieId={salarie.salarie_id} />}
+        {salarie && <DocumentsSalarie resto={resto} unite={unite} salarie={salarie} />}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
           <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
@@ -3829,8 +3707,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [edition, setEdition] = useState(null);
   const [flash, setFlash] = useState("");
   const [erreur, setErreur] = useState("");
-  const [recherche, setRecherche] = useState("");
-  const [tri, setTri] = useState("alpha"); // alpha | date_debut
+  const [filtres, setFiltres] = useState({}); // { [cle]: texte tapé } — filtre par colonne, façon Excel
 
   useEffect(() => {
     let on = true;
@@ -3867,49 +3744,78 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
 
-  const q = normTxt(recherche);
-  const listeAffichee = liste
-    .filter((s) => !q || normTxt(`${s.prenom} ${s.nom}`).includes(q))
-    .sort((a, b) => {
-      if (tri === "date_debut") return (a.date_debut || "").localeCompare(b.date_debut || "");
-      return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+  function setFiltre(cle, valeur) { setFiltres({ ...filtres, [cle]: valeur }); }
+  const filtresActifs = Object.values(filtres).some((v) => v);
+
+  // Filtre colonne par colonne, façon Excel : chaque case tapée doit correspondre
+  // (texte : "contient", insensible aux accents/majuscules ; Staff Party : Oui/Non exact).
+  function passeFiltres(s) {
+    return RH_CHAMPS_BASE.every((c) => {
+      const f = filtres[c.cle];
+      if (!f) return true;
+      if (c.cle === "staff_party") return f === "Oui" ? !!s.staff_party : !s.staff_party;
+      return normTxt(String(s[c.cle] ?? "")).includes(normTxt(f));
     });
+  }
+  function triAlpha(a, b) {
+    return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+  }
+  const filtres_ = liste.filter(passeFiltres);
+  // Les salariés en fin de contrat (date de fin renseignée) passent en fin de liste,
+  // surlignés, pour que l'effectif actif reste visible en premier.
+  const listeAffichee = [
+    ...filtres_.filter((s) => !s.date_fin).sort(triAlpha),
+    ...filtres_.filter((s) => !!s.date_fin).sort(triAlpha),
+  ];
+
+  function entete(c, largeur) {
+    return (
+      <th key={c.cle} style={{padding:'8px 10px'}}>
+        <div style={{marginBottom:5}}>{c.label}</div>
+        {c.cle === "staff_party" ? (
+          <select value={filtres.staff_party || ""} onChange={(e)=>setFiltre('staff_party', e.target.value)} style={{width:largeur,fontSize:12,padding:'4px 6px',borderRadius:7,border:'1.5px solid var(--line)',fontWeight:400}}>
+            <option value="">Tous</option>
+            <option value="Oui">Oui</option>
+            <option value="Non">Non</option>
+          </select>
+        ) : (
+          <input value={filtres[c.cle] || ""} onChange={(e)=>setFiltre(c.cle, e.target.value)} placeholder="Filtrer…" style={{width:largeur,fontSize:12,padding:'4px 6px',borderRadius:7,border:'1.5px solid var(--line)',fontWeight:400}} />
+        )}
+      </th>
+    );
+  }
 
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
-        <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{flex:'1 1 200px',minWidth:0}} />
-        <select value={tri} onChange={(e)=>setTri(e.target.value)} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-          <option value="alpha">Ordre alphabétique</option>
-          <option value="date_debut">Date de début de contrat</option>
-        </select>
+        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setFiltres({})}>✕ Réinitialiser les filtres</button>}
       </div>
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
-      {listeAffichee.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun salarié pour l'instant."}</div> : (
+      {listeAffichee.length === 0 ? <div className="ig-muted">{filtresActifs ? "Aucun salarié ne correspond aux filtres." : "Aucun salarié pour l'instant."}</div> : (
         <div className="ig-card" style={{padding:'6px 10px',overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,whiteSpace:'nowrap'}}>
             <thead>
-              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)'}}>
-                <th style={{padding:'8px 10px'}}>Staff Party</th>
-                <th style={{padding:'8px 10px'}}>Heure CT</th>
-                <th style={{padding:'8px 10px'}}>Nom</th>
-                <th style={{padding:'8px 10px'}}>Prénom</th>
-                <th style={{padding:'8px 10px'}}>Tél</th>
-                <th style={{padding:'8px 10px'}}>Mail</th>
-                <th style={{padding:'8px 10px'}}>Poste occupé</th>
-                <th style={{padding:'8px 10px'}}>Date début contrat</th>
-                <th style={{padding:'8px 10px'}}>Salaire net</th>
-                <th style={{padding:'8px 10px'}}>Date de fin de CT</th>
-                <th style={{padding:'8px 10px'}}>Date de prolongation</th>
-                <th style={{padding:'8px 10px'}}>Logement</th>
+              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)',verticalAlign:'bottom'}}>
+                {entete(RH_CHAMPS_BASE[0], 56)}
+                {entete(RH_CHAMPS_BASE[1], 56)}
+                {entete(RH_CHAMPS_BASE[2], 110)}
+                {entete(RH_CHAMPS_BASE[3], 100)}
+                {entete(RH_CHAMPS_BASE[4], 110)}
+                {entete(RH_CHAMPS_BASE[5], 170)}
+                {entete(RH_CHAMPS_BASE[6], 130)}
+                {entete(RH_CHAMPS_BASE[7], 120)}
+                {entete(RH_CHAMPS_BASE[8], 80)}
+                {entete(RH_CHAMPS_BASE[9], 120)}
+                {entete(RH_CHAMPS_BASE[10], 120)}
+                {entete(RH_CHAMPS_BASE[11], 140)}
                 <th style={{padding:'8px 10px'}}></th>
               </tr>
             </thead>
             <tbody>
               {listeAffichee.map((s) => (
-                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)'}}>
+                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.date_fin ? '#FBE2DC' : undefined}}>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.staff_party} onChange={(e)=>sauverCellule(s.id,'staff_party',e.target.checked)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
@@ -3917,11 +3823,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:110}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:170}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:130}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:80}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.loge} onChange={(e)=>sauverCellule(s.id,'loge',e.target.checked)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:140}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
                   <td style={{padding:'4px 6px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button></td>
                 </tr>
               ))}
@@ -3983,9 +3889,6 @@ export default function App() {
   // Accès étendu (export PayFit, validations à la place du salarié, forcer le modèle...),
   // réservé à Océane. Mémorisé sur cet appareil pour ne pas retaper le code à chaque visite.
   const [superviseur, setSuperviseur] = useState(() => localStorage.getItem("ig_superviseur") === "1");
-  // Établissement imposé par un code d'accès resto-spécifique (le directeur ne voit que
-  // celui-ci, jamais le sélecteur). Mémorisé sur cet appareil comme le code superviseur.
-  const [restoImpose, setRestoImpose] = useState(() => localStorage.getItem("ig_resto_impose") || null);
 
   useEffect(() => {
     let on = true;
@@ -4021,9 +3924,7 @@ export default function App() {
   async function deconnexion() {
     await supabase.auth.signOut();
     localStorage.removeItem("ig_superviseur");
-    localStorage.removeItem("ig_resto_impose");
     setSuperviseur(false);
-    setRestoImpose(null);
     reset();
   }
   async function deconnexionRH() {
@@ -4035,14 +3936,12 @@ export default function App() {
   if (modeOnboarding) {
     content = <OnboardingForm restaurants={restaurants} />;
   } else if (askCode) {
-    content = <CodeGate onOk={(estSuperviseur, restoCode)=>{
+    content = <CodeGate onOk={(estSuperviseur)=>{
       setAskCode(false);
       setRole('manager');
       setSuperviseur(estSuperviseur);
       if (estSuperviseur) localStorage.setItem("ig_superviseur", "1");
       else localStorage.removeItem("ig_superviseur");
-      if (restoCode) { setResto(restoCode); setRestoImpose(restoCode); localStorage.setItem("ig_resto_impose", restoCode); }
-      else { setRestoImpose(null); localStorage.removeItem("ig_resto_impose"); }
     }} onCancel={()=>setAskCode(false)} />;
   } else if (askRH) {
     content = <RHLoginForm onOk={(acces)=>{ setAskRH(false); setRole('rh'); setRhAcces(acces); }} onCancel={()=>setAskRH(false)} />;
@@ -4057,7 +3956,7 @@ export default function App() {
           <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:700,fontSize:30,letterSpacing:'-.5px',color:'#fff'}}>Indie Group RH</div>
         </div>
         <div className="ig-roles" style={{width:'100%',maxWidth:720,margin:0}}>
-          <button className="ig-role" onClick={()=> { if (session) { setRole('manager'); if (restoImpose) setResto(restoImpose); } else setAskCode(true); }} style={{textAlign:'center'}}>
+          <button className="ig-role" onClick={()=> session ? setRole('manager') : setAskCode(true)} style={{textAlign:'center'}}>
             <div className="ig-ic" style={{background:'var(--ink)',color:'var(--sand)',margin:'0 auto 16px'}}><Icon.Shield/></div>
             <h3 style={{margin:0}}>Je suis manager</h3>
           </button>
@@ -4072,12 +3971,8 @@ export default function App() {
         </div>
       </div>
     );
-  } else if (role === "manager" && restoImpose) {
-    // Code d'accès resto-spécifique : jamais de sélecteur, jamais de retour vers un autre
-    // établissement — seule la déconnexion complète permet de ressaisir un autre code.
-    content = <ManagerView resto={restoImpose} onBack={deconnexion} superviseur={false} onBackLabel="Déconnexion" />;
   } else if (role === "manager" && !resto) {
-    content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} superviseur={superviseur} />;
+    content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} />;
   } else if (role === "manager") {
     content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "rh") {
@@ -4110,7 +4005,7 @@ export default function App() {
           )}
         </div>
       </div>
-      <div className="ig-wrap" style={{paddingTop:24,paddingBottom:60}}>
+      <div className={"ig-wrap" + (role === "rh" ? " ig-wrap-rh" : "")} style={{paddingTop:24,paddingBottom:60}}>
         {content}
       </div>
     </div>
