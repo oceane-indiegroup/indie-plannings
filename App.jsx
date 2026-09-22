@@ -3893,6 +3893,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [triColonne, setTriColonne] = useState(null);
   const [triSens, setTriSens] = useState('asc');
   const [filtreCouleurs, setFiltreCouleurs] = useState(null); // Set des couleurs affichées, null = toutes
+  const [triCouleur, setTriCouleur] = useState(null); // couleur à faire remonter en premier dans la liste
   const [saisonActive, setSaisonActive] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [selection, setSelection] = useState(new Set());
@@ -3999,6 +4000,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     });
   }
   function comparer(a, b) {
+    if (triCouleur) {
+      const ca = (a.couleur || "") === triCouleur ? 0 : 1;
+      const cb = (b.couleur || "") === triCouleur ? 0 : 1;
+      if (ca !== cb) return ca - cb;
+    }
     if (!triColonne) return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
     const cmp = rhValeurBrute(a, triColonne).localeCompare(rhValeurBrute(b, triColonne), "fr", { numeric: true });
     return triSens === "desc" ? -cmp : cmp;
@@ -4078,6 +4084,15 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
               </span>
             );
           })}
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:5}}>
+          <span className="ig-muted" style={{fontSize:12}}>Trier par couleur :</span>
+          {RH_PALETTE_COULEURS.filter((p) => p.valeur).map((p) => (
+            <span key={p.valeur} style={{opacity: triCouleur === p.valeur ? 1 : .35, outline: triCouleur === p.valeur ? '2px solid var(--ink)' : 'none', borderRadius:6}}>
+              <PastilleCouleur valeur={p.valeur} titre={`Trier : ${p.label} en premier`} taille={18} onClick={() => setTriCouleur(triCouleur === p.valeur ? null : p.valeur)} />
+            </span>
+          ))}
+          {triCouleur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setTriCouleur(null)}>✕</button>}
         </div>
         {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); }}>✕ Réinitialiser les filtres</button>}
         {selection.size > 0 && (
