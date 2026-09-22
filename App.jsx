@@ -480,6 +480,10 @@ const kExtras = (mois) => `extras:${mois}`;
 // Fiche juridique de chaque établissement (raison sociale, SIRET...) : nécessaire pour
 // générer les contrats de prêt. Clé unique, valeur = { [resto]: {...} }.
 const kEtablissementsJuridique = "etablissements_juridique";
+// Codes d'accès par établissement, choisis par le superviseur : un directeur qui tape ce
+// code arrive directement (et uniquement) sur cet établissement, sans pouvoir en choisir
+// un autre. Clé unique, valeur = { [resto]: "code" }.
+const kCodesEtablissements = "codes_etablissements";
 function cleMois(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 
 // ---------- Icônes (SVG inline, pas de dépendance) ----------
@@ -2064,7 +2068,7 @@ function VueGlobaleExtras() {
 }
 
 // ---------- Vue Manager ----------
-function ManagerView({ resto, onBack, superviseur }) {
+function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
   const [semDate, setSemDate] = useState(new Date());
   const [planning, setPlanning] = useState({}); // { idSalarie: { 0..6 } }
   const [pointages, setPointages] = useState({});
@@ -2632,7 +2636,7 @@ function ManagerView({ resto, onBack, superviseur }) {
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:14,marginBottom:6}}>
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> Restaurants</button>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> {onBackLabel || "Restaurants"}</button>
         <div>
           <div className="ig-eyebrow" style={{margin:0}}>Espace manager{superviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{resto}</h2>
@@ -3176,11 +3180,12 @@ function EmployeeView({ resto, emp, onBack }) {
 }
 
 // ---------- Sélecteur de restaurant ----------
-function RestoPicker({ restaurants, onPick, onAdd }) {
+function RestoPicker({ restaurants, onPick, onAdd, superviseur }) {
   const [form, setForm] = useState(false);
   const [nom, setNom] = useState("");
   const [err, setErr] = useState("");
   const [counts, setCounts] = useState({}); // effectif RÉEL par restaurant (fiches + ajouts − retirés)
+  const [gererCodes, setGererCodes] = useState(false); // modal "Gérer les codes d'accès" (superviseur)
 
   useEffect(() => {
     let on = true;
@@ -3229,6 +3234,14 @@ function RestoPicker({ restaurants, onPick, onAdd }) {
         </button>
       </div>
 
+      {superviseur && (
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginTop:16}} onClick={()=>setGererCodes(true)}>
+          <Icon.Shield width={15} height={15}/> Gérer les codes d'accès par établissement
+        </button>
+      )}
+
+      {gererCodes && <CodesEtablissementsModal restaurants={restaurants} onClose={()=>setGererCodes(false)} />}
+
       {form && (
         <div className="ig-overlay" onClick={()=>setForm(false)}>
           <div className="ig-modal" onClick={(e)=>e.stopPropagation()}>
@@ -3246,6 +3259,83 @@ function RestoPicker({ restaurants, onPick, onAdd }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------- Modal superviseur : un code d'accès par établissement ----------
+// Un directeur qui saisit ce code sur l'écran manager arrive directement (et uniquement)
+// sur son établissement, sans jamais voir le sélecteur ni les autres restos.
+function CodesEtablissementsModal({ restaurants, onClose }) {
+  const [codes, setCodes] = useState(null); // null tant que non chargé
+  const [valeurs, setValeurs] = useState({});
+  const [enregistre, setEnregistre] = useState(""); // nom du resto qui vient d'être enregistré (feedback)
+  const [erreur, setErreur] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    Store.get(kCodesEtablissements).then((v) => {
+      if (!on) return;
+      const init = v || {};
+      setCodes(init);
+      setValeurs(init);
+    });
+    return () => { on = false; };
+  }, []);
+
+  async function enregistrerUn(resto) {
+    const val = (valeurs[resto] || "").trim();
+    if (val && (val === CODE_MANAGER || val === CODE_SUPERVISEUR)) {
+      setErreur(`Ce code est déjà utilisé (code manager ou superviseur). Choisissez-en un autre pour ${resto}.`);
+      return;
+    }
+    const dejaPris = val && Object.keys(codes || {}).find((r) => r !== resto && codes[r] === val);
+    if (dejaPris) {
+      setErreur(`Ce code est déjà attribué à ${dejaPris}. Choisissez-en un autre pour ${resto}.`);
+      return;
+    }
+    const next = { ...(codes || {}) };
+    if (val) next[resto] = val; else delete next[resto];
+    setCodes(next);
+    setErreur("");
+    await Store.set(kCodesEtablissements, next);
+    setEnregistre(resto);
+    setTimeout(() => setEnregistre((r) => (r === resto ? "" : r)), 1500);
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" style={{maxWidth:480}} onClick={(e)=>e.stopPropagation()}>
+        <h3>Codes d'accès par établissement</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>
+          Un directeur qui saisit ce code arrive directement sur cet établissement uniquement — pas de sélecteur, pas de visibilité sur les autres restos. Laissez vide pour ne pas attribuer de code (le resto reste accessible seulement via le code manager général).
+        </div>
+        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
+        {codes === null ? (
+          <div className="ig-muted">Chargement…</div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'50vh',overflowY:'auto'}}>
+            {restaurants.map((r) => (
+              <div key={r} style={{display:'flex',alignItems:'center',gap:8}}>
+                <div style={{flex:1,fontSize:14,fontWeight:600}}>{r}</div>
+                <input
+                  value={valeurs[r] || ""}
+                  onChange={(e)=>setValeurs({ ...valeurs, [r]: e.target.value })}
+                  onKeyDown={(e)=>{ if (e.key === 'Enter') enregistrerUn(r); }}
+                  placeholder="Aucun code"
+                  style={{width:120,fontSize:14,textAlign:'center',letterSpacing:'2px'}}
+                />
+                <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>enregistrerUn(r)}>
+                  {enregistre === r ? "✓ Enregistré" : "Enregistrer"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={onClose}>Fermer</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3356,6 +3446,9 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
 // ---------- Écran de saisie du code manager ----------
 // Le manager tape un code court. En coulisses, l'app se connecte au compte Supabase
 // partagé (MANAGER_EMAIL / MANAGER_SECRET) : la base reste verrouillée en écriture.
+// Un code d'établissement (choisi par le superviseur, propre à un resto) fonctionne aussi :
+// il donne accès au manager mais uniquement sur cet établissement précis (onOk reçoit alors
+// le nom du resto imposé en 2ᵉ argument).
 function CodeGate({ onOk, onCancel }) {
   const [code, setCode] = useState("");
   const [erreur, setErreur] = useState("");
@@ -3363,14 +3456,31 @@ function CodeGate({ onOk, onCancel }) {
 
   async function valider() {
     if (busy) return;
-    const estSuperviseur = code === CODE_SUPERVISEUR;
-    if (!estSuperviseur && code !== CODE_MANAGER) { setErreur("Code incorrect. Réessayez."); setCode(""); return; }
+    const saisie = code.trim();
+    const estSuperviseur = saisie === CODE_SUPERVISEUR;
+    const estManagerGlobal = saisie === CODE_MANAGER;
     setErreur("");
     setBusy(true);
+    // On se connecte d'abord au compte manager partagé : les codes par établissement sont
+    // stockés dans la base et protégés en lecture, il faut être authentifié pour les lire.
     const { error } = await supabase.auth.signInWithPassword({ email: MANAGER_EMAIL, password: MANAGER_SECRET });
+    if (error) { setBusy(false); setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
+    let restoImpose = null;
+    if (!estSuperviseur && !estManagerGlobal) {
+      // Ni le code superviseur ni le code manager global : on regarde si c'est un code
+      // d'établissement (attribué par le superviseur à un resto précis).
+      const codes = (await Store.get(kCodesEtablissements)) || {};
+      restoImpose = Object.keys(codes).find((r) => codes[r] && String(codes[r]).trim() === saisie) || null;
+      if (!restoImpose) {
+        await supabase.auth.signOut();
+        setBusy(false);
+        setErreur("Code incorrect. Réessayez.");
+        setCode("");
+        return;
+      }
+    }
     setBusy(false);
-    if (error) { setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
-    onOk(estSuperviseur);
+    onOk(estSuperviseur, restoImpose);
   }
   function onKey(e) { if (e.key === "Enter") valider(); }
 
@@ -3873,6 +3983,9 @@ export default function App() {
   // Accès étendu (export PayFit, validations à la place du salarié, forcer le modèle...),
   // réservé à Océane. Mémorisé sur cet appareil pour ne pas retaper le code à chaque visite.
   const [superviseur, setSuperviseur] = useState(() => localStorage.getItem("ig_superviseur") === "1");
+  // Établissement imposé par un code d'accès resto-spécifique (le directeur ne voit que
+  // celui-ci, jamais le sélecteur). Mémorisé sur cet appareil comme le code superviseur.
+  const [restoImpose, setRestoImpose] = useState(() => localStorage.getItem("ig_resto_impose") || null);
 
   useEffect(() => {
     let on = true;
@@ -3908,7 +4021,9 @@ export default function App() {
   async function deconnexion() {
     await supabase.auth.signOut();
     localStorage.removeItem("ig_superviseur");
+    localStorage.removeItem("ig_resto_impose");
     setSuperviseur(false);
+    setRestoImpose(null);
     reset();
   }
   async function deconnexionRH() {
@@ -3920,12 +4035,14 @@ export default function App() {
   if (modeOnboarding) {
     content = <OnboardingForm restaurants={restaurants} />;
   } else if (askCode) {
-    content = <CodeGate onOk={(estSuperviseur)=>{
+    content = <CodeGate onOk={(estSuperviseur, restoCode)=>{
       setAskCode(false);
       setRole('manager');
       setSuperviseur(estSuperviseur);
       if (estSuperviseur) localStorage.setItem("ig_superviseur", "1");
       else localStorage.removeItem("ig_superviseur");
+      if (restoCode) { setResto(restoCode); setRestoImpose(restoCode); localStorage.setItem("ig_resto_impose", restoCode); }
+      else { setRestoImpose(null); localStorage.removeItem("ig_resto_impose"); }
     }} onCancel={()=>setAskCode(false)} />;
   } else if (askRH) {
     content = <RHLoginForm onOk={(acces)=>{ setAskRH(false); setRole('rh'); setRhAcces(acces); }} onCancel={()=>setAskRH(false)} />;
@@ -3940,7 +4057,7 @@ export default function App() {
           <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:700,fontSize:30,letterSpacing:'-.5px',color:'#fff'}}>Indie Group RH</div>
         </div>
         <div className="ig-roles" style={{width:'100%',maxWidth:720,margin:0}}>
-          <button className="ig-role" onClick={()=> session ? setRole('manager') : setAskCode(true)} style={{textAlign:'center'}}>
+          <button className="ig-role" onClick={()=> { if (session) { setRole('manager'); if (restoImpose) setResto(restoImpose); } else setAskCode(true); }} style={{textAlign:'center'}}>
             <div className="ig-ic" style={{background:'var(--ink)',color:'var(--sand)',margin:'0 auto 16px'}}><Icon.Shield/></div>
             <h3 style={{margin:0}}>Je suis manager</h3>
           </button>
@@ -3955,8 +4072,12 @@ export default function App() {
         </div>
       </div>
     );
+  } else if (role === "manager" && restoImpose) {
+    // Code d'accès resto-spécifique : jamais de sélecteur, jamais de retour vers un autre
+    // établissement — seule la déconnexion complète permet de ressaisir un autre code.
+    content = <ManagerView resto={restoImpose} onBack={deconnexion} superviseur={false} onBackLabel="Déconnexion" />;
   } else if (role === "manager" && !resto) {
-    content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} />;
+    content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} superviseur={superviseur} />;
   } else if (role === "manager") {
     content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "rh") {
