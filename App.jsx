@@ -4354,17 +4354,36 @@ function ExtrasRH({ resto, unite, superviseur }) {
   );
 }
 
+// Colonnes de l'historique des extras : "valeur" = valeur brute triable/filtrable,
+// "aff" = ce qui s'affiche dans la cellule (si absent, identique à "valeur").
+const EXTRAS_HISTORIQUE_COLONNES = [
+  { cle: "date", label: "Date", valeur: (x) => x.date, aff: (x) => fmtDate(new Date(x.date + "T00:00:00")) },
+  { cle: "salarie", label: "Salarié", valeur: (x) => `${x.salarie_prenom || ""} ${x.salarie_nom || ""}`.trim() },
+  { cle: "poste", label: "Poste", valeur: (x) => x.poste || "" },
+  { cle: "origine", label: "Origine", valeur: (x) => x.resto_origine || "" },
+  { cle: "statut", label: "Statut", valeur: (x) => (x.statut === "realisee" ? "✓ validé" : "à valider") },
+  { cle: "heures", label: "Heures", valeur: (x) => String(x.statut === "realisee" ? (x.heures_reelles ?? "") : (x.heures_estimees ?? "")) },
+  { cle: "taux", label: "Taux horaire", valeur: (x) => String(x.taux_horaire_net ?? ""), aff: (x) => (x.taux_horaire_net != null ? fmtEuro(x.taux_horaire_net) : "—") },
+  { cle: "primeNet", label: "Prime Net", valeur: (x) => String(x.statut === "realisee" ? (x.prime_net ?? "") : ""), aff: (x) => (x.statut === "realisee" ? fmtEuro(x.prime_net) : "—") },
+];
+
 // ---------- Historique des extras d'UN établissement + une unité (superviseur), tous mois
 // confondus — jamais mélangé avec un autre établissement, ni entre Salle et Cuisine d'un
-// même établissement : chacun son récap. ----------
+// même établissement : chacun son récap. Filtres par colonne (façon tableur, comme le
+// registre embauche) en plus de la recherche libre et du filtre par mois. ----------
 function VueGlobaleExtrasRH({ resto, unite }) {
   const [tout, setTout] = useState(null);
   const [recherche, setRecherche] = useState("");
   const [filtreMois, setFiltreMois] = useState("");
+  const [filtresValeurs, setFiltresValeurs] = useState({});
+  const [menuOuvert, setMenuOuvert] = useState(null);
+  const [triColonne, setTriColonne] = useState(null);
+  const [triSens, setTriSens] = useState("asc");
 
   useEffect(() => {
     let on = true;
     setTout(null);
+    setFiltresValeurs({}); setTriColonne(null);
     RhExtras.listParEtablissement(resto, unite).then((l) => { if (on) setTout(l); });
     return () => { on = false; };
   }, [resto, unite]);
@@ -4372,21 +4391,61 @@ function VueGlobaleExtrasRH({ resto, unite }) {
   if (tout === null) return <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}><div className="ig-muted">Chargement de l'historique…</div></div>;
 
   const moisDisponibles = Array.from(new Set(tout.map((x) => cleMois(new Date(x.date + "T00:00:00"))))).sort().reverse();
+  const filtresActifs = Object.keys(filtresValeurs).length > 0;
 
   const q = normTxt(recherche);
-  const filtres = tout.filter((x) => {
-    if (filtreMois && cleMois(new Date(x.date + "T00:00:00")) !== filtreMois) return false;
-    if (q && !normTxt(`${x.salarie_prenom} ${x.salarie_nom} ${x.poste}`).includes(q)) return false;
-    return true;
-  });
+  const filtres = tout
+    .filter((x) => {
+      if (filtreMois && cleMois(new Date(x.date + "T00:00:00")) !== filtreMois) return false;
+      if (q && !normTxt(`${x.salarie_prenom} ${x.salarie_nom} ${x.poste}`).includes(q)) return false;
+      return EXTRAS_HISTORIQUE_COLONNES.every((c) => {
+        const sel = filtresValeurs[c.cle];
+        if (!sel) return true;
+        return sel.has(c.valeur(x));
+      });
+    })
+    .sort((a, b) => {
+      if (!triColonne) return b.date.localeCompare(a.date);
+      const col = EXTRAS_HISTORIQUE_COLONNES.find((c) => c.cle === triColonne);
+      const cmp = col.valeur(a).localeCompare(col.valeur(b), "fr", { numeric: true });
+      return triSens === "desc" ? -cmp : cmp;
+    });
 
   const totaux = filtres.reduce((acc, x) => {
     if (x.statut === "realisee") {
       acc.heures += Number(x.heures_reelles) || 0;
-      acc.primeNet += x.prime_net || 0; acc.primeBrute += x.prime_brute || 0; acc.primeCoutTotal += x.prime_cout_total || 0;
+      acc.primeNet += x.prime_net || 0;
     }
     return acc;
-  }, { heures: 0, primeNet: 0, primeBrute: 0, primeCoutTotal: 0 });
+  }, { heures: 0, primeNet: 0 });
+
+  function entete(c) {
+    const options = Array.from(new Set(tout.map((x) => c.valeur(x))))
+      .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+      .map((brute) => ({ brute, label: brute || "(vide)" }));
+    const selection = filtresValeurs[c.cle] || null;
+    return (
+      <th key={c.cle} style={{padding:'6px 8px',position:'relative'}}>
+        <button onClick={()=>setMenuOuvert(menuOuvert === c.cle ? null : c.cle)}
+          style={{display:'flex',alignItems:'center',gap:4,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:12.5,fontWeight:700,padding:0,color: selection ? 'var(--coral-d)' : 'var(--ink)'}}>
+          <span>{c.label}</span> <span style={{fontSize:9}}>▾</span>
+        </button>
+        {menuOuvert === c.cle && (
+          <MenuFiltreColonne
+            options={options}
+            selection={selection}
+            onValider={(nouvelle)=>{
+              const next = { ...filtresValeurs };
+              if (nouvelle === null) delete next[c.cle]; else next[c.cle] = nouvelle;
+              setFiltresValeurs(next);
+            }}
+            onTrier={(sens)=>{ setTriColonne(c.cle); setTriSens(sens); }}
+            onFermer={()=>setMenuOuvert(null)}
+          />
+        )}
+      </th>
+    );
+  }
 
   return (
     <div className="ig-card" style={{padding:'16px 20px',marginBottom:18,borderColor:'var(--ink)'}}>
@@ -4397,31 +4456,26 @@ function VueGlobaleExtrasRH({ resto, unite }) {
           <option value="">Tous les mois</option>
           {moisDisponibles.map((m) => (<option key={m} value={m}>{m}</option>))}
         </select>
+        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setFiltresValeurs({})}>✕ Réinitialiser les filtres</button>}
         <button className="ig-btn ig-btn-ghost" onClick={()=>exporterRecapExtrasRH(filtres, filtreMois || `${resto}-${unite}`, `Extras_${resto}_${unite}_${filtreMois || "historique"}.xlsx`)}>⬇ Export (xlsx)</button>
       </div>
       <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>
-        {filtres.length} extra{filtres.length>1?'s':''} · {totaux.heures}h validées · {fmtEuro(totaux.primeNet)} net · {fmtEuro(totaux.primeBrute)} brut · {fmtEuro(totaux.primeCoutTotal)} coût total
+        {filtres.length} extra{filtres.length>1?'s':''} · {totaux.heures}h validées · {fmtEuro(totaux.primeNet)} net
       </div>
       {filtres.length === 0 ? <div className="ig-muted">Aucun extra ne correspond.</div> : (
         <div style={{overflowX:'auto',maxHeight:480,overflowY:'auto'}}>
           <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
             <thead style={{position:'sticky',top:0,background:'var(--sand)'}}>
               <tr style={{textAlign:'left'}}>
-                <th style={{padding:'6px 8px'}}>Date</th><th>Salarié</th><th>Poste</th><th>Origine</th><th>Statut</th><th>Heures</th><th>Prime Net</th><th>Prime Brute</th><th>Coût total</th>
+                {EXTRAS_HISTORIQUE_COLONNES.map((c) => entete(c))}
               </tr>
             </thead>
             <tbody>
               {filtres.map((x) => (
                 <tr key={x.id} style={{borderTop:'1px solid var(--sand-2)'}}>
-                  <td style={{padding:'6px 8px'}}>{fmtDate(new Date(x.date+"T00:00:00"))}</td>
-                  <td>{x.salarie_prenom} {x.salarie_nom}</td>
-                  <td>{x.poste}</td>
-                  <td>{x.resto_origine}</td>
-                  <td>{x.statut === 'realisee' ? '✓ validé' : 'à valider'}</td>
-                  <td>{x.statut === 'realisee' ? x.heures_reelles : (x.heures_estimees ?? '—')}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.prime_net) : '—'}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.prime_brute) : '—'}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.prime_cout_total) : '—'}</td>
+                  {EXTRAS_HISTORIQUE_COLONNES.map((c) => (
+                    <td key={c.cle} style={{padding:'6px 8px'}}>{(c.aff || c.valeur)(x)}</td>
+                  ))}
                 </tr>
               ))}
             </tbody>
