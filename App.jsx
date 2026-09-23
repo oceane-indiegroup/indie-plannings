@@ -412,6 +412,12 @@ const RhAdmin = {
   creer: ({ email, motDePasse, resto, unite }) => appelerRhAdmin("creer", { email, motDePasse, resto, unite }),
   supprimer: (id) => appelerRhAdmin("supprimer", { id }),
   changerMotDePasse: ({ user_id, motDePasse }) => appelerRhAdmin("changerMotDePasse", { user_id, motDePasse }),
+  // Recherche de salariés tous établissements confondus (ex : pour un extra emprunté
+  // ailleurs) — ouvert à tout compte RH, pas seulement au superviseur.
+  async rechercherSalaries(q) {
+    const r = await appelerRhAdmin("rechercherSalaries", { q });
+    return r.ok ? r.resultats : [];
+  },
 };
 
 const RhSalaries = {
@@ -510,6 +516,42 @@ const RhReposHebdo = {
   },
 };
 
+// ---------- Extras (prêt de main-d'œuvre entre établissements) — Espace RH ----------
+const RhExtras = {
+  // "resto"/"unite" = établissement DESTINATAIRE (celui qui gère la ligne).
+  async list(resto, unite, mois) {
+    const debut = `${mois}-01`;
+    const finDate = new Date(Number(mois.slice(0, 4)), Number(mois.slice(5, 7)), 0);
+    const fin = finDate.toISOString().slice(0, 10);
+    const { data, error } = await supabase.from("rh_extras").select("*")
+      .eq("resto", resto).eq("unite", unite).gte("date", debut).lte("date", fin).order("date", { ascending: false });
+    if (error) { console.error("RhExtras.list:", error.message); return []; }
+    return data || [];
+  },
+  // Historique complet, tous établissements/mois confondus (superviseur uniquement, la RLS
+  // s'en charge : un directeur ne récupérerait que ses propres lignes de toute façon).
+  async listAll() {
+    const { data, error } = await supabase.from("rh_extras").select("*").order("date", { ascending: false });
+    if (error) { console.error("RhExtras.listAll:", error.message); return []; }
+    return data || [];
+  },
+  async creer(row) {
+    const { data, error } = await supabase.from("rh_extras").insert(row).select().single();
+    if (error) { console.error("RhExtras.creer:", error.message); return null; }
+    return data;
+  },
+  async maj(id, patch) {
+    const { data, error } = await supabase.from("rh_extras").update(patch).eq("id", id).select().single();
+    if (error) { console.error("RhExtras.maj:", error.message); return null; }
+    return data;
+  },
+  async supprimer(id) {
+    const { error } = await supabase.from("rh_extras").delete().eq("id", id);
+    if (error) { console.error("RhExtras.supprimer:", error.message); return false; }
+    return true;
+  },
+};
+
 // ---------- Pointages (table dédiée, une ligne par salarié/jour) ----------
 // Robustesse V2 : chaque confirmation n'écrit qu'UNE ligne, donc deux salariés
 // qui pointent en même temps ne s'écrasent plus. La forme rendue en mémoire est
@@ -571,9 +613,6 @@ const kPayfitMapping = (resto) => `payfit_mapping:${slugKey(resto)}`;
 const kEtablissements = "etablissements";
 // Validation du planning d'une semaine (booléen) : publie le planning aux salariés.
 const kValidation = (resto, sem) => `validation:${slugKey(resto)}:${sem}`;
-// Extras (prêt de main-d'œuvre) : une seule liste par mois calendaire, partagée entre tous
-// les établissements (comme l'ancien "Réponses au formulaire" partagé). mois = "AAAA-MM".
-const kExtras = (mois) => `extras:${mois}`;
 // Fiche juridique de chaque établissement (raison sociale, SIRET...) : nécessaire pour
 // générer les contrats de prêt. Clé unique, valeur = { [resto]: {...} }.
 const kEtablissementsJuridique = "etablissements_juridique";
@@ -1102,19 +1141,6 @@ function calculExtra(heures, tauxNet, surHeuresOrigine) {
   return { tauxBrut, primeNet: h * t, primeBrute: h * tauxBrut, primeCoutTotal: tauxBrut * EXTRA_BRUT_VERS_COUT_TOTAL * h };
 }
 
-const Extras = {
-  async load(mois) { return (await Store.get(kExtras(mois))) || []; },
-  async save(mois, liste) { await Store.set(kExtras(mois), liste); },
-  // Charge l'historique complet, tous mois confondus (équivalent de l'ancien Google Sheet
-  // où tout restait visible en permanence sur une seule feuille).
-  async loadAll() {
-    const lignes = await Store.listByPrefix("extras:");
-    const tout = [];
-    lignes.forEach((l) => { if (Array.isArray(l.value)) tout.push(...l.value); });
-    tout.sort((a, b) => b.date.localeCompare(a.date));
-    return tout;
-  },
-};
 // Fiches juridiques connues des établissements du groupe (raison sociale, SIRET, adresse...),
 // fournies par la direction — pré-remplies pour que les managers n'aient jamais à les ressaisir.
 // Une fiche enregistrée manuellement (Store, ex: nouvel établissement) reste prioritaire.
@@ -1136,32 +1162,6 @@ const EtablissementsJuridique = {
   async load() { return { ...ETABLISSEMENTS_JURIDIQUE_DEFAUT, ...((await Store.get(kEtablissementsJuridique)) || {}) }; },
   async save(tous) { await Store.set(kEtablissementsJuridique, tous); },
 };
-
-// Charge l'effectif actuel de plusieurs établissements (fichier + salariés ajoutés dans
-// l'appli, hors salariés partis) : sert au sélecteur "quel salarié fait l'extra ce soir ?",
-// qui doit pouvoir trouver un salarié de N'IMPORTE quel établissement du groupe.
-async function chargerEffectifGlobal(restaurants) {
-  const aujourdHui = new Date().toISOString().slice(0, 10);
-  const rosters = await Promise.all(restaurants.map((r) => Store.get(kRoster(r))));
-  const tous = [];
-  const vus = new Set(); // évite les doublons (ex: salarié présent à la fois dans le fichier et ré-ajouté dans l'appli)
-  restaurants.forEach((r, i) => {
-    const roster = rosters[i] || {};
-    const supprimes = new Set(roster.supprimes || []);
-    const departs = roster.departs || {};
-    const base = EMPLOYEES.filter((e) => e.r === r).concat(roster.ajouts || []);
-    base.forEach((e) => {
-      const id = idSalarie(e);
-      if (vus.has(id)) return;
-      if (supprimes.has(id)) return;
-      const fin = departs[id];
-      if (fin && fin < aujourdHui) return;
-      vus.add(id);
-      tous.push(e);
-    });
-  });
-  return tous;
-}
 
 // Style commun aux documents juridiques imprimés (contrat + avenant).
 const STYLE_CONTRAT = `
@@ -1241,58 +1241,6 @@ function genererDocumentsExtra(extra, etabsJ) {
   const salarie = { n: extra.salarieNom, p: extra.salariePrenom };
   const contratHTML = construireContratPretHTML({ origineJ, destJ, salarie, poste: extra.poste, date: extra.date, dateGeneration });
   return { contratHTML, contratGenereAt: dateGeneration.toISOString() };
-}
-
-// Export du récap mensuel des extras : une feuille "Détail" (une ligne par extra, mêmes
-// colonnes que l'ancien formulaire) + une feuille "Récap par salarié" (totaux du mois),
-// pour reprendre le travail d'intégration des primes en variables PayFit.
-// Colonnes A à J identiques (nom, ordre, format de date) à celles de l'ancien Google Sheet
-// "Réponses au formulaire", pour que les lignes exportées puissent être collées telles
-// quelles dedans. Les colonnes K à N (calculs) reprennent aussi ses noms de colonnes.
-function exporterRecapExtras(liste, mois, nomFichier) {
-  const realises = liste.filter((x) => x.statut === "realisee");
-  const enteteDetail = [
-    "Horodateur", "Adresse e-mail", "Etablissement où est effectué l'extra", "DATE",
-    "NOM  (SI FACTURE INDIQUER LE NOM SOCIETE)", "PRENOM", "Etablissement d'origine de l'extra",
-    "1Nombre d'heures effectuées (mettre 1 si FORFAIT)",
-    "Taux horaire net (utiliser Autre pour FORFAIT et remplir le montant du forfait)",
-    "Extra fait sur ses heures de l'établissement d'origine ? (donc non rémunéré en EXTRA - Mettre oui si facture)",
-    "Taux Horaire Brut", "Prime Net", "Prime Brute", "Prime Cout Total",
-  ];
-  const aoaDetail = [enteteDetail];
-  realises.forEach((x) => {
-    const horodateur = x.valideLe ? new Date(x.valideLe) : new Date(x.creeLe);
-    aoaDetail.push([
-      `${fmtDate(horodateur)} ${horodateur.toLocaleTimeString("fr-FR")}`, "",
-      x.resto, fmtDate(new Date(x.date + "T00:00:00")), x.salarieNom, x.salariePrenom, x.restoOrigine,
-      x.heuresReelles, x.tauxHoraireNet, x.surHeuresOrigine ? "OUI" : "NON",
-      x.tauxBrut, x.primeNet, x.primeBrute, x.primeCoutTotal,
-    ]);
-  });
-  const parSalarie = {};
-  realises.forEach((x) => {
-    const key = x.salarieId || idSalarie({ n: x.salarieNom, p: x.salariePrenom });
-    const pf = PAYFIT_IDS[key] || ["", ""];
-    const cur = parSalarie[key] || { nom: x.salarieNom, prenom: x.salariePrenom, identifiant: pf[0], matricule: pf[1], heures: 0, primeNet: 0, primeBrute: 0, primeCoutTotal: 0 };
-    cur.heures += Number(x.heuresReelles) || 0;
-    cur.primeNet += x.primeNet || 0;
-    cur.primeBrute += x.primeBrute || 0;
-    cur.primeCoutTotal += x.primeCoutTotal || 0;
-    parSalarie[key] = cur;
-  });
-  const aoaRecap = [["Identifiant PayFit", "Matricule", "Nom", "Prénom", "Total heures extra", "Total Prime Net", "Total Prime Brute", "Total Coût employeur", "Mois"]];
-  Object.values(parSalarie).forEach((c) => aoaRecap.push([c.identifiant, c.matricule, c.nom, c.prenom, c.heures, c.primeNet, c.primeBrute, c.primeCoutTotal, mois]));
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaDetail), "Détail extras");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaRecap), "Récap par salarié");
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = nomFichier;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 // ---------- Import d'un planning existant depuis Excel ----------
@@ -1845,312 +1793,6 @@ function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
   );
 }
 
-// ---------- Modal Ajout d'un extra (choix du salarié + génération immédiate du contrat) ----------
-function AjoutExtraModal({ resto, effectif, onValider, onClose }) {
-  const [recherche, setRecherche] = useState("");
-  const [selection, setSelection] = useState(null);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [err, setErr] = useState("");
-
-  const candidats = useMemo(() => {
-    const q = normTxt(recherche);
-    if (!q) return [];
-    return effectif.filter((e) => normTxt(e.n).includes(q) || normTxt(e.p).includes(q) || normTxt(`${e.p} ${e.n}`).includes(q)).slice(0, 8);
-  }, [recherche, effectif]);
-
-  function choisir(e) {
-    setSelection(e);
-    setRecherche(`${e.p} ${e.n}`);
-  }
-
-  function valider() {
-    if (!selection) { setErr("Choisissez un salarié dans la liste."); return; }
-    if (!date) { setErr("Indiquez la date de la soirée."); return; }
-    onValider({ salarieId: idSalarie(selection), salarie: selection, poste: selection.po || "", date });
-  }
-
-  return (
-    <div className="ig-overlay" onClick={onClose}>
-      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:480}}>
-        <h3>Ajouter un extra</h3>
-        <div className="ig-muted" style={{marginBottom:10}}>Choisissez le salarié (de cet établissement ou d'un autre) et la date de la soirée. Les heures et le taux horaire se renseignent après, tant que ce n'est pas validé.</div>
-
-        <div className="ig-field" style={{position:'relative'}}>
-          <label>Salarié</label>
-          <input value={recherche} onChange={(e)=>{ setRecherche(e.target.value); setSelection(null); setErr(""); }} placeholder="Tapez un nom…" />
-          {recherche && !selection && candidats.length > 0 && (
-            <div className="ig-card" style={{position:'absolute',zIndex:5,left:0,right:0,marginTop:4,padding:6,maxHeight:220,overflowY:'auto'}}>
-              {candidats.map((e) => (
-                <div key={idSalarie(e)} style={{padding:'8px 10px',cursor:'pointer',borderRadius:8}}
-                  onClick={()=>choisir(e)}
-                  onMouseDown={(ev)=>ev.preventDefault()}>
-                  <b>{e.p} {e.n}</b> <span className="ig-muted">· {e.po} · {e.r}{e.r === resto ? " (cet établissement)" : ""}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {recherche && !selection && candidats.length === 0 && (
-            <div className="ig-muted" style={{marginTop:6,fontSize:13}}>Aucun salarié ne correspond.</div>
-          )}
-        </div>
-
-        {selection && (
-          <div className="ig-field">
-            <label>Date de la soirée</label>
-            <input type="date" value={date} onChange={(e)=>setDate(e.target.value)} />
-          </div>
-        )}
-
-        {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-        <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
-          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Ajouter l'extra</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------- Onglet Extra (prêt de main-d'œuvre) ----------
-function ExtraTab({ resto, superviseur }) {
-  const [restaurants, setRestaurants] = useState([...RESTAURANTS]);
-  const [effectif, setEffectif] = useState([]);
-  const [etabsJ, setEtabsJ] = useState({});
-  const [moisDate, setMoisDate] = useState(new Date());
-  const [liste, setListe] = useState(null);
-  const [ajout, setAjout] = useState(false);
-  const [fiche, setFiche] = useState(false);
-  const [flash, setFlash] = useState("");
-  const [recherche, setRecherche] = useState("");
-
-  const mois = cleMois(moisDate);
-
-  useEffect(() => {
-    let on = true;
-    Store.get(kEtablissements).then((v) => { if (on && Array.isArray(v) && v.length) setRestaurants(Array.from(new Set([...RESTAURANTS, ...v]))); });
-    return () => { on = false; };
-  }, []);
-
-  useEffect(() => {
-    let on = true;
-    Promise.all([chargerEffectifGlobal(restaurants), EtablissementsJuridique.load(), Extras.load(mois)]).then(([eff, ej, ex]) => {
-      if (!on) return;
-      setEffectif(eff); setEtabsJ(ej); setListe(ex);
-    });
-    return () => { on = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restaurants.length, mois]);
-
-  function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 6000); }
-
-  async function persisterDans(moisCible, nouvelleListe) {
-    if (moisCible === mois) setListe(nouvelleListe);
-    await Extras.save(moisCible, nouvelleListe);
-  }
-
-  async function creerExtra({ salarieId, salarie, poste, date }) {
-    const nouveau = {
-      id: (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`),
-      resto, restoOrigine: salarie.r, salarieId, salarieNom: salarie.n, salariePrenom: salarie.p,
-      poste, date, heuresEstimees: null, tauxHoraireNet: null, surHeuresOrigine: false,
-      statut: "a_valider", heuresReelles: null, payfitStatut: "a_faire", creeLe: new Date().toISOString(),
-    };
-    Object.assign(nouveau, genererDocumentsExtra(nouveau, etabsJ));
-    const moisExtra = cleMois(new Date(date + "T00:00:00"));
-    const base = moisExtra === mois ? (liste || []) : await Extras.load(moisExtra);
-    await persisterDans(moisExtra, [...base, nouveau]);
-    setAjout(false);
-    montrerFlash(`Extra créé pour ${salarie.p} ${salarie.n} (${salarie.r} → ${resto}) le ${fmtDate(new Date(date + "T00:00:00"))}.${nouveau.contratHTML ? " Le contrat de prêt est prêt." : ""} Reste à renseigner les heures et le taux avant de valider.`);
-  }
-
-  // Édition libre des heures/taux/case tant que l'extra n'est pas validé : mise à jour
-  // immédiate en mémoire, persistée à la perte de focus (ou aussitôt pour la case à cocher).
-  function modifierChamp(id, champ, valeur) {
-    const next = (liste || []).map((x) => (x.id === id ? { ...x, [champ]: valeur } : x));
-    setListe(next);
-    return next;
-  }
-  async function sauverChamps(id, champ, valeur) {
-    const next = modifierChamp(id, champ, valeur);
-    await Extras.save(mois, next);
-  }
-
-  async function validerExtra(id) {
-    const x = (liste || []).find((it) => it.id === id);
-    if (!x) return;
-    if (!x.heuresEstimees || Number(x.heuresEstimees) <= 0) { montrerFlash("Indiquez le nombre d'heures avant de valider."); return; }
-    if (!x.surHeuresOrigine && (!x.tauxHoraireNet || Number(x.tauxHoraireNet) <= 0)) { montrerFlash("Indiquez le taux horaire net avant de valider (ou cochez « sur ses heures d'origine »)."); return; }
-    const calc = calculExtra(x.heuresEstimees, x.tauxHoraireNet, x.surHeuresOrigine);
-    const next = (liste || []).map((it) => (it.id === id ? { ...it, heuresReelles: Number(it.heuresEstimees), statut: "realisee", valideLe: new Date().toISOString(), ...calc } : it));
-    await persisterDans(mois, next);
-    montrerFlash("Heures validées.");
-  }
-
-  function voirContrat(x) {
-    if (!x.contratHTML) return;
-    imprimerDocument(`Contrat de prêt — ${x.salariePrenom} ${x.salarieNom}`, x.contratHTML, STYLE_CONTRAT, `contrat_pret_${slugKey(x.salariePrenom + "_" + x.salarieNom)}_${x.date}`);
-  }
-
-  async function enregistrerFiche(data) {
-    const next = { ...etabsJ, [resto]: data };
-    setEtabsJ(next);
-    await EtablissementsJuridique.save(next);
-    setFiche(false);
-    montrerFlash("Fiche juridique enregistrée.");
-  }
-
-  if (liste === null) return <div className="ig-muted">Chargement…</div>;
-
-  const q = normTxt(recherche);
-  const mesDemandes = liste
-    .filter((x) => x.resto === resto)
-    .filter((x) => !q || normTxt(`${x.salariePrenom} ${x.salarieNom}`).includes(q))
-    .sort((a, b) => b.date.localeCompare(a.date));
-  const ficheOk = etabsJ[resto] && etabsJ[resto].siret && etabsJ[resto].raisonSociale;
-
-  return (
-    <div>
-      <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
-        <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Ajouter un extra</button>
-        <a className="ig-btn ig-btn-ghost" href="https://forms.gle/pNFPqnH2eAX3C7gs7" target="_blank" rel="noopener noreferrer">+ Ajouter un extra extérieur</a>
-        {superviseur && <button className="ig-btn ig-btn-ghost" onClick={()=>setFiche(true)}>Fiche juridique de {resto}</button>}
-        {superviseur && !ficheOk && <span style={{color:'var(--coral-d)',fontSize:13,fontWeight:600}}>⚠ à compléter avant de générer des contrats valides</span>}
-      </div>
-
-      {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
-
-      <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}>
-        <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
-          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMoisDate(new Date(moisDate.getFullYear(), moisDate.getMonth()-1, 1))}><Icon.Back width={14} height={14}/></button>
-          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600}}>Extras chez {resto} — {MOIS_NOMS[moisDate.getMonth()]} {moisDate.getFullYear()}</div>
-          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMoisDate(new Date(moisDate.getFullYear(), moisDate.getMonth()+1, 1))}><Icon.Chevron width={14} height={14}/></button>
-          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{marginLeft:'auto',flex:'1 1 200px',minWidth:0}} />
-        </div>
-        {mesDemandes.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun extra ce mois-ci."}</div> : (
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {mesDemandes.map((x) => (
-              <div key={x.id} className="ig-extra-row">
-                <div className="ig-extra-head">
-                  <div style={{minWidth:180}}><b>{x.salariePrenom} {x.salarieNom}</b><br /><span className="ig-muted" style={{fontSize:12}}>{x.restoOrigine === resto ? "cet établissement" : x.restoOrigine} · {x.poste} · {fmtDate(new Date(x.date+"T00:00:00"))}</span></div>
-                  <span className="ig-pill" style={{background: x.statut==='realisee' ? '#EAF3F3' : '#FCE5D6'}}>{x.statut === 'realisee' ? '✓ heures validées' : 'à valider'}</span>
-                  {x.contratHTML && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>voirContrat(x)}>Contrat de prêt</button>}
-                  {x.statut === 'realisee' && <span className="ig-muted" style={{fontSize:13,fontWeight:600}}>{x.heuresReelles}h · {fmtEuro(x.primeNet)} net</span>}
-                </div>
-                {x.statut !== 'realisee' && (
-                  <div className="ig-extra-saisie">
-                    <div className="ig-extra-champ">
-                      <label>Heures</label>
-                      <input type="number" min="0" step="0.25" inputMode="decimal" placeholder="0" value={x.heuresEstimees ?? ""} onChange={(e)=>modifierChamp(x.id,'heuresEstimees', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamps(x.id,'heuresEstimees', x.heuresEstimees)} />
-                    </div>
-                    <div className="ig-extra-champ">
-                      <label>Taux net €</label>
-                      <input type="number" min="0" step="0.5" inputMode="decimal" placeholder="0" disabled={x.surHeuresOrigine} value={x.tauxHoraireNet ?? ""} onChange={(e)=>modifierChamp(x.id,'tauxHoraireNet', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamps(x.id,'tauxHoraireNet', x.tauxHoraireNet)} />
-                    </div>
-                    <label className="ig-extra-check">
-                      <input type="checkbox" checked={!!x.surHeuresOrigine} onChange={(e)=>sauverChamps(x.id,'surHeuresOrigine', e.target.checked)} />
-                      sur heures d'origine
-                    </label>
-                    <button className="ig-btn ig-btn-primary" style={{marginLeft:'auto'}} onClick={()=>validerExtra(x.id)}>✓ Valider</button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-
-      {superviseur && <VueGlobaleExtras />}
-
-      {ajout && <AjoutExtraModal resto={resto} effectif={effectif} onValider={creerExtra} onClose={()=>setAjout(false)} />}
-      {fiche && <FicheJuridiqueModal resto={resto} valeurs={etabsJ[resto]} onSave={enregistrerFiche} onClose={()=>setFiche(false)} />}
-    </div>
-  );
-}
-// ---------- Vue globale des extras (superviseur) : équivalent permanent du Google Sheet ----------
-// Charge tout l'historique (tous mois confondus) et le garde consultable en direct dans l'appli,
-// avec recherche/filtre, plutôt que de n'exposer qu'un export ponctuel du mois en cours.
-function VueGlobaleExtras() {
-  const [tout, setTout] = useState(null);
-  const [recherche, setRecherche] = useState("");
-  const [filtreEtab, setFiltreEtab] = useState("");
-  const [filtreMois, setFiltreMois] = useState("");
-
-  useEffect(() => {
-    let on = true;
-    Extras.loadAll().then((l) => { if (on) setTout(l); });
-    return () => { on = false; };
-  }, []);
-
-  if (tout === null) return <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}><div className="ig-muted">Chargement de l'historique complet…</div></div>;
-
-  const etabs = Array.from(new Set(tout.map((x) => x.resto))).sort();
-  const moisDisponibles = Array.from(new Set(tout.map((x) => cleMois(new Date(x.date + "T00:00:00"))))).sort().reverse();
-
-  const q = normTxt(recherche);
-  const filtres = tout.filter((x) => {
-    if (filtreEtab && x.resto !== filtreEtab) return false;
-    if (filtreMois && cleMois(new Date(x.date + "T00:00:00")) !== filtreMois) return false;
-    if (q && !normTxt(`${x.salariePrenom} ${x.salarieNom} ${x.poste}`).includes(q)) return false;
-    return true;
-  });
-
-  const totaux = filtres.reduce((acc, x) => {
-    if (x.statut === "realisee") {
-      acc.heures += Number(x.heuresReelles) || 0;
-      acc.primeNet += x.primeNet || 0; acc.primeBrute += x.primeBrute || 0; acc.primeCoutTotal += x.primeCoutTotal || 0;
-    }
-    return acc;
-  }, { heures: 0, primeNet: 0, primeBrute: 0, primeCoutTotal: 0 });
-
-  return (
-    <div className="ig-card" style={{padding:'16px 20px',marginBottom:18,borderColor:'var(--ink)'}}>
-      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600,marginBottom:10}}>Historique complet des extras — tous établissements, tous mois</div>
-      <div className="ig-noprint" style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
-        <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié / poste…" style={{minWidth:200}} />
-        <select value={filtreEtab} onChange={(e)=>setFiltreEtab(e.target.value)}>
-          <option value="">Tous les établissements</option>
-          {etabs.map((r) => (<option key={r} value={r}>{r}</option>))}
-        </select>
-        <select value={filtreMois} onChange={(e)=>setFiltreMois(e.target.value)}>
-          <option value="">Tous les mois</option>
-          {moisDisponibles.map((m) => (<option key={m} value={m}>{m}</option>))}
-        </select>
-        <button className="ig-btn ig-btn-ghost" onClick={()=>exporterRecapExtras(filtres, filtreMois || "historique-complet", `Extras_${filtreMois || "historique-complet"}.xlsx`)}>⬇ Export (xlsx)</button>
-      </div>
-      <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>
-        {filtres.length} extra{filtres.length>1?'s':''} · {totaux.heures}h validées · {fmtEuro(totaux.primeNet)} net · {fmtEuro(totaux.primeBrute)} brut · {fmtEuro(totaux.primeCoutTotal)} coût total
-      </div>
-      {filtres.length === 0 ? <div className="ig-muted">Aucun extra ne correspond.</div> : (
-        <div style={{overflowX:'auto',maxHeight:480,overflowY:'auto'}}>
-          <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
-            <thead style={{position:'sticky',top:0,background:'var(--sand)'}}>
-              <tr style={{textAlign:'left'}}>
-                <th style={{padding:'6px 8px'}}>Date</th><th>Salarié</th><th>Poste</th><th>Origine</th><th>Destination</th><th>Statut</th><th>Heures</th><th>Prime Net</th><th>Prime Brute</th><th>Coût total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtres.map((x) => (
-                <tr key={x.id} style={{borderTop:'1px solid var(--sand-2)'}}>
-                  <td style={{padding:'6px 8px'}}>{fmtDate(new Date(x.date+"T00:00:00"))}</td>
-                  <td>{x.salariePrenom} {x.salarieNom}</td>
-                  <td>{x.poste}</td>
-                  <td>{x.restoOrigine}</td>
-                  <td>{x.resto}</td>
-                  <td>{x.statut === 'realisee' ? '✓ validé' : 'à valider'}</td>
-                  <td>{x.statut === 'realisee' ? x.heuresReelles : (x.heuresEstimees ?? '—')}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.primeNet) : '—'}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.primeBrute) : '—'}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.primeCoutTotal) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ---------- Vue Manager ----------
 function ManagerView({ resto, onBack, superviseur }) {
@@ -2723,7 +2365,6 @@ function ManagerView({ resto, onBack, superviseur }) {
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           <button className={"ig-btn ig-btn-sm "+(vue==='planning'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('planning')}><Icon.Calendar width={16} height={16}/> Planning</button>
           <button className={"ig-btn ig-btn-sm "+(vue==='emargement'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('emargement')}><Icon.Check/> Émargement</button>
-          <button className={"ig-btn ig-btn-sm "+(vue==='extra'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('extra')}><Icon.User width={16} height={16}/> Extra</button>
         </div>
       </div>
 
@@ -2904,8 +2545,6 @@ function ManagerView({ resto, onBack, superviseur }) {
       {vue === "emargement" && (
         <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
       )}
-
-      {vue === "extra" && <ExtraTab resto={resto} superviseur={superviseur} />}
 
       {edit && (
         <EditModal
@@ -4384,6 +4023,369 @@ function ReposHebdoRH({ resto, unite, superviseur }) {
   );
 }
 
+// ---------- Recherche de salarié tous établissements (pour "+ Ajouter un extra") ----------
+function ChoixSalarieExtraModal({ resto, unite, onValider, onClose }) {
+  const [recherche, setRecherche] = useState("");
+  const [resultats, setResultats] = useState([]);
+  const [selection, setSelection] = useState(null);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const q = recherche.trim();
+    if (selection || q.length < 2) { setResultats([]); return; }
+    let on = true;
+    setBusy(true);
+    const t = setTimeout(() => {
+      RhAdmin.rechercherSalaries(q).then((r) => { if (on) { setResultats(r); setBusy(false); } });
+    }, 300);
+    return () => { on = false; clearTimeout(t); };
+  }, [recherche, selection]);
+
+  function choisir(c) {
+    setSelection(c);
+    setRecherche(`${c.prenom || ""} ${c.nom}`.trim());
+  }
+
+  function valider() {
+    if (!selection) { setErr("Choisissez un salarié dans la liste."); return; }
+    if (!date) { setErr("Indiquez la date de la soirée."); return; }
+    onValider({
+      salarieNom: selection.nom, salariePrenom: selection.prenom || "",
+      restoOrigine: selection.resto, poste: selection.poste || "", date,
+    });
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:480}}>
+        <h3>Ajouter un extra</h3>
+        <div className="ig-muted" style={{marginBottom:10}}>Cherchez le salarié (de {resto} ou d'un autre établissement) et indiquez la date de la soirée. Les heures et le taux se renseignent après, tant que ce n'est pas validé.</div>
+
+        <div className="ig-field" style={{position:'relative'}}>
+          <label>Salarié</label>
+          <input value={recherche} onChange={(e)=>{ setRecherche(e.target.value); setSelection(null); setErr(""); }} placeholder="Tapez un nom (2 lettres minimum)…" />
+          {recherche && !selection && (busy || resultats.length > 0) && (
+            <div className="ig-card" style={{position:'absolute',zIndex:5,left:0,right:0,marginTop:4,padding:6,maxHeight:220,overflowY:'auto'}}>
+              {busy && <div className="ig-muted" style={{padding:8,fontSize:13}}>Recherche…</div>}
+              {!busy && resultats.map((c) => (
+                <div key={c.id} style={{padding:'8px 10px',cursor:'pointer',borderRadius:8}}
+                  onClick={()=>choisir(c)}
+                  onMouseDown={(ev)=>ev.preventDefault()}>
+                  <b>{c.prenom} {c.nom}</b> <span className="ig-muted">· {c.poste || "—"} · {c.resto}{c.resto === resto ? " (cet établissement)" : ""}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {recherche && !selection && !busy && recherche.trim().length >= 2 && resultats.length === 0 && (
+            <div className="ig-muted" style={{marginTop:6,fontSize:13}}>Aucun salarié ne correspond.</div>
+          )}
+        </div>
+
+        {selection && (
+          <div className="ig-field">
+            <label>Date de la soirée</label>
+            <input type="date" value={date} onChange={(e)=>setDate(e.target.value)} />
+          </div>
+        )}
+
+        {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Ajouter l'extra</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Export xlsx du récap d'extras (même format que l'ancien Google Sheet, pour intégration
+// PayFit), adapté aux noms de colonnes snake_case de rh_extras.
+function exporterRecapExtrasRH(liste, mois, nomFichier) {
+  const realises = liste.filter((x) => x.statut === "realisee");
+  const enteteDetail = [
+    "Horodateur", "Adresse e-mail", "Etablissement où est effectué l'extra", "DATE",
+    "NOM  (SI FACTURE INDIQUER LE NOM SOCIETE)", "PRENOM", "Etablissement d'origine de l'extra",
+    "1Nombre d'heures effectuées (mettre 1 si FORFAIT)",
+    "Taux horaire net (utiliser Autre pour FORFAIT et remplir le montant du forfait)",
+    "Extra fait sur ses heures de l'établissement d'origine ? (donc non rémunéré en EXTRA - Mettre oui si facture)",
+    "Taux Horaire Brut", "Prime Net", "Prime Brute", "Prime Cout Total",
+  ];
+  const aoaDetail = [enteteDetail];
+  realises.forEach((x) => {
+    const horodateur = x.valide_le ? new Date(x.valide_le) : new Date(x.cree_le);
+    aoaDetail.push([
+      `${fmtDate(horodateur)} ${horodateur.toLocaleTimeString("fr-FR")}`, "",
+      x.resto, fmtDate(new Date(x.date + "T00:00:00")), x.salarie_nom, x.salarie_prenom, x.resto_origine,
+      x.heures_reelles, x.taux_horaire_net, x.sur_heures_origine ? "OUI" : "NON",
+      x.taux_brut, x.prime_net, x.prime_brute, x.prime_cout_total,
+    ]);
+  });
+  const parSalarie = {};
+  realises.forEach((x) => {
+    const key = idSalarie({ n: x.salarie_nom, p: x.salarie_prenom });
+    const pf = PAYFIT_IDS[key] || ["", ""];
+    const cur = parSalarie[key] || { nom: x.salarie_nom, prenom: x.salarie_prenom, identifiant: pf[0], matricule: pf[1], heures: 0, primeNet: 0, primeBrute: 0, primeCoutTotal: 0 };
+    cur.heures += Number(x.heures_reelles) || 0;
+    cur.primeNet += x.prime_net || 0;
+    cur.primeBrute += x.prime_brute || 0;
+    cur.primeCoutTotal += x.prime_cout_total || 0;
+    parSalarie[key] = cur;
+  });
+  const aoaRecap = [["Identifiant PayFit", "Matricule", "Nom", "Prénom", "Total heures extra", "Total Prime Net", "Total Prime Brute", "Total Coût employeur", "Mois"]];
+  Object.values(parSalarie).forEach((c) => aoaRecap.push([c.identifiant, c.matricule, c.nom, c.prenom, c.heures, c.primeNet, c.primeBrute, c.primeCoutTotal, mois]));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaDetail), "Détail extras");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaRecap), "Récap par salarié");
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomFichier;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// ---------- Extras (prêt de main-d'œuvre) : module RH, par établissement + unité ----------
+function ExtrasRH({ resto, unite, superviseur }) {
+  const auj = new Date();
+  const [annee, setAnnee] = useState(auj.getFullYear());
+  const [moisNum, setMoisNum] = useState(auj.getMonth() + 1);
+  const mois = `${annee}-${String(moisNum).padStart(2, "0")}`;
+  const [liste, setListe] = useState(null);
+  const [etabsJ, setEtabsJ] = useState({});
+  const [ajout, setAjout] = useState(false);
+  const [fiche, setFiche] = useState(false);
+  const [flash, setFlash] = useState("");
+  const [recherche, setRecherche] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    setListe(null);
+    Promise.all([RhExtras.list(resto, unite, mois), EtablissementsJuridique.load()]).then(([l, ej]) => {
+      if (!on) return;
+      setListe(l); setEtabsJ(ej);
+    });
+    return () => { on = false; };
+  }, [resto, unite, mois]);
+
+  function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 6000); }
+
+  async function creerExtra({ salarieNom, salariePrenom, restoOrigine, poste, date }) {
+    const nomMaj = salarieNom.toUpperCase();
+    const docs = genererDocumentsExtra({ resto, restoOrigine, salarieNom: nomMaj, salariePrenom, poste, date }, etabsJ);
+    const cree = await RhExtras.creer({
+      resto, unite, resto_origine: restoOrigine, salarie_nom: nomMaj, salarie_prenom: salariePrenom,
+      poste, date, statut: "a_valider", payfit_statut: "a_faire",
+      contrat_html: docs.contratHTML || null, contrat_genere_at: docs.contratGenereAt || null,
+    });
+    if (!cree) { montrerFlash("Échec de la création de l'extra. Réessayez."); return; }
+    setAjout(false);
+    if (cleMois(new Date(date + "T00:00:00")) === mois) setListe([cree, ...(liste || [])]);
+    montrerFlash(`Extra créé pour ${salariePrenom} ${nomMaj} (${restoOrigine} → ${resto}) le ${fmtDate(new Date(date + "T00:00:00"))}.${docs.contratHTML ? " Le contrat de prêt est prêt." : ""} Reste à renseigner les heures et le taux avant de valider.`);
+  }
+
+  function modifierChamp(id, champ, valeur) {
+    const next = (liste || []).map((x) => (x.id === id ? { ...x, [champ]: valeur } : x));
+    setListe(next);
+  }
+  async function sauverChamp(id, champ, valeur) {
+    const maj = await RhExtras.maj(id, { [champ]: valeur });
+    if (!maj) montrerFlash("La sauvegarde a échoué. Réessayez.");
+  }
+
+  async function validerExtra(id) {
+    const x = (liste || []).find((it) => it.id === id);
+    if (!x) return;
+    if (!x.heures_estimees || Number(x.heures_estimees) <= 0) { montrerFlash("Indiquez le nombre d'heures avant de valider."); return; }
+    if (!x.sur_heures_origine && (!x.taux_horaire_net || Number(x.taux_horaire_net) <= 0)) { montrerFlash("Indiquez le taux horaire net avant de valider (ou cochez « sur ses heures d'origine »)."); return; }
+    const calc = calculExtra(x.heures_estimees, x.taux_horaire_net, x.sur_heures_origine);
+    const patch = {
+      heures_reelles: Number(x.heures_estimees), statut: "realisee", valide_le: new Date().toISOString(),
+      taux_brut: calc.tauxBrut, prime_net: calc.primeNet, prime_brute: calc.primeBrute, prime_cout_total: calc.primeCoutTotal,
+    };
+    const maj = await RhExtras.maj(id, patch);
+    if (!maj) { montrerFlash("Échec de la validation. Réessayez."); return; }
+    setListe((liste || []).map((it) => (it.id === id ? maj : it)));
+    montrerFlash("Heures validées.");
+  }
+
+  async function supprimerExtra(x) {
+    if (!confirm(`Supprimer cet extra de ${x.salarie_prenom} ${x.salarie_nom} ?`)) return;
+    const ok = await RhExtras.supprimer(x.id);
+    if (ok) setListe((liste || []).filter((it) => it.id !== x.id));
+    else montrerFlash("La suppression a échoué. Réessayez.");
+  }
+
+  function voirContrat(x) {
+    if (!x.contrat_html) return;
+    imprimerDocument(`Contrat de prêt — ${x.salarie_prenom} ${x.salarie_nom}`, x.contrat_html, STYLE_CONTRAT, `contrat_pret_${slugKey(x.salarie_prenom + "_" + x.salarie_nom)}_${x.date}`);
+  }
+
+  async function enregistrerFiche(data) {
+    const next = { ...etabsJ, [resto]: data };
+    setEtabsJ(next);
+    await EtablissementsJuridique.save(next);
+    setFiche(false);
+    montrerFlash("Fiche juridique enregistrée.");
+  }
+
+  if (liste === null) return <div className="ig-muted">Chargement…</div>;
+
+  const q = normTxt(recherche);
+  const filtres = liste.filter((x) => !q || normTxt(`${x.salarie_prenom} ${x.salarie_nom}`).includes(q));
+  const ficheOk = etabsJ[resto] && etabsJ[resto].siret && etabsJ[resto].raisonSociale;
+
+  return (
+    <div>
+      <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
+        <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Ajouter un extra</button>
+        <a className="ig-btn ig-btn-ghost" href="https://forms.gle/pNFPqnH2eAX3C7gs7" target="_blank" rel="noopener noreferrer">+ Ajouter un extra extérieur</a>
+        {superviseur && <button className="ig-btn ig-btn-ghost" onClick={()=>setFiche(true)}>Fiche juridique de {resto}</button>}
+        {superviseur && !ficheOk && <span style={{color:'var(--coral-d)',fontSize:13,fontWeight:600}}>⚠ à compléter avant de générer des contrats valides</span>}
+      </div>
+
+      {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
+
+      <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}>
+        <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee - 1)}>◀</button>
+          <span style={{fontWeight:700,minWidth:44,textAlign:'center'}}>{annee}</span>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee + 1)}>▶</button>
+          <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+            {MOIS_NOMS.map((n, i) => (
+              <button key={i} className={"ig-btn ig-btn-sm "+(moisNum===i+1?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setMoisNum(i + 1)}>{n.slice(0,3)}</button>
+            ))}
+          </div>
+          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{marginLeft:'auto',flex:'1 1 200px',minWidth:0}} />
+        </div>
+        {filtres.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun extra ce mois-ci."}</div> : (
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {filtres.map((x) => (
+              <div key={x.id} className="ig-extra-row">
+                <div className="ig-extra-head">
+                  <div style={{minWidth:180}}><b>{x.salarie_prenom} {x.salarie_nom}</b><br /><span className="ig-muted" style={{fontSize:12}}>{x.resto_origine === resto ? "cet établissement" : x.resto_origine} · {x.poste} · {fmtDate(new Date(x.date+"T00:00:00"))}</span></div>
+                  <span className="ig-pill" style={{background: x.statut==='realisee' ? '#EAF3F3' : '#FCE5D6'}}>{x.statut === 'realisee' ? '✓ heures validées' : 'à valider'}</span>
+                  {x.contrat_html && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>voirContrat(x)}>Contrat de prêt</button>}
+                  {x.statut === 'realisee' && <span className="ig-muted" style={{fontSize:13,fontWeight:600}}>{x.heures_reelles}h · {fmtEuro(x.prime_net)} net</span>}
+                  <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimerExtra(x)} style={{color:'var(--coral-d)'}}>Supprimer</button>
+                </div>
+                {x.statut !== 'realisee' && (
+                  <div className="ig-extra-saisie">
+                    <div className="ig-extra-champ">
+                      <label>Heures</label>
+                      <input type="number" min="0" step="0.25" inputMode="decimal" placeholder="0" value={x.heures_estimees ?? ""} onChange={(e)=>modifierChamp(x.id,'heures_estimees', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamp(x.id,'heures_estimees', x.heures_estimees)} />
+                    </div>
+                    <div className="ig-extra-champ">
+                      <label>Taux net €</label>
+                      <input type="number" min="0" step="0.5" inputMode="decimal" placeholder="0" disabled={x.sur_heures_origine} value={x.taux_horaire_net ?? ""} onChange={(e)=>modifierChamp(x.id,'taux_horaire_net', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamp(x.id,'taux_horaire_net', x.taux_horaire_net)} />
+                    </div>
+                    <label className="ig-extra-check">
+                      <input type="checkbox" checked={!!x.sur_heures_origine} onChange={(e)=>{ modifierChamp(x.id,'sur_heures_origine', e.target.checked); sauverChamp(x.id,'sur_heures_origine', e.target.checked); }} />
+                      sur heures d'origine
+                    </label>
+                    <button className="ig-btn ig-btn-primary" style={{marginLeft:'auto'}} onClick={()=>validerExtra(x.id)}>✓ Valider</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {superviseur && <VueGlobaleExtrasRH />}
+
+      {ajout && <ChoixSalarieExtraModal resto={resto} unite={unite} onValider={creerExtra} onClose={()=>setAjout(false)} />}
+      {fiche && <FicheJuridiqueModal resto={resto} valeurs={etabsJ[resto]} onSave={enregistrerFiche} onClose={()=>setFiche(false)} />}
+    </div>
+  );
+}
+
+// ---------- Vue globale des extras (superviseur), tous établissements/mois confondus ----------
+function VueGlobaleExtrasRH() {
+  const [tout, setTout] = useState(null);
+  const [recherche, setRecherche] = useState("");
+  const [filtreEtab, setFiltreEtab] = useState("");
+  const [filtreMois, setFiltreMois] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    RhExtras.listAll().then((l) => { if (on) setTout(l); });
+    return () => { on = false; };
+  }, []);
+
+  if (tout === null) return <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}><div className="ig-muted">Chargement de l'historique complet…</div></div>;
+
+  const etabs = Array.from(new Set(tout.map((x) => x.resto))).sort();
+  const moisDisponibles = Array.from(new Set(tout.map((x) => cleMois(new Date(x.date + "T00:00:00"))))).sort().reverse();
+
+  const q = normTxt(recherche);
+  const filtres = tout.filter((x) => {
+    if (filtreEtab && x.resto !== filtreEtab) return false;
+    if (filtreMois && cleMois(new Date(x.date + "T00:00:00")) !== filtreMois) return false;
+    if (q && !normTxt(`${x.salarie_prenom} ${x.salarie_nom} ${x.poste}`).includes(q)) return false;
+    return true;
+  });
+
+  const totaux = filtres.reduce((acc, x) => {
+    if (x.statut === "realisee") {
+      acc.heures += Number(x.heures_reelles) || 0;
+      acc.primeNet += x.prime_net || 0; acc.primeBrute += x.prime_brute || 0; acc.primeCoutTotal += x.prime_cout_total || 0;
+    }
+    return acc;
+  }, { heures: 0, primeNet: 0, primeBrute: 0, primeCoutTotal: 0 });
+
+  return (
+    <div className="ig-card" style={{padding:'16px 20px',marginBottom:18,borderColor:'var(--ink)'}}>
+      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600,marginBottom:10}}>Historique complet des extras — tous établissements, tous mois</div>
+      <div className="ig-noprint" style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
+        <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié / poste…" style={{minWidth:200}} />
+        <select value={filtreEtab} onChange={(e)=>setFiltreEtab(e.target.value)}>
+          <option value="">Tous les établissements</option>
+          {etabs.map((r) => (<option key={r} value={r}>{r}</option>))}
+        </select>
+        <select value={filtreMois} onChange={(e)=>setFiltreMois(e.target.value)}>
+          <option value="">Tous les mois</option>
+          {moisDisponibles.map((m) => (<option key={m} value={m}>{m}</option>))}
+        </select>
+        <button className="ig-btn ig-btn-ghost" onClick={()=>exporterRecapExtrasRH(filtres, filtreMois || "historique-complet", `Extras_${filtreMois || "historique-complet"}.xlsx`)}>⬇ Export (xlsx)</button>
+      </div>
+      <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>
+        {filtres.length} extra{filtres.length>1?'s':''} · {totaux.heures}h validées · {fmtEuro(totaux.primeNet)} net · {fmtEuro(totaux.primeBrute)} brut · {fmtEuro(totaux.primeCoutTotal)} coût total
+      </div>
+      {filtres.length === 0 ? <div className="ig-muted">Aucun extra ne correspond.</div> : (
+        <div style={{overflowX:'auto',maxHeight:480,overflowY:'auto'}}>
+          <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
+            <thead style={{position:'sticky',top:0,background:'var(--sand)'}}>
+              <tr style={{textAlign:'left'}}>
+                <th style={{padding:'6px 8px'}}>Date</th><th>Salarié</th><th>Poste</th><th>Origine</th><th>Destination</th><th>Statut</th><th>Heures</th><th>Prime Net</th><th>Prime Brute</th><th>Coût total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtres.map((x) => (
+                <tr key={x.id} style={{borderTop:'1px solid var(--sand-2)'}}>
+                  <td style={{padding:'6px 8px'}}>{fmtDate(new Date(x.date+"T00:00:00"))}</td>
+                  <td>{x.salarie_prenom} {x.salarie_nom}</td>
+                  <td>{x.poste}</td>
+                  <td>{x.resto_origine}</td>
+                  <td>{x.resto}</td>
+                  <td>{x.statut === 'realisee' ? '✓ validé' : 'à valider'}</td>
+                  <td>{x.statut === 'realisee' ? x.heures_reelles : (x.heures_estimees ?? '—')}</td>
+                  <td>{x.statut === 'realisee' ? fmtEuro(x.prime_net) : '—'}</td>
+                  <td>{x.statut === 'realisee' ? fmtEuro(x.prime_brute) : '—'}</td>
+                  <td>{x.statut === 'realisee' ? fmtEuro(x.prime_cout_total) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, onRenommerEtablissement, onSupprimerEtablissement, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
@@ -4400,6 +4402,7 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
   const SOUS_SECTIONS_RH = [
     { cle: "registre", label: "Registre embauche" },
     { cle: "repos_hebdo", label: "Repos hebdo non pris" },
+    { cle: "extras", label: "Extras" },
   ];
 
   useEffect(() => {
@@ -4477,8 +4480,10 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
         </div>
       ) : sousSection === "registre" ? (
         <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
-      ) : sousSection === "repos_hebdo" && (
+      ) : sousSection === "repos_hebdo" ? (
         <ReposHebdoRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      ) : sousSection === "extras" && (
+        <ExtrasRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
       )}
       {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>
