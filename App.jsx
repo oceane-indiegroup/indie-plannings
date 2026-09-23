@@ -4494,8 +4494,12 @@ function VueGlobaleExtrasRH({ resto, unite }) {
 function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, onRenommerEtablissement, onSupprimerEtablissement, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
-  const [restoActif, setRestoActif] = useState(estSuperviseur ? null : scopes[0].resto);
-  const [uniteActive, setUniteActive] = useState(estSuperviseur ? null : scopes[0].unite);
+  // Un compte directeur/chef peut avoir accès à plusieurs établissements (ex : Pablo Saint
+  // Barth ET Pablo) : dans ce cas il choisit lequel ouvrir, au lieu de toujours atterrir sur
+  // le premier de la liste (bug corrigé ici — avant, "scopes[0]" était pris sans condition).
+  const plusieursScopes = scopes.length > 1;
+  const [restoActif, setRestoActif] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].resto);
+  const [uniteActive, setUniteActive] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].unite);
   const [gestionAcces, setGestionAcces] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -4547,13 +4551,34 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
     );
   }
 
+  // Directeur/chef avec accès à plusieurs établissements : écran de choix (même esprit que
+  // le RestoPicker du superviseur), limité aux seuls établissements/unités accordés.
+  if (!estSuperviseur && plusieursScopes && !restoActif) {
+    return (
+      <div>
+        <div className="ig-eyebrow">Espace RH</div>
+        <h2 className="ig-section-title">Choisissez un établissement</h2>
+        <p className="ig-muted">Vous avez accès à {scopes.length} établissements.</p>
+        <div className="ig-resto-grid">
+          {scopes.map((s, i) => (
+            <button key={i} className="ig-resto" onClick={()=>{ setRestoActif(s.resto); setUniteActive(s.unite); }}>
+              <div><div className="nm">{s.resto}</div><div className="ig-muted" style={{fontSize:12}}>{s.unite}</div></div>
+              <Icon.Chevron />
+            </button>
+          ))}
+        </div>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion} style={{marginTop:14}}>Déconnexion</button>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:14,marginBottom:14,flexWrap:'wrap'}}>
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{
           if (sousSection) { setSousSection(null); return; }
-          if (estSuperviseur) setRestoActif(null); else onBack();
-        }}><Icon.Back/> {sousSection ? "Sections" : (estSuperviseur ? "Établissements" : "Retour")}</button>
+          if (estSuperviseur || plusieursScopes) setRestoActif(null); else onBack();
+        }}><Icon.Back/> {sousSection ? "Sections" : ((estSuperviseur || plusieursScopes) ? "Établissements" : "Retour")}</button>
         <div>
           <div className="ig-eyebrow" style={{margin:0}}>Espace RH{estSuperviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{restoActif}</h2>
