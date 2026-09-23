@@ -85,13 +85,20 @@ Deno.serve(async (req) => {
     // ---- Recherche de salariés tous établissements confondus (ex : pour identifier qui
     // on emprunte comme "extra" ailleurs). Ouvert à tout compte RH, pas seulement au
     // superviseur — mais ne renvoie que le strict nécessaire pour identifier la personne
-    // (jamais salaire, IBAN, etc.), donc pas de fuite de données sensibles inter-sites. ----
+    // (jamais salaire, IBAN, etc.), donc pas de fuite de données sensibles inter-sites.
+    // Uniquement les salariés RÉELLEMENT sous contrat aujourd'hui : ni les fiches
+    // "provisoire" (pas encore réellement embauchées), ni celles d'une saison archivée
+    // (l'ancienne saison reste en base pour l'historique, mais ne doit plus être proposée
+    // au choix), ni celles dont le contrat est déjà terminé (date_fin dans le passé). ----
     if (action === "rechercherSalaries") {
       if (!(await aUnAccesRH(appelant.id))) return json({ error: "acces_refuse" }, 403);
       const q = String(corps.q || "").trim();
       if (q.length < 2) return json({ ok: true, resultats: [] });
+      const anneeActuelle = String(new Date().getFullYear());
+      const aujourdHui = new Date().toISOString().slice(0, 10);
+      const qEnc = encodeURIComponent(q);
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/rh_salaries?or=(nom.ilike.*${encodeURIComponent(q)}*,prenom.ilike.*${encodeURIComponent(q)}*)&select=id,nom,prenom,resto,unite,poste&order=nom.asc&limit=8`,
+        `${SUPABASE_URL}/rest/v1/rh_salaries?and=(saison.eq.${anneeActuelle},provisoire.is.false,or(date_fin.is.null,date_fin.gte.${aujourdHui}),or(nom.ilike.*${qEnc}*,prenom.ilike.*${qEnc}*))&select=id,nom,prenom,resto,unite,poste&order=nom.asc&limit=8`,
         { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
       );
       if (!res.ok) return json({ error: "recherche_echouee", detail: await res.text() }, 500);
