@@ -415,6 +415,66 @@ create policy directeur_scope_repos_hebdo on public.rh_repos_hebdo
   with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_repos_hebdo.resto and a.unite = rh_repos_hebdo.unite));
 
 -- ============================================================================
+--  Extras (prêt de main-d'œuvre entre établissements) — déplacé depuis Planning
+--  dans l'Espace RH, avec les mêmes comptes/droits que le Registre Embauche et le
+--  Repos hebdo non pris (superviseur = tout, directeur/chef = son établissement +
+--  son unité). "resto"/"unite" ci-dessous désignent l'établissement DESTINATAIRE
+--  (celui qui emprunte le salarié et paie la prime) : c'est lui qui doit voir et
+--  gérer la ligne, pas l'établissement d'origine.
+-- ============================================================================
+create table if not exists public.rh_extras (
+  id                bigint generated always as identity primary key,
+  resto             text not null,
+  unite             text not null check (unite in ('SALLE','CUISINE')),
+  resto_origine     text not null,
+  salarie_nom       text not null,
+  salarie_prenom    text not null,
+  poste             text,
+  date              date not null,
+  heures_estimees   numeric,
+  taux_horaire_net  numeric,
+  sur_heures_origine boolean not null default false,
+  statut            text not null default 'a_valider' check (statut in ('a_valider','realisee')),
+  heures_reelles    numeric,
+  taux_brut         numeric,
+  prime_net         numeric,
+  prime_brute       numeric,
+  prime_cout_total  numeric,
+  payfit_statut     text default 'a_faire',
+  contrat_html      text,
+  contrat_genere_at timestamptz,
+  cree_le           timestamptz not null default now(),
+  valide_le         timestamptz,
+  maj_le            timestamptz not null default now()
+);
+create index if not exists rh_extras_scope_idx on public.rh_extras (resto, unite, date);
+
+create or replace function public.rh_extras_touch()
+returns trigger language plpgsql as $$
+begin
+  new.maj_le = now();
+  return new;
+end;
+$$;
+drop trigger if exists rh_extras_touch_trg on public.rh_extras;
+create trigger rh_extras_touch_trg before update on public.rh_extras
+  for each row execute function public.rh_extras_touch();
+
+alter table public.rh_extras enable row level security;
+
+drop policy if exists superviseur_all_extras on public.rh_extras;
+create policy superviseur_all_extras on public.rh_extras
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur));
+
+drop policy if exists directeur_scope_extras on public.rh_extras;
+create policy directeur_scope_extras on public.rh_extras
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_extras.resto and a.unite = rh_extras.unite))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.resto = rh_extras.resto and a.unite = rh_extras.unite));
+
+-- ============================================================================
 --  Documents RH : dossier par salarié, archivé par établissement/unité/année
 -- ============================================================================
 --  Les documents (contrats, pièces d'identité...) sont gérés entièrement par le

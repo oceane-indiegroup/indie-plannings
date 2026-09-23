@@ -49,6 +49,17 @@ async function estSuperviseur(userId: string): Promise<boolean> {
   return Array.isArray(lignes) && lignes.length > 0;
 }
 
+// N'importe quel compte RH (directeur/chef ou superviseur), pas seulement superviseur —
+// utilisé pour l'action "rechercherSalaries" ci-dessous, ouverte à tous les comptes RH.
+async function aUnAccesRH(userId: string): Promise<boolean> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rh_acces?user_id=eq.${userId}&select=id&limit=1`, {
+    headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+  });
+  if (!res.ok) return false;
+  const lignes = await res.json();
+  return Array.isArray(lignes) && lignes.length > 0;
+}
+
 async function trouverUtilisateurParEmail(email: string): Promise<{ id: string } | null> {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(email)}`, {
     headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
@@ -70,6 +81,23 @@ Deno.serve(async (req) => {
 
     const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
     if (!appelant) return json({ error: "non_authentifie" }, 401);
+
+    // ---- Recherche de salariés tous établissements confondus (ex : pour identifier qui
+    // on emprunte comme "extra" ailleurs). Ouvert à tout compte RH, pas seulement au
+    // superviseur — mais ne renvoie que le strict nécessaire pour identifier la personne
+    // (jamais salaire, IBAN, etc.), donc pas de fuite de données sensibles inter-sites. ----
+    if (action === "rechercherSalaries") {
+      if (!(await aUnAccesRH(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      const q = String(corps.q || "").trim();
+      if (q.length < 2) return json({ ok: true, resultats: [] });
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/rh_salaries?or=(nom.ilike.*${encodeURIComponent(q)}*,prenom.ilike.*${encodeURIComponent(q)}*)&select=id,nom,prenom,resto,unite,poste&order=nom.asc&limit=8`,
+        { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
+      );
+      if (!res.ok) return json({ error: "recherche_echouee", detail: await res.text() }, 500);
+      return json({ ok: true, resultats: await res.json() });
+    }
+
     if (!(await estSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
 
     // ---- Liste des accès RH existants ----
