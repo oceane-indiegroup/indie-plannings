@@ -252,9 +252,11 @@ async function verifierSuperviseur(userId: string): Promise<boolean> {
 }
 
 // Lit tout le Sheet en un seul appel (en-têtes + données), jusqu'à 3000 lignes / colonne BZ.
-async function lireFeuille(jeton: string): Promise<string[][]> {
-  const plage = encodeURIComponent(`'${SHEET_TAB}'!A1:BZ3000`);
-  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${plage}`, {
+// "sheetId"/"tab" paramétrables (défaut : le Sheet onboarding) pour pouvoir lire le Sheet
+// "Extra" (SHEET_ID_EXTRA) avec la même fonction.
+async function lireFeuille(jeton: string, sheetId: string = SHEET_ID, tab: string = SHEET_TAB): Promise<string[][]> {
+  const plage = encodeURIComponent(`'${tab}'!A1:BZ3000`);
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${plage}`, {
     headers: { Authorization: `Bearer ${jeton}` },
   });
   if (!res.ok) {
@@ -265,7 +267,7 @@ async function lireFeuille(jeton: string): Promise<string[][]> {
     let diagMeta = "";
     try {
       const metaRes = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=properties.title,sheets.properties.title`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=properties.title,sheets.properties.title`,
         { headers: { Authorization: `Bearer ${jeton}` } },
       );
       diagMeta = metaRes.ok
@@ -275,7 +277,7 @@ async function lireFeuille(jeton: string): Promise<string[][]> {
       diagMeta = "metadata ECHEC (exception): " + String(e);
     }
     throw new Error(
-      `sheet_lecture_echec (SHEET_ID="${SHEET_ID}", SHEET_TAB="${SHEET_TAB}", compte="${GOOGLE_SA_EMAIL}"): ` +
+      `sheet_lecture_echec (SHEET_ID="${sheetId}", SHEET_TAB="${tab}", compte="${GOOGLE_SA_EMAIL}"): ` +
         detailValues + " || " + diagMeta,
     );
   }
@@ -294,9 +296,9 @@ function colonneIndex(entetes: string[]): Record<string, number> {
   return map;
 }
 
-async function ecrireCellules(jeton: string, data: { range: string; values: string[][] }[]) {
+async function ecrireCellules(jeton: string, data: { range: string; values: string[][] }[], sheetId: string = SHEET_ID) {
   if (data.length === 0) return;
-  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values:batchUpdate`, {
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate`, {
     method: "POST",
     headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" },
     body: JSON.stringify({ valueInputOption: "USER_ENTERED", data }),
@@ -472,6 +474,81 @@ Deno.serve(async (req: Request) => {
       await ajouterLignesFormulaire(jeton, SHEET_ID_EXTRA, SHEET_TAB_EXTRA, grille);
 
       return json({ ok: true, exportes: grille.length });
+    }
+
+    // ---- Synchro automatique d'un extra vers le Sheet "Extra" (SHEET_ID_EXTRA), onglet
+    // "Réponses au formulaire 1" — appelée par l'appli à chaque étape de la vie d'un extra
+    // (création, saisie des heures/taux, validation) pour que la ligne correspondante s'y
+    // mette à jour toute seule, sans jamais reposer sur l'orthographe tapée à la main par un
+    // directeur (nom/prénom viennent de la fiche RH choisie dans l'appli). La ligne est
+    // retrouvée par NOM + PRENOM + DATE + établissement (une même personne peut avoir
+    // plusieurs extras à des dates différentes) ; si aucune ne correspond, une nouvelle est
+    // ajoutée. La colonne "Payfit" n'est JAMAIS touchée ici : c'est Océane qui la coche
+    // à la main une fois traité. Colonnes fixes (ordre connu de ce Sheet, comme pour
+    // "exporterReposHebdo") : 0 Horodateur, 1 Email, 2 Étab. destination, 3 DATE, 4 NOM,
+    // 5 PRENOM, 6 Étab. origine, 7 Heures, 8 Taux net, 9 sur heures origine, 10 Taux brut,
+    // 11 Prime net, 12 Prime brute, 13 Prime coût total, 14 Payfit, 15 MOIS, 16 Année,
+    // 17 OK ONBOARDING, 18 CLE_NOM, 19 CLE_ETAB.
+    if (action === "upsertExtra") {
+      const { resto, unite, restoOrigine, salarieNom, salariePrenom, date, champs } = corps;
+      if (!resto || !restoOrigine || !salarieNom || !salariePrenom || !date) return json({ error: "champs_manquants" }, 400);
+
+      const enTete = req.headers.get("Authorization") || "";
+      const charge = decodeJwt(enTete.replace(/^Bearer\s+/i, ""));
+      if (!charge?.sub || !unite || !(await autorise(charge.sub, resto, unite))) return json({ error: "acces_refuse" }, 403);
+      if (!SHEET_ID_EXTRA) return json({ error: "sheet_extra_non_configure" }, 500);
+
+      const [a, m, j] = date.split("-");
+      const dateStr = `${j}/${m}/${a}`;
+      const MOIS_NOMS_MAJ = ["JANVIER","FEVRIER","MARS","AVRIL","MAI","JUIN","JUILLET","AOUT","SEPTEMBRE","OCTOBRE","NOVEMBRE","DECEMBRE"];
+      const nomMois = MOIS_NOMS_MAJ[Number(m) - 1] || m;
+
+      const jeton = await jetonAcces();
+      const grille = await lireFeuille(jeton, SHEET_ID_EXTRA, SHEET_TAB_EXTRA);
+
+      let ligneCible = -1;
+      for (let i = 1; i < grille.length; i++) {
+        const r = grille[i];
+        if (
+          normaliser(r[4] || "") === normaliser(salarieNom) &&
+          normaliser(r[5] || "") === normaliser(salariePrenom) &&
+          (r[3] || "") === dateStr &&
+          normaliser(r[2] || "") === normaliser(resto)
+        ) { ligneCible = i + 1; break; }
+      }
+      const nouvelleLigne = ligneCible === -1;
+      if (nouvelleLigne) ligneCible = grille.length + 1;
+
+      const c = champs || {};
+      const cellules: { colonne: number; valeur: string }[] = [];
+      if (nouvelleLigne) {
+        cellules.push(
+          { colonne: 0, valeur: new Date().toISOString() },
+          { colonne: 2, valeur: resto },
+          { colonne: 3, valeur: dateStr },
+          { colonne: 4, valeur: salarieNom },
+          { colonne: 5, valeur: salariePrenom },
+          { colonne: 6, valeur: restoOrigine },
+          { colonne: 15, valeur: nomMois },
+          { colonne: 16, valeur: a },
+          { colonne: 18, valeur: `${salarieNom}|${salariePrenom}` },
+          { colonne: 19, valeur: resto },
+        );
+      }
+      if (c.heuresEstimees !== undefined) cellules.push({ colonne: 7, valeur: String(c.heuresEstimees ?? "") });
+      if (c.tauxHoraireNet !== undefined) cellules.push({ colonne: 8, valeur: String(c.tauxHoraireNet ?? "") });
+      if (c.surHeuresOrigine !== undefined) cellules.push({ colonne: 9, valeur: c.surHeuresOrigine ? "OUI" : "NON" });
+      if (c.tauxBrut !== undefined) cellules.push({ colonne: 10, valeur: String(Math.round((c.tauxBrut || 0) * 100) / 100) });
+      if (c.primeNet !== undefined) cellules.push({ colonne: 11, valeur: String(Math.round((c.primeNet || 0) * 100) / 100) });
+      if (c.primeBrute !== undefined) cellules.push({ colonne: 12, valeur: String(Math.round((c.primeBrute || 0) * 100) / 100) });
+      if (c.primeCoutTotal !== undefined) cellules.push({ colonne: 13, valeur: String(Math.round((c.primeCoutTotal || 0) * 100) / 100) });
+
+      const data = cellules.map(({ colonne, valeur }) => ({
+        range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(colonne)}${ligneCible}`, values: [[valeur]],
+      }));
+      await ecrireCellules(jeton, data, SHEET_ID_EXTRA);
+
+      return json({ ok: true, ligne: ligneCible, creee: nouvelleLigne });
     }
 
     // ---- Rattrapage en un clic : relit tout le Sheet et crée en base les salariés qui
