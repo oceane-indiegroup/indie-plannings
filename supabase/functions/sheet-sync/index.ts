@@ -484,19 +484,26 @@ Deno.serve(async (req: Request) => {
     // "Réponses au formulaire 1" — appelée par l'appli à chaque étape de la vie d'un extra
     // (création, saisie des heures/taux, validation) pour que la ligne correspondante s'y
     // mette à jour toute seule, sans jamais reposer sur l'orthographe tapée à la main par un
-    // directeur (nom/prénom viennent de la fiche RH choisie dans l'appli). La ligne est
-    // retrouvée par NOM + PRENOM + DATE + établissement (une même personne peut avoir
-    // plusieurs extras à des dates différentes) ; si aucune ne correspond, une nouvelle est
-    // ajoutée. La colonne "Payfit" n'est JAMAIS touchée ici : c'est Océane qui la coche
-    // à la main une fois traité. Colonnes fixes (ordre connu de ce Sheet, comme pour
-    // "exporterReposHebdo") : 0 Horodateur, 1 Email, 2 Étab. destination, 3 DATE, 4 NOM,
-    // 5 PRENOM, 6 Étab. origine, 7 Heures, 8 Taux net, 9 sur heures origine, 10 Taux brut,
-    // 11 Prime net, 12 Prime brute, 13 Prime coût total, 14 Payfit, 15 MOIS, 16 Année,
-    // 17 OK ONBOARDING, 18 CLE_NOM, 19 CLE_ETAB.
+    // directeur (nom/prénom viennent de la fiche RH choisie dans l'appli).
+    //
+    // La ligne cible n'est PLUS retrouvée par recherche (nom+prénom+date+établissement) :
+    // deux extras différents pour la même personne à la même date se ressemblaient trop et
+    // finissaient fusionnés sur une seule ligne, ce qu'Océane ne veut surtout pas (un extra
+    // = une ligne, toujours, même si c'est deux fois la même personne). L'appli fournit donc
+    // "ligneCible" : absent -> nouvelle ligne ajoutée à la fin (appel de création, une seule
+    // fois par extra) ; fourni -> on écrit directement dessus, sans recherche (tous les
+    // appels suivants pour ce même extra : heures/taux, validation), la ligne ayant été
+    // mémorisée par l'appli (rh_extras.sheet_ligne) dès la création.
+    //
+    // La colonne "Payfit" n'est JAMAIS touchée ici : c'est Océane qui la coche à la main une
+    // fois traité. Colonnes fixes (ordre connu de ce Sheet, comme pour "exporterReposHebdo") :
+    // 0 Horodateur, 1 Email, 2 Étab. destination, 3 DATE, 4 NOM, 5 PRENOM, 6 Étab. origine,
+    // 7 Heures, 8 Taux net, 9 sur heures origine, 10 Taux brut, 11 Prime net, 12 Prime brute,
+    // 13 Prime coût total, 14 Payfit, 15 MOIS, 16 Année, 17 OK ONBOARDING, 18 CLE_NOM, 19 CLE_ETAB.
     if (action === "upsertExtra") {
-      const { resto, unite, restoOrigine, date, champs } = corps;
+      const { resto, unite, restoOrigine, date, champs, ligneCible: ligneFournie } = corps;
       const salarieNom = String(corps.salarieNom || "").toUpperCase();
-      const salariePrenom = corps.salariePrenom;
+      const salariePrenom = String(corps.salariePrenom || "").toUpperCase();
       if (!resto || !restoOrigine || !salarieNom || !salariePrenom || !date) return json({ error: "champs_manquants" }, 400);
 
       const enTete = req.headers.get("Authorization") || "";
@@ -510,22 +517,21 @@ Deno.serve(async (req: Request) => {
       const nomMois = MOIS_NOMS_MAJ[Number(m) - 1] || m;
 
       const jeton = await jetonAcces();
-      const grille = await lireFeuille(jeton, SHEET_ID_EXTRA, SHEET_TAB_EXTRA);
 
-      let ligneCible = -1;
-      for (let i = 1; i < grille.length; i++) {
-        const r = grille[i];
-        if (
-          normaliser(r[4] || "") === normaliser(salarieNom) &&
-          normaliser(r[5] || "") === normaliser(salariePrenom) &&
-          (r[3] || "") === dateStr &&
-          normaliser(r[2] || "") === normaliser(resto)
-        ) { ligneCible = i + 1; break; }
+      let ligneCible: number;
+      const nouvelleLigne = !ligneFournie;
+      if (nouvelleLigne) {
+        const grille = await lireFeuille(jeton, SHEET_ID_EXTRA, SHEET_TAB_EXTRA);
+        ligneCible = grille.length + 1;
+      } else {
+        ligneCible = Number(ligneFournie);
       }
-      const nouvelleLigne = ligneCible === -1;
-      if (nouvelleLigne) ligneCible = grille.length + 1;
 
       const c = champs || {};
+      // Valeurs monétaires envoyées sans décimale (convention d'Océane, comme pour
+      // "exporterReposHebdo") ; le nombre d'heures, lui, garde ses éventuelles décimales
+      // (7,5h par exemple est une vraie valeur, pas un arrondi à corriger).
+      const arrondi = (n: number) => Math.round(n || 0);
       const cellules: { colonne: number; valeur: string }[] = [];
       if (nouvelleLigne) {
         cellules.push(
@@ -543,12 +549,12 @@ Deno.serve(async (req: Request) => {
         );
       }
       if (c.heuresEstimees !== undefined) cellules.push({ colonne: 7, valeur: String(c.heuresEstimees ?? "") });
-      if (c.tauxHoraireNet !== undefined) cellules.push({ colonne: 8, valeur: String(c.tauxHoraireNet ?? "") });
+      if (c.tauxHoraireNet !== undefined) cellules.push({ colonne: 8, valeur: String(arrondi(c.tauxHoraireNet)) });
       if (c.surHeuresOrigine !== undefined) cellules.push({ colonne: 9, valeur: c.surHeuresOrigine ? "OUI" : "NON" });
-      if (c.tauxBrut !== undefined) cellules.push({ colonne: 10, valeur: String(Math.round((c.tauxBrut || 0) * 100) / 100) });
-      if (c.primeNet !== undefined) cellules.push({ colonne: 11, valeur: String(Math.round((c.primeNet || 0) * 100) / 100) });
-      if (c.primeBrute !== undefined) cellules.push({ colonne: 12, valeur: String(Math.round((c.primeBrute || 0) * 100) / 100) });
-      if (c.primeCoutTotal !== undefined) cellules.push({ colonne: 13, valeur: String(Math.round((c.primeCoutTotal || 0) * 100) / 100) });
+      if (c.tauxBrut !== undefined) cellules.push({ colonne: 10, valeur: String(arrondi(c.tauxBrut)) });
+      if (c.primeNet !== undefined) cellules.push({ colonne: 11, valeur: String(arrondi(c.primeNet)) });
+      if (c.primeBrute !== undefined) cellules.push({ colonne: 12, valeur: String(arrondi(c.primeBrute)) });
+      if (c.primeCoutTotal !== undefined) cellules.push({ colonne: 13, valeur: String(arrondi(c.primeCoutTotal)) });
 
       const data = cellules.map(({ colonne, valeur }) => ({
         range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(colonne)}${ligneCible}`, values: [[valeur]],

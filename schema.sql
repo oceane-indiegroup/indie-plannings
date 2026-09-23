@@ -447,6 +447,11 @@ create table if not exists public.rh_extras (
   valide_le         timestamptz,
   maj_le            timestamptz not null default now()
 );
+-- Numéro de ligne dans le Sheet "Extra" (SHEET_ID_EXTRA), fixé une fois pour toutes à la
+-- création : chaque extra garde ainsi SA ligne, même si un autre extra existe déjà pour la
+-- même personne à la même date (avant, la ligne était retrouvée par nom+prénom+date+établissement,
+-- ce qui fusionnait à tort deux extras distincts de la même personne en une seule ligne).
+alter table public.rh_extras add column if not exists sheet_ligne integer;
 create index if not exists rh_extras_scope_idx on public.rh_extras (resto, unite, date);
 
 create or replace function public.rh_extras_touch()
