@@ -4530,6 +4530,7 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
     { cle: "registre", label: "Registre embauche" },
     { cle: "repos_hebdo", label: "Repos hebdo non pris" },
     { cle: "extras", label: "Extras" },
+    { cle: "planning", label: "Planning" },
   ];
 
   useEffect(() => {
@@ -4601,7 +4602,7 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
           <div className="ig-eyebrow" style={{margin:0}}>Espace RH{estSuperviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{restoActif}</h2>
         </div>
-        {estSuperviseur && sousSection && (
+        {estSuperviseur && sousSection && sousSection !== "planning" && (
           <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
             {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
             <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
@@ -4630,8 +4631,14 @@ function EspaceRH({ acces, restaurants, etabsAjoutes, onAjouterEtablissement, on
         <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
       ) : sousSection === "repos_hebdo" ? (
         <ReposHebdoRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
-      ) : sousSection === "extras" && (
+      ) : sousSection === "extras" ? (
         <ExtrasRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      ) : sousSection === "planning" && (
+        // Réutilise ManagerView telle quelle (mêmes données kv/kv_history que l'Espace
+        // manager par code partagé) : rien n'est dupliqué ni migré, donc tout l'historique
+        // déjà accompli reste intact, et les directeurs peuvent continuer à travailler sur
+        // l'Espace manager en parallèle tant que ce nouvel onglet n'est pas définitif.
+        <ManagerView resto={restoActif} superviseur={estSuperviseur} onBack={()=>setSousSection(null)} />
       )}
       {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>
