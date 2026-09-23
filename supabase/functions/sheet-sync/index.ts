@@ -446,19 +446,21 @@ Deno.serve(async (req: Request) => {
       const aEnvoyer = (lignes as { nom: string; prenom: string | null; salaire_net: number | null; repos_non_pris: number }[])
         .filter((l) => Number(l.repos_non_pris) > 0);
 
+      const arrondi = (n: number) => (Math.round(n * 100) / 100).toString();
       const grille: string[][] = aEnvoyer.map((l) => {
+        const prenomMaj = (l.prenom || "").toUpperCase();
         const netJour = typeof l.salaire_net === "number" ? l.salaire_net / 30 : 0;
         const jours = Number(l.repos_non_pris) || 0;
         const tauxBrut = netJour * EXTRA_NET_VERS_BRUT;
         const primeNet = jours * netJour;
         const primeBrute = jours * tauxBrut;
         const primeCoutTotal = tauxBrut * EXTRA_BRUT_VERS_COUT_TOTAL * jours;
-        const cle = `${l.nom}|${l.prenom || ""}`;
+        const cle = `${l.nom}|${prenomMaj}`;
         return [
           new Date().toISOString(), `RH NON PRIS ${nomMois}`, resto, dateStr,
-          l.nom, l.prenom || "", resto,
-          String(jours), String(netJour), "NON",
-          String(tauxBrut), String(primeNet), String(primeBrute), String(primeCoutTotal),
+          l.nom, prenomMaj, resto,
+          String(jours), arrondi(netJour), "NON",
+          arrondi(tauxBrut), arrondi(primeNet), arrondi(primeBrute), arrondi(primeCoutTotal),
           "", nomMois, anneeStr, "", cle, resto,
         ];
       });
