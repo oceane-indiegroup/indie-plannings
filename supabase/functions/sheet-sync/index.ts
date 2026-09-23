@@ -50,7 +50,7 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 }
 
-function decodeJwt(token: string): { sub?: string } | null {
+function decodeJwt(token: string): { sub?: string; email?: string } | null {
   try {
     return JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
   } catch {
@@ -251,11 +251,15 @@ async function verifierSuperviseur(userId: string): Promise<boolean> {
   return Array.isArray(lignes) && lignes.length > 0;
 }
 
-// Lit tout le Sheet en un seul appel (en-têtes + données), jusqu'à 3000 lignes / colonne BZ.
-// "sheetId"/"tab" paramétrables (défaut : le Sheet onboarding) pour pouvoir lire le Sheet
-// "Extra" (SHEET_ID_EXTRA) avec la même fonction.
+// Lit tout le Sheet en un seul appel (en-têtes + données), sans limite de lignes (colonnes
+// A à BZ) : un plafond fixe (l'ancienne version limitait à 3000 lignes) est dangereux dès que
+// le Sheet dépasse cette taille, car "nombre de lignes lues + 1" est ensuite utilisé comme
+// prochaine ligne libre — s'il manque des lignes à la lecture, une nouvelle écriture peut
+// tomber PAR-DESSUS une ligne existante non lue et la corrompre partiellement (colonnes non
+// écrasées mélangées à des données neuves). "sheetId"/"tab" paramétrables (défaut : le Sheet
+// onboarding) pour pouvoir lire le Sheet "Extra" (SHEET_ID_EXTRA) avec la même fonction.
 async function lireFeuille(jeton: string, sheetId: string = SHEET_ID, tab: string = SHEET_TAB): Promise<string[][]> {
-  const plage = encodeURIComponent(`'${tab}'!A1:BZ3000`);
+  const plage = encodeURIComponent(`'${tab}'!A:BZ`);
   const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${plage}`, {
     headers: { Authorization: `Bearer ${jeton}` },
   });
@@ -490,7 +494,9 @@ Deno.serve(async (req: Request) => {
     // 11 Prime net, 12 Prime brute, 13 Prime coût total, 14 Payfit, 15 MOIS, 16 Année,
     // 17 OK ONBOARDING, 18 CLE_NOM, 19 CLE_ETAB.
     if (action === "upsertExtra") {
-      const { resto, unite, restoOrigine, salarieNom, salariePrenom, date, champs } = corps;
+      const { resto, unite, restoOrigine, date, champs } = corps;
+      const salarieNom = String(corps.salarieNom || "").toUpperCase();
+      const salariePrenom = corps.salariePrenom;
       if (!resto || !restoOrigine || !salarieNom || !salariePrenom || !date) return json({ error: "champs_manquants" }, 400);
 
       const enTete = req.headers.get("Authorization") || "";
@@ -524,6 +530,7 @@ Deno.serve(async (req: Request) => {
       if (nouvelleLigne) {
         cellules.push(
           { colonne: 0, valeur: new Date().toISOString() },
+          { colonne: 1, valeur: charge.email || "" },
           { colonne: 2, valeur: resto },
           { colonne: 3, valeur: dateStr },
           { colonne: 4, valeur: salarieNom },
