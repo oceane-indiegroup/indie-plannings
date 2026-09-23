@@ -392,6 +392,15 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Synchronise un extra (création, saisie heures/taux, ou validation) vers le Sheet
+  // "Extra", ligne retrouvée par nom+prénom+date+établissement (créée si absente). Erreurs
+  // silencieuses (juste loguées) : la synchro Sheet ne doit jamais bloquer l'appli elle-même.
+  async upsertExtra({ resto, unite, restoOrigine, salarieNom, salariePrenom, date, champs }) {
+    const { error } = await supabase.functions.invoke("sheet-sync", {
+      body: { action: "upsertExtra", resto, unite, restoOrigine, salarieNom, salariePrenom, date, champs },
+    });
+    if (error) console.error("RhSheetSync.upsertExtra:", error.message);
+  },
 };
 
 // ---------- Gestion des accès RH (créer/retirer un compte directeur/chef) ----------
@@ -4185,6 +4194,10 @@ function ExtrasRH({ resto, unite, superviseur }) {
     setAjout(false);
     if (cleMois(new Date(date + "T00:00:00")) === mois) setListe([cree, ...(liste || [])]);
     montrerFlash(`Extra créé pour ${salariePrenom} ${nomMaj} (${restoOrigine} → ${resto}) le ${fmtDate(new Date(date + "T00:00:00"))}.${docs.contratHTML ? " Le contrat de prêt est prêt." : ""} Reste à renseigner les heures et le taux avant de valider.`);
+    // Synchro Sheet "Extra" : crée tout de suite la ligne (nom/prénom fiables, venus de la
+    // fiche RH choisie dans l'appli, jamais retapés à la main) ; le reste s'y ajoutera au
+    // fil de la saisie des heures/taux puis de la validation.
+    RhSheetSync.upsertExtra({ resto, unite, restoOrigine, salarieNom: nomMaj, salariePrenom, date, champs: { surHeuresOrigine: false } });
   }
 
   function modifierChamp(id, champ, valeur) {
@@ -4193,7 +4206,14 @@ function ExtrasRH({ resto, unite, superviseur }) {
   }
   async function sauverChamp(id, champ, valeur) {
     const maj = await RhExtras.maj(id, { [champ]: valeur });
-    if (!maj) montrerFlash("La sauvegarde a échoué. Réessayez.");
+    if (!maj) { montrerFlash("La sauvegarde a échoué. Réessayez."); return; }
+    const champSheet = champ === "heures_estimees" ? "heuresEstimees" : champ === "taux_horaire_net" ? "tauxHoraireNet" : champ === "sur_heures_origine" ? "surHeuresOrigine" : null;
+    if (champSheet) {
+      RhSheetSync.upsertExtra({
+        resto, unite, restoOrigine: maj.resto_origine, salarieNom: maj.salarie_nom, salariePrenom: maj.salarie_prenom, date: maj.date,
+        champs: { [champSheet]: valeur },
+      });
+    }
   }
 
   async function validerExtra(id) {
@@ -4210,6 +4230,13 @@ function ExtrasRH({ resto, unite, superviseur }) {
     if (!maj) { montrerFlash("Échec de la validation. Réessayez."); return; }
     setListe((liste || []).map((it) => (it.id === id ? maj : it)));
     montrerFlash("Heures validées.");
+    RhSheetSync.upsertExtra({
+      resto, unite, restoOrigine: maj.resto_origine, salarieNom: maj.salarie_nom, salariePrenom: maj.salarie_prenom, date: maj.date,
+      champs: {
+        heuresEstimees: maj.heures_reelles, tauxHoraireNet: maj.taux_horaire_net, surHeuresOrigine: maj.sur_heures_origine,
+        tauxBrut: maj.taux_brut, primeNet: maj.prime_net, primeBrute: maj.prime_brute, primeCoutTotal: maj.prime_cout_total,
+      },
+    });
   }
 
   async function supprimerExtra(x) {
