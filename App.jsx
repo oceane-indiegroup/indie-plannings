@@ -548,11 +548,13 @@ const RhExtras = {
     if (error) { console.error("RhExtras.list:", error.message); return []; }
     return data || [];
   },
-  // Historique complet, tous établissements/mois confondus (superviseur uniquement, la RLS
-  // s'en charge : un directeur ne récupérerait que ses propres lignes de toute façon).
-  async listAll() {
-    const { data, error } = await supabase.from("rh_extras").select("*").order("date", { ascending: false });
-    if (error) { console.error("RhExtras.listAll:", error.message); return []; }
+  // Historique complet d'UN établissement + une unité (tous mois confondus) : chaque
+  // établissement — et, au sein d'un établissement, chaque unité (Salle/Cuisine) — a son
+  // propre historique, jamais mélangé avec celui d'un autre établissement.
+  async listParEtablissement(resto, unite) {
+    const { data, error } = await supabase.from("rh_extras").select("*")
+      .eq("resto", resto).eq("unite", unite).order("date", { ascending: false });
+    if (error) { console.error("RhExtras.listParEtablissement:", error.message); return []; }
     return data || [];
   },
   async creer(row) {
@@ -4344,7 +4346,7 @@ function ExtrasRH({ resto, unite, superviseur }) {
         )}
       </div>
 
-      {superviseur && <VueGlobaleExtrasRH />}
+      {superviseur && <VueGlobaleExtrasRH resto={resto} unite={unite} />}
 
       {ajout && <ChoixSalarieExtraModal resto={resto} unite={unite} onValider={creerExtra} onClose={()=>setAjout(false)} />}
       {fiche && <FicheJuridiqueModal resto={resto} valeurs={etabsJ[resto]} onSave={enregistrerFiche} onClose={()=>setFiche(false)} />}
@@ -4352,27 +4354,27 @@ function ExtrasRH({ resto, unite, superviseur }) {
   );
 }
 
-// ---------- Vue globale des extras (superviseur), tous établissements/mois confondus ----------
-function VueGlobaleExtrasRH() {
+// ---------- Historique des extras d'UN établissement + une unité (superviseur), tous mois
+// confondus — jamais mélangé avec un autre établissement, ni entre Salle et Cuisine d'un
+// même établissement : chacun son récap. ----------
+function VueGlobaleExtrasRH({ resto, unite }) {
   const [tout, setTout] = useState(null);
   const [recherche, setRecherche] = useState("");
-  const [filtreEtab, setFiltreEtab] = useState("");
   const [filtreMois, setFiltreMois] = useState("");
 
   useEffect(() => {
     let on = true;
-    RhExtras.listAll().then((l) => { if (on) setTout(l); });
+    setTout(null);
+    RhExtras.listParEtablissement(resto, unite).then((l) => { if (on) setTout(l); });
     return () => { on = false; };
-  }, []);
+  }, [resto, unite]);
 
-  if (tout === null) return <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}><div className="ig-muted">Chargement de l'historique complet…</div></div>;
+  if (tout === null) return <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}><div className="ig-muted">Chargement de l'historique…</div></div>;
 
-  const etabs = Array.from(new Set(tout.map((x) => x.resto))).sort();
   const moisDisponibles = Array.from(new Set(tout.map((x) => cleMois(new Date(x.date + "T00:00:00"))))).sort().reverse();
 
   const q = normTxt(recherche);
   const filtres = tout.filter((x) => {
-    if (filtreEtab && x.resto !== filtreEtab) return false;
     if (filtreMois && cleMois(new Date(x.date + "T00:00:00")) !== filtreMois) return false;
     if (q && !normTxt(`${x.salarie_prenom} ${x.salarie_nom} ${x.poste}`).includes(q)) return false;
     return true;
@@ -4388,18 +4390,14 @@ function VueGlobaleExtrasRH() {
 
   return (
     <div className="ig-card" style={{padding:'16px 20px',marginBottom:18,borderColor:'var(--ink)'}}>
-      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600,marginBottom:10}}>Historique complet des extras — tous établissements, tous mois</div>
+      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600,marginBottom:10}}>Historique des extras — {resto} ({unite}), tous mois</div>
       <div className="ig-noprint" style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
         <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié / poste…" style={{minWidth:200}} />
-        <select value={filtreEtab} onChange={(e)=>setFiltreEtab(e.target.value)}>
-          <option value="">Tous les établissements</option>
-          {etabs.map((r) => (<option key={r} value={r}>{r}</option>))}
-        </select>
         <select value={filtreMois} onChange={(e)=>setFiltreMois(e.target.value)}>
           <option value="">Tous les mois</option>
           {moisDisponibles.map((m) => (<option key={m} value={m}>{m}</option>))}
         </select>
-        <button className="ig-btn ig-btn-ghost" onClick={()=>exporterRecapExtrasRH(filtres, filtreMois || "historique-complet", `Extras_${filtreMois || "historique-complet"}.xlsx`)}>⬇ Export (xlsx)</button>
+        <button className="ig-btn ig-btn-ghost" onClick={()=>exporterRecapExtrasRH(filtres, filtreMois || `${resto}-${unite}`, `Extras_${resto}_${unite}_${filtreMois || "historique"}.xlsx`)}>⬇ Export (xlsx)</button>
       </div>
       <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>
         {filtres.length} extra{filtres.length>1?'s':''} · {totaux.heures}h validées · {fmtEuro(totaux.primeNet)} net · {fmtEuro(totaux.primeBrute)} brut · {fmtEuro(totaux.primeCoutTotal)} coût total
@@ -4409,7 +4407,7 @@ function VueGlobaleExtrasRH() {
           <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
             <thead style={{position:'sticky',top:0,background:'var(--sand)'}}>
               <tr style={{textAlign:'left'}}>
-                <th style={{padding:'6px 8px'}}>Date</th><th>Salarié</th><th>Poste</th><th>Origine</th><th>Destination</th><th>Statut</th><th>Heures</th><th>Prime Net</th><th>Prime Brute</th><th>Coût total</th>
+                <th style={{padding:'6px 8px'}}>Date</th><th>Salarié</th><th>Poste</th><th>Origine</th><th>Statut</th><th>Heures</th><th>Prime Net</th><th>Prime Brute</th><th>Coût total</th>
               </tr>
             </thead>
             <tbody>
@@ -4419,7 +4417,6 @@ function VueGlobaleExtrasRH() {
                   <td>{x.salarie_prenom} {x.salarie_nom}</td>
                   <td>{x.poste}</td>
                   <td>{x.resto_origine}</td>
-                  <td>{x.resto}</td>
                   <td>{x.statut === 'realisee' ? '✓ validé' : 'à valider'}</td>
                   <td>{x.statut === 'realisee' ? x.heures_reelles : (x.heures_estimees ?? '—')}</td>
                   <td>{x.statut === 'realisee' ? fmtEuro(x.prime_net) : '—'}</td>
