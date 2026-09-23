@@ -79,8 +79,15 @@ function dateISOLocale(d) {
   return `${a}-${m}-${j}`;
 }
 function cleSemaine(d) {
+  // ATTENTION : reste volontairement sur toISOString() (pas dateISOLocale) même si ça décale
+  // la date d'un jour pour les établissements en France. C'est cette clé, telle quelle, qui a
+  // servi pendant des années à nommer les plannings déjà enregistrés (kPlanning/kValidation en
+  // dépendent) : la "corriger" changerait la clé de recherche et rendrait tout l'historique
+  // déjà saisi introuvable (déjà arrivé une fois, ne pas reproduire). Le bug de fuseau horaire
+  // reste réel ici, mais toucher à cette fonction précise casse la compatibilité avec les
+  // données existantes — un futur correctif devra migrer les clés, pas juste changer le calcul.
   const l = lundiDeLaSemaine(d);
-  return dateISOLocale(l);
+  return l.toISOString().slice(0, 10);
 }
 function idSalarie(e) {
   return (e.n + "_" + e.p).replace(/\s+/g, "_");
