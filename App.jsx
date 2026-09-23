@@ -67,9 +67,20 @@ function fmtDate(d) {
 function fmtJour(d) {
   return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 }
+// "AAAA-MM-JJ" en heure LOCALE : contrairement à toISOString() (qui convertit en UTC), ne
+// décale jamais la date d'un jour selon le fuseau du navigateur — minuit heure de Paris
+// (UTC+1/+2) correspond encore à la veille en UTC, donc toISOString() y donnait la mauvaise
+// date pour toute date/heure construite en heure locale (ce qui a longtemps faussé les clés
+// de semaine et les comparaisons à "aujourd'hui" pour les établissements en France).
+function dateISOLocale(d) {
+  const a = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const j = String(d.getDate()).padStart(2, "0");
+  return `${a}-${m}-${j}`;
+}
 function cleSemaine(d) {
   const l = lundiDeLaSemaine(d);
-  return l.toISOString().slice(0, 10);
+  return dateISOLocale(l);
 }
 function idSalarie(e) {
   return (e.n + "_" + e.p).replace(/\s+/g, "_");
@@ -241,7 +252,7 @@ function chargerScript(src) {
 // Nom de fichier sûr : Emargement_RESTO_AAAA-MM-JJ.pdf
 function nomFichierEmargement(resto, lundi) {
   const slug = normTxt(resto).toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `Emargement_${slug}_${lundi.toISOString().slice(0, 10)}.pdf`;
+  return `Emargement_${slug}_${dateISOLocale(lundi)}.pdf`;
 }
 
 // Construit le document HTML complet, auto-imprimable.
@@ -508,7 +519,7 @@ const RhReposHebdo = {
   async genererMois(resto, unite, mois) {
     const debut = `${mois}-01`;
     const finDate = new Date(Number(mois.slice(0, 4)), Number(mois.slice(5, 7)), 0);
-    const fin = finDate.toISOString().slice(0, 10);
+    const fin = dateISOLocale(finDate);
     const { data: salaries, error } = await supabase.from("rh_salaries").select("id, nom, prenom, salaire_net")
       .eq("resto", resto).eq("unite", unite).eq("provisoire", false)
       .not("date_debut", "is", null).lte("date_debut", fin)
@@ -542,7 +553,7 @@ const RhExtras = {
   async list(resto, unite, mois) {
     const debut = `${mois}-01`;
     const finDate = new Date(Number(mois.slice(0, 4)), Number(mois.slice(5, 7)), 0);
-    const fin = finDate.toISOString().slice(0, 10);
+    const fin = dateISOLocale(finDate);
     const { data, error } = await supabase.from("rh_extras").select("*")
       .eq("resto", resto).eq("unite", unite).gte("date", debut).lte("date", fin).order("date", { ascending: false });
     if (error) { console.error("RhExtras.list:", error.message); return []; }
@@ -1466,7 +1477,7 @@ function EmargementSheet({ resto, semDate, planning, pointages, team, onToggleSi
       .hrs { font-weight:700; } .pz { font-size:9px; color:#555; }
       .sig { color:#aaa; font-size:8px; font-style:italic; }
       .sig.signed { color:#2E7D86; font-weight:700; font-style:normal; }`;
-    const ok = imprimerDocument(`Emargement ${resto}`, corps, styles, `Emargement_${slugKey(resto)}_${lundi.toISOString().slice(0,10)}`);
+    const ok = imprimerDocument(`Emargement ${resto}`, corps, styles, `Emargement_${slugKey(resto)}_${dateISOLocale(lundi)}`);
     if (ok === false) setPdfEtat("Impossible de générer le document. Réessayez.");
     else if (ok === "download") setPdfEtat("Le fichier a été téléchargé. Ouvrez-le, puis choisissez « Enregistrer au format PDF » à l'impression.");
     else setPdfEtat("");
@@ -1945,38 +1956,15 @@ function ManagerView({ resto, onBack, superviseur }) {
       if (!on) return;
       setPlanning(pl || {});
       setPointages(pt || {});
-      // Nettoyage automatique (le lendemain de la fin de contrat ou après) :
-      // - salariés AJOUTÉS : retirés de la liste des ajouts ;
-      // - salariés du FICHIER : ajoutés à la liste des supprimés (le fichier n'est pas touché).
-      // Dans les deux cas, l'historique des semaines passées est conservé.
-      // Ce nettoyage reste LOCAL à cet affichage (jamais réécrit en base) : l'écrire ici en
-      // arrière-plan pouvait entrer en course avec une modification manuelle plus récente du
-      // même salarié et l'effacer silencieusement. Le filtrage par date de fin (plus bas)
-      // fonctionne de toute façon directement sur "departs", sans avoir besoin de cette
-      // conversion en base — elle est donc recalculée à chaque chargement, sans être persistée.
-      let rosterUtilise = rs || { ajouts: [], departs: {} };
-      const aujourdHui = new Date().toISOString().slice(0, 10);
-      const ajoutsR = rosterUtilise.ajouts || [];
-      const departsR = rosterUtilise.departs || {};
-      const supprimesR = rosterUtilise.supprimes || [];
-      const idsAjoutes = new Set(ajoutsR.map((a) => idSalarie(a)));
-
-      const finsPassees = Object.keys(departsR).filter((id) => aujourdHui > departsR[id]);
-      if (finsPassees.length > 0) {
-        const nouvDeparts = { ...departsR };
-        const nouvSupprimes = [...supprimesR];
-        let nouvAjouts = ajoutsR;
-        finsPassees.forEach((id) => {
-          delete nouvDeparts[id];
-          if (idsAjoutes.has(id)) {
-            nouvAjouts = nouvAjouts.filter((a) => idSalarie(a) !== id);
-          } else if (!nouvSupprimes.includes(id)) {
-            nouvSupprimes.push(id); // salarié du fichier : marqué supprimé
-          }
-        });
-        rosterUtilise = { ...rosterUtilise, ajouts: nouvAjouts, departs: nouvDeparts, supprimes: nouvSupprimes };
-      }
-      setRoster(rosterUtilise);
+      // Le filtrage par date de fin (dans "team", plus bas) se fait par rapport à la SEMAINE
+      // affichée ("sem"), pas par rapport à la date du jour : un salarié parti reste donc
+      // visible sur les semaines passées où il a réellement travaillé, et disparaît seulement
+      // des semaines suivant sa fin de contrat. Il ne faut surtout pas, en plus de ça, le
+      // basculer automatiquement dans "supprimes" dès que sa date de fin est dépassée
+      // aujourd'hui : "supprimes" masque TOUTES les semaines sans exception (y compris les
+      // passées), ce qui faisait disparaître le salarié même de l'historique. La suppression
+      // définitive reste un choix explicite (bouton "Supprimer définitivement").
+      setRoster(rs || { ajouts: [], departs: {} });
       setModele(md || null);
       setValide(!!vd);
       setLoading(false);
@@ -2190,7 +2178,7 @@ function ManagerView({ resto, onBack, superviseur }) {
       .po { font-size:10px; color:#3C5763; }
       .hrs { font-weight:600; } .pz { font-size:9px; color:#555; }
       .tot { font-weight:700; }`;
-    const ok = imprimerDocument(`Planning ${resto}`, corps, styles, `Planning_${slugKey(resto)}_${lundi.toISOString().slice(0,10)}`);
+    const ok = imprimerDocument(`Planning ${resto}`, corps, styles, `Planning_${slugKey(resto)}_${dateISOLocale(lundi)}`);
     if (ok === false) montrerFlash("Impossible de générer le document. Réessayez.");
     else if (ok === "download") montrerFlash("Le fichier a été téléchargé. Ouvrez-le, puis choisissez « Enregistrer au format PDF » à l'impression.");
   }
@@ -2581,7 +2569,7 @@ function ManagerView({ resto, onBack, superviseur }) {
 
       {gestion && (() => {
         const finGestion = (roster.departs || {})[idSalarie(gestion)];
-        const aujourdHui = new Date().toISOString().slice(0, 10);
+        const aujourdHui = dateISOLocale(new Date());
         const peutSupprimerDef = !!gestion._ajout && !!finGestion && aujourdHui > finGestion;
         return (
         <GestionModal
@@ -3057,7 +3045,7 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
     Store.get(kRoster(resto)).then((rs) => {
       if (!on) return;
       const r = rs || { ajouts: [], departs: {} };
-      const aujourdHui = new Date().toISOString().slice(0, 10);
+      const aujourdHui = dateISOLocale(new Date());
       const departs = r.departs || {};
       const actifs = (r.ajouts || []).filter((a) => {
         const fin = departs[idSalarie(a)];
@@ -3591,7 +3579,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   // Retire les contrats terminés (date de fin passée) de l'onglet de saison courant, sans
   // rien supprimer : ils basculent dans un onglet "Archives" pour ne plus encombrer la vue
   // du directeur, tout en restant consultables si besoin.
-  const aujourdHui = new Date().toISOString().slice(0, 10);
+  const aujourdHui = dateISOLocale(new Date());
   const termines = liste.filter((s) => s.saison === saisonActive && s.date_fin && s.date_fin < aujourdHui);
   async function archiverTermines() {
     if (termines.length === 0) return;
@@ -4050,7 +4038,7 @@ function ChoixSalarieExtraModal({ resto, unite, onValider, onClose }) {
   const [recherche, setRecherche] = useState("");
   const [resultats, setResultats] = useState([]);
   const [selection, setSelection] = useState(null);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(dateISOLocale(new Date()));
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
