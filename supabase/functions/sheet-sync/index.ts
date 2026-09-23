@@ -345,7 +345,7 @@ async function ecrireGrilleComplete(jeton: string, titre: string, grille: string
 // là (contrairement à "ecrireGrilleComplete" qui écrase tout) : exactement le comportement
 // d'une nouvelle réponse de Google Form. "sheetId"/"tab" sont paramétrables pour pouvoir
 // écrire dans un Google Sheet complètement différent de celui de l'onboarding (SHEET_ID).
-async function ajouterLignesFormulaire(jeton: string, sheetId: string, tab: string, lignes: string[][]) {
+async function ajouterLignesFormulaire(jeton: string, sheetId: string, tab: string, lignes: (string | number)[][]) {
   if (lignes.length === 0) return;
   const res = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(`'${tab}'!A1`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
@@ -446,8 +446,11 @@ Deno.serve(async (req: Request) => {
       const aEnvoyer = (lignes as { nom: string; prenom: string | null; salaire_net: number | null; repos_non_pris: number }[])
         .filter((l) => Number(l.repos_non_pris) > 0);
 
-      const arrondi = (n: number) => String(Math.round(n));
-      const grille: string[][] = aEnvoyer.map((l) => {
+      // Valeurs numériques envoyées comme de vrais nombres JSON (pas des chaînes) : Google
+      // Sheets les aligne alors à droite comme les autres montants de la colonne, au lieu
+      // de les traiter comme du texte aligné à gauche.
+      const arrondi = (n: number) => Math.round(n);
+      const grille: (string | number)[][] = aEnvoyer.map((l) => {
         const prenomMaj = (l.prenom || "").toUpperCase();
         const netJour = typeof l.salaire_net === "number" ? l.salaire_net / 30 : 0;
         const jours = Number(l.repos_non_pris) || 0;
@@ -459,7 +462,7 @@ Deno.serve(async (req: Request) => {
         return [
           new Date().toISOString(), `RH NON PRIS ${nomMois}`, resto, dateStr,
           l.nom, prenomMaj, resto,
-          String(jours), arrondi(netJour), "NON",
+          jours, arrondi(netJour), "NON",
           arrondi(tauxBrut), arrondi(primeNet), arrondi(primeBrute), arrondi(primeCoutTotal),
           "", nomMois, anneeStr, "", cle, resto,
         ];
