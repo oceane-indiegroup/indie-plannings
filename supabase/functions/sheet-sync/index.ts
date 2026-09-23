@@ -29,6 +29,13 @@ const GOOGLE_SA_EMAIL = (Deno.env.get("GOOGLE_SA_EMAIL") ?? "").trim();
 const GOOGLE_SA_PRIVATE_KEY = (Deno.env.get("GOOGLE_SA_PRIVATE_KEY") ?? "").trim().replace(/\\n/g, "\n");
 const SHEET_ID = (Deno.env.get("SHEET_ID") ?? "").trim();
 const SHEET_TAB = (Deno.env.get("SHEET_TAB") ?? "").trim();
+// Google Sheet "Extra" d'Océane (complètement différent de celui de l'onboarding ci-dessus) :
+// reçoit aujourd'hui les extras via un Google Form ("Réponses au formulaire 1"). Le repos
+// hebdo non pris y est ajouté avec la même nomenclature qu'elle utilise déjà à la main
+// (voir action "exporterReposHebdo" plus bas). Le compte de service (GOOGLE_SA_EMAIL) doit
+// être partagé en édition sur CE Sheet-là aussi, en plus de celui de l'onboarding.
+const SHEET_ID_EXTRA = (Deno.env.get("SHEET_ID_EXTRA") ?? "").trim();
+const SHEET_TAB_EXTRA = (Deno.env.get("SHEET_TAB_EXTRA") ?? "Réponses au formulaire 1").trim();
 const FORM_WEBHOOK_SECRET = (Deno.env.get("FORM_WEBHOOK_SECRET") ?? "").trim();
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").trim();
 const SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
@@ -174,6 +181,13 @@ function versDateSheet(cle: string, valeur: unknown): string {
   if (valeur === null || valeur === undefined) return "";
   return String(valeur);
 }
+
+// Constantes reprises telles quelles du fichier Excel historique d'Océane (taux net ->
+// brut, puis brut -> coût total employeur pour une prime exceptionnelle / un extra) —
+// mêmes valeurs que côté appli (calculExtra dans App.jsx). Ne pas modifier sans revalider
+// avec la compta / PayFit.
+const EXTRA_NET_VERS_BRUT = 1.2667;
+const EXTRA_BRUT_VERS_COUT_TOTAL = 1.4444;
 
 // ---------- Auth Google (compte de service → jeton d'accès Sheets) ----------
 let jetonCache: { jeton: string; exp: number } | null = null;
@@ -327,6 +341,19 @@ async function ecrireGrilleComplete(jeton: string, titre: string, grille: string
   if (!res.ok) throw new Error("sheet_ecriture_onglet_echec: " + (await res.text()));
 }
 
+// Ajoute des lignes à la SUITE d'un onglet existant, sans jamais toucher aux lignes déjà
+// là (contrairement à "ecrireGrilleComplete" qui écrase tout) : exactement le comportement
+// d'une nouvelle réponse de Google Form. "sheetId"/"tab" sont paramétrables pour pouvoir
+// écrire dans un Google Sheet complètement différent de celui de l'onboarding (SHEET_ID).
+async function ajouterLignesFormulaire(jeton: string, sheetId: string, tab: string, lignes: string[][]) {
+  if (lignes.length === 0) return;
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(`'${tab}'!A1`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    { method: "POST", headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" }, body: JSON.stringify({ values: lignes }) },
+  );
+  if (!res.ok) throw new Error("sheet_ajout_lignes_echec: " + (await res.text()));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   try {
@@ -383,15 +410,22 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, archives: salaries.length, onglet: titreOnglet });
     }
 
-    // ---- Export du suivi "Repos hebdo non pris" d'un établissement/unité/mois vers un
-    // onglet dédié du Sheet ("Repos <resto> <unite> <mois>"), pour qu'Océane puisse le
-    // réimporter ailleurs (paie...). Réservé au superviseur. ----
+    // ---- Export du suivi "Repos hebdo non pris" d'un établissement/unité/mois vers le
+    // Google Sheet "Extra" d'Océane (SHEET_ID_EXTRA), en AJOUTANT une ligne par salarié
+    // dans l'onglet "Réponses au formulaire 1" — avec exactement la même nomenclature
+    // qu'elle utilise déjà à la main pour ce cas-là (colonne "Adresse e-mail" détournée en
+    // "RH NON PRIS <MOIS>", établissement d'origine = établissement d'exécution puisque ce
+    // n'est pas un vrai prêt de personnel, date = dernier jour du mois). "Nombre d'heures"
+    // et "Taux horaire net" portent ici le nombre de repos non pris et le taux journalier
+    // (mêmes formules net->brut->coût total que pour un extra classique). Réservé au
+    // superviseur ; n'écrit qu'une ligne par salarié ayant au moins 1 repos non pris.
     if (action === "exporterReposHebdo") {
       const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
       if (!appelant) return json({ error: "non_authentifie" }, 401);
       if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      if (!SHEET_ID_EXTRA) return json({ error: "sheet_extra_non_configure" }, 500);
 
-      const { resto, unite, mois } = corps;
+      const { resto, unite, mois } = corps; // mois = 'AAAA-MM'
       if (!resto || !unite || !mois) return json({ error: "champs_manquants" }, 400);
 
       const res = await fetch(
@@ -399,27 +433,40 @@ Deno.serve(async (req: Request) => {
         { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
       );
       if (!res.ok) return json({ error: "lecture_echouee", detail: await res.text() }, 500);
-      const lignes = await res.json();
+      const lignes: Record<string, unknown>[] = await res.json();
 
-      const grille: string[][] = [["UNITE", "NOM", "PRENOM", "SALAIRE NET", "NET / JOUR", "REPOS NON PRIS", "MONTANT A PAYER"]];
-      for (const l of lignes as Record<string, unknown>[]) {
-        const salaire = typeof l.salaire_net === "number" ? l.salaire_net : null;
-        const netJour = salaire != null ? salaire / 30 : null;
-        const reposNonPris = typeof l.repos_non_pris === "number" ? l.repos_non_pris : 0;
-        const montant = netJour != null ? netJour * reposNonPris : null;
-        grille.push([
-          String(l.unite ?? ""), String(l.nom ?? ""), String(l.prenom ?? ""),
-          salaire != null ? String(salaire) : "", netJour != null ? netJour.toFixed(2) : "",
-          String(reposNonPris), montant != null ? montant.toFixed(2) : "",
-        ]);
-      }
+      const [anneeStr, moisStr] = mois.split("-");
+      const moisIdx = Number(moisStr); // 1..12
+      const MOIS_NOMS_MAJ = ["JANVIER","FEVRIER","MARS","AVRIL","MAI","JUIN","JUILLET","AOUT","SEPTEMBRE","OCTOBRE","NOVEMBRE","DECEMBRE"];
+      const nomMois = MOIS_NOMS_MAJ[moisIdx - 1] || moisStr;
+      // Dernier jour du mois (astuce : le "jour 0" du mois suivant = dernier jour de celui-ci).
+      const dernierJour = new Date(Number(anneeStr), moisIdx, 0);
+      const dateStr = `${String(dernierJour.getDate()).padStart(2, "0")}/${String(moisIdx).padStart(2, "0")}/${anneeStr}`;
 
-      const titreOnglet = `Repos ${resto} ${unite} ${mois}`.slice(0, 100);
+      const aEnvoyer = (lignes as { nom: string; prenom: string | null; salaire_net: number | null; repos_non_pris: number }[])
+        .filter((l) => Number(l.repos_non_pris) > 0);
+
+      const grille: string[][] = aEnvoyer.map((l) => {
+        const netJour = typeof l.salaire_net === "number" ? l.salaire_net / 30 : 0;
+        const jours = Number(l.repos_non_pris) || 0;
+        const tauxBrut = netJour * EXTRA_NET_VERS_BRUT;
+        const primeNet = jours * netJour;
+        const primeBrute = jours * tauxBrut;
+        const primeCoutTotal = tauxBrut * EXTRA_BRUT_VERS_COUT_TOTAL * jours;
+        const cle = `${l.nom}|${l.prenom || ""}`;
+        return [
+          new Date().toISOString(), `RH NON PRIS ${nomMois}`, resto, dateStr,
+          l.nom, l.prenom || "", resto,
+          String(jours), String(netJour), "NON",
+          String(tauxBrut), String(primeNet), String(primeBrute), String(primeCoutTotal),
+          "", nomMois, anneeStr, "", cle, resto,
+        ];
+      });
+
       const jeton = await jetonAcces();
-      await assurerOnglet(jeton, titreOnglet);
-      await ecrireGrilleComplete(jeton, titreOnglet, grille);
+      await ajouterLignesFormulaire(jeton, SHEET_ID_EXTRA, SHEET_TAB_EXTRA, grille);
 
-      return json({ ok: true, exportes: lignes.length, onglet: titreOnglet });
+      return json({ ok: true, exportes: grille.length });
     }
 
     // ---- Rattrapage en un clic : relit tout le Sheet et crée en base les salariés qui

@@ -4286,7 +4286,9 @@ function ReposHebdoRH({ resto, unite, superviseur }) {
     const r = await RhSheetSync.exporterReposHebdo(resto, unite, mois);
     setExportBusy(false);
     if (!r.ok) { montrerErreur(`Échec de l'export : ${r.erreur || "erreur inconnue"}`); return; }
-    montrerFlash(`${r.exportes} ligne${r.exportes>1?'s':''} exportée${r.exportes>1?'s':''} dans l'onglet "${r.onglet}" du Google Sheet.`);
+    montrerFlash(r.exportes > 0
+      ? `${r.exportes} ligne${r.exportes>1?'s':''} "RH NON PRIS ${MOIS_NOMS[moisNum-1].toUpperCase()}" ajoutée${r.exportes>1?'s':''} dans le Sheet Extra.`
+      : "Aucun salarié avec un repos non pris > 0 ce mois-ci : rien à exporter.");
   }
 
   async function majRepos(l, valeur) {
@@ -4326,7 +4328,7 @@ function ReposHebdoRH({ resto, unite, superviseur }) {
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           {superviseur && (
             <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={exporter} disabled={exportBusy || liste.length === 0}>
-              {exportBusy ? "Export…" : "↓ Exporter vers le Sheet"}
+              {exportBusy ? "Export…" : "↓ Exporter vers le Sheet Extra"}
             </button>
           )}
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={generer} disabled={genBusy}>
