@@ -446,7 +446,7 @@ Deno.serve(async (req: Request) => {
       const aEnvoyer = (lignes as { nom: string; prenom: string | null; salaire_net: number | null; repos_non_pris: number }[])
         .filter((l) => Number(l.repos_non_pris) > 0);
 
-      const arrondi = (n: number) => (Math.round(n * 100) / 100).toString();
+      const arrondi = (n: number) => String(Math.round(n));
       const grille: string[][] = aEnvoyer.map((l) => {
         const prenomMaj = (l.prenom || "").toUpperCase();
         const netJour = typeof l.salaire_net === "number" ? l.salaire_net / 30 : 0;
