@@ -3476,8 +3476,17 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     RhSalaries.list(resto, unite).then((l) => {
       if (!on) return;
       setListe(l);
+      // La saison ouverte par défaut doit être l'année en cours (contrats actifs), jamais
+      // "Archives" : "Archives" trie APRÈS les années dans l'ordre alphabétique ("A" > "2"),
+      // donc prendre "la dernière valeur triée" ouvrait Archives par défaut — un fourre-tout
+      // de contrats terminés de plusieurs années mélangées, illisible pour le travail courant.
+      const anneeCourante = String(new Date().getFullYear());
       const saisons = Array.from(new Set(l.map((s) => s.saison))).sort();
-      setSaisonActive(saisons.length ? saisons[saisons.length - 1] : String(new Date().getFullYear()));
+      const saisonsAnnees = saisons.filter((s) => /^\d{4}$/.test(s));
+      const defaut = saisons.includes(anneeCourante)
+        ? anneeCourante
+        : (saisonsAnnees.length ? saisonsAnnees[saisonsAnnees.length - 1] : anneeCourante);
+      setSaisonActive(defaut);
     });
     return () => { on = false; };
   }, [resto, unite]);
