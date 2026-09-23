@@ -4300,9 +4300,27 @@ function ExtrasRH({ resto, unite, superviseur }) {
 
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
 
-      <div className="ig-noprint" style={{background:'#FBF3E4',border:'1.5px solid #E9D2A0',borderRadius:12,padding:'10px 16px',marginBottom:14,fontSize:12.5,lineHeight:1.5}}>
-        ℹ️ <b>Repères pour Heures / Taux net :</b> si c'est un forfait, mettez <b>1</b> dans « Heures » et indiquez le montant du forfait dans « Taux net € ».
-        Sinon, taux horaire net habituel : <b>15 €</b> — Commis, Runner, Plongeur, Officier, Hôtesse&nbsp;·&nbsp;<b>15 €</b> — CDR, CDP, Limonadier, Barman&nbsp;·&nbsp;<b>18 €</b> — Directeur, Chef, Chef Barman, Manager/Chef hôtesse.
+      <div className="ig-card ig-noprint" style={{padding:'14px 18px',marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+          <span style={{fontSize:20}}>💡</span>
+          <span style={{fontWeight:800,fontSize:13,textTransform:'uppercase',letterSpacing:'.4px',color:'var(--ink)'}}>Repères pour saisir un extra</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:10,background:'#FBF3E4',border:'1.5px solid #E9D2A0',borderRadius:10,padding:'8px 14px',marginBottom:12,fontSize:13}}>
+          <span style={{fontSize:18,flexShrink:0}}>🧾</span>
+          <span><b>Forfait ?</b> Mettez <b>1</b> dans « Heures » et le montant du forfait dans « Taux net € ».</span>
+        </div>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          {[
+            { taux: "15 €", postes: "Commis, Runner, Plongeur, Officier, Hôtesse", couleur: "var(--sea)" },
+            { taux: "15 €", postes: "CDR, CDP, Limonadier, Barman", couleur: "var(--coral)" },
+            { taux: "18 €", postes: "Directeur, Chef, Chef Barman, Manager/Chef hôtesse", couleur: "var(--ink)" },
+          ].map((r, i) => (
+            <div key={i} style={{flex:'1 1 220px',display:'flex',alignItems:'center',gap:12,background:'var(--sand)',borderRadius:12,padding:'10px 14px'}}>
+              <div style={{width:46,height:46,borderRadius:'50%',background:r.couleur,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:13,flexShrink:0}}>{r.taux}</div>
+              <div style={{fontSize:12.5,color:'var(--ink-soft)',lineHeight:1.4}}>{r.postes}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}>
