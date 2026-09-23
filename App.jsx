@@ -644,6 +644,9 @@ const kPointages = (resto, sem) => `pointages:${slugKey(resto)}:${sem}`;
 const kRoster = (resto) => `roster:${slugKey(resto)}`;
 // Modèle de planning enregistré pour le restaurant : { idSalarie: { 0..6 } }
 const kModele = (resto) => `modele:${slugKey(resto)}`;
+// Shifts prêts à l'emploi (ex : "matin" 09:00-17:00) propres à l'établissement, proposés en
+// raccourci quand on édite le créneau d'un jour : [{ id, nom, debut, fin, pause }, ...].
+const kShifts = (resto) => `shifts:${slugKey(resto)}`;
 // Correspondance PayFit (identifiant + matricule) tenue à jour par le superviseur, en plus
 // de PAYFIT_IDS codé en dur. Une clé PAR ÉTABLISSEMENT : chaque resto a son propre fichier
 // PayFit, on évite ainsi tout mélange entre établissements (homonymes, etc.).
@@ -966,7 +969,7 @@ function PlanningCell({ p, editable, onClick }) {
 }
 
 // ---------- Modal d'édition d'un créneau (manager) ----------
-function EditModal({ jour, jourLabel, emp, p, onSave, onClose }) {
+function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
   const [statut, setStatut] = useState(p.statut || STATUTS.TRAVAIL);
   const [debut, setDebut] = useState(p.debut || "09:00");
   const [fin, setFin] = useState(p.fin || "17:00");
@@ -994,6 +997,16 @@ function EditModal({ jour, jourLabel, emp, p, onSave, onClose }) {
   // Aperçu du total d'heures pour ce jour (hors pause), tient compte de la coupure.
   const apercu = dureeJour({ statut, debut, fin, pause, coupure, debut2, fin2 });
 
+  // Applique un shift prêt à l'emploi (ex : "matin" 09:00-17:00) : remplit directement les
+  // horaires, en repassant en statut Travail et sans coupure (un shift = un seul créneau).
+  function appliquerShift(s) {
+    setStatut(STATUTS.TRAVAIL);
+    setCoupure(false);
+    setDebut(s.debut);
+    setFin(s.fin);
+    setPause(s.pause);
+  }
+
   const montreHoraires = statut === STATUTS.TRAVAIL || statut === STATUTS.DEMI_CP;
   return (
     <div className="ig-overlay" onClick={onClose}>
@@ -1011,6 +1024,16 @@ function EditModal({ jour, jourLabel, emp, p, onSave, onClose }) {
             <option value={STATUTS.SANS_SOLDE}>Congé sans solde (CSS)</option>
           </select>
         </div>
+        {montreHoraires && shifts && shifts.length > 0 && (
+          <div className="ig-field">
+            <label>Shifts prêts à l'emploi</label>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {shifts.map((s) => (
+                <button key={s.id} type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>appliquerShift(s)} title={`${s.debut}–${s.fin} · ${s.pause}h pause`}>⚡ {s.nom}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {statut === STATUTS.DEMI_CP && (
           <div className="ig-field">
             <label>Demi-journée de congé</label>
@@ -1775,6 +1798,8 @@ function ManagerView({ resto, onBack, superviseur }) {
   const [loading, setLoading] = useState(true);
   const [roster, setRoster] = useState({ ajouts: [], departs: {} });
   const [modele, setModele] = useState(null); // planning modèle enregistré pour le resto
+  const [shifts, setShifts] = useState([]); // shifts prêts à l'emploi de l'établissement
+  const [gererShifts, setGererShifts] = useState(false); // modale de gestion des shifts ouverte
   const [gestion, setGestion] = useState(null); // salarié en cours de gestion
   const [ajout, setAjout] = useState(false);    // formulaire d'ajout ouvert
   const [flash, setFlash] = useState("");        // message de confirmation éphémère
@@ -1906,6 +1931,14 @@ function ManagerView({ resto, onBack, superviseur }) {
     });
     return () => { on = false; };
   }, [resto, sem]);
+
+  // Shifts prêts à l'emploi : propres à l'établissement, pas à la semaine (pas besoin de
+  // recharger à chaque changement de semaine).
+  useEffect(() => {
+    let on = true;
+    Store.get(kShifts(resto)).then((s) => { if (on) setShifts(s || []); });
+    return () => { on = false; };
+  }, [resto]);
 
   // Alerte : salariés prévus en travail HIER mais qui n'ont pas confirmé leur présence.
   // Basée sur la vraie date d'hier, indépendamment de la semaine affichée.
@@ -2278,6 +2311,7 @@ function ManagerView({ resto, onBack, superviseur }) {
         <>
           <div className="ig-noprint" style={{display:'flex',gap:10,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
             <button className="ig-btn ig-btn-ghost" onClick={()=>setAjout(true)}>+ Ajouter un salarié</button>
+            <button className="ig-btn ig-btn-ghost" onClick={()=>setGererShifts(true)} title="Créer des horaires-types réutilisables (ex : « matin » 09:00-17:00), proposés en raccourci quand on édite le créneau d'un jour">⚡ Gérer les shifts</button>
             <button className="ig-btn ig-btn-ghost" onClick={()=>{ setModeSelect((v)=>!v); setSelection(new Set()); setConfirmLot(false); }} style={modeSelect?{borderColor:'var(--coral-d)',color:'var(--coral-d)'}:undefined}>🧹 {modeSelect?"Terminer le nettoyage":"Nettoyer l'effectif"}</button>
             <button className="ig-btn ig-btn-ghost" onClick={enregistrerModele} disabled={Object.keys(planning).length===0} title="Mémoriser les horaires de cette semaine comme modèle">★ Enregistrer comme modèle</button>
             {superviseur && (
@@ -2424,6 +2458,7 @@ function ManagerView({ resto, onBack, superviseur }) {
           jourLabel={JOURS[edit.jour]}
           emp={edit.emp}
           p={(planning[idSalarie(edit.emp)] && planning[idSalarie(edit.emp)][edit.jour]) || {statut:STATUTS.TRAVAIL,debut:"09:00",fin:"17:00",pause:1}}
+          shifts={shifts}
           onSave={(data)=>saveCell(edit.emp, edit.jour, data)}
           onClose={()=>setEdit(null)}
         />
@@ -2454,6 +2489,13 @@ function ManagerView({ resto, onBack, superviseur }) {
       )}
       {histo && (
         <HistoriqueModal titre={histo.titre} cle={histo.cle} onRestaurer={histo.onRestaurer} onClose={()=>setHisto(null)} />
+      )}
+      {gererShifts && (
+        <GestionShiftsModal
+          shifts={shifts}
+          onSave={(next)=>{ setShifts(next); Store.set(kShifts(resto), next); }}
+          onClose={()=>setGererShifts(false)}
+        />
       )}
     </div>
   );
@@ -2502,6 +2544,75 @@ function HistoriqueModal({ titre, cle, onRestaurer, onClose }) {
         )}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Modal Gestion des shifts prêts à l'emploi (raccourcis d'horaires) ----------
+function GestionShiftsModal({ shifts, onSave, onClose }) {
+  const [liste, setListe] = useState(shifts);
+  const [nom, setNom] = useState("");
+  const [debut, setDebut] = useState("09:00");
+  const [fin, setFin] = useState("17:00");
+  const [pause, setPause] = useState(1);
+  const [erreur, setErreur] = useState("");
+
+  function ajouter() {
+    if (!nom.trim()) { setErreur("Donnez un nom au shift (ex : matin)."); return; }
+    setErreur("");
+    const next = [...liste, { id: Date.now(), nom: nom.trim(), debut, fin, pause }];
+    setListe(next);
+    onSave(next);
+    setNom(""); setDebut("09:00"); setFin("17:00"); setPause(1);
+  }
+  function supprimer(id) {
+    const next = liste.filter((s) => s.id !== id);
+    setListe(next);
+    onSave(next);
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:480}}>
+        <h3>Gérer les shifts</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>Créez des horaires-types réutilisables (ex : « matin » 09:00-17:00), proposés en raccourci quand vous éditez le créneau d'un jour dans le planning.</div>
+        {liste.length === 0 ? (
+          <div className="ig-muted" style={{marginBottom:14}}>Aucun shift pour le moment.</div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16}}>
+            {liste.map((s) => (
+              <div key={s.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',border:'1px solid var(--line)',borderRadius:10}}>
+                <b style={{minWidth:80}}>{s.nom}</b>
+                <span className="ig-muted" style={{fontSize:13}}>{s.debut}–{s.fin} · {s.pause}h pause</span>
+                <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto',color:'var(--coral-d)'}} onClick={()=>supprimer(s.id)}>Supprimer</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="ig-field">
+          <label>Nom du shift</label>
+          <input value={nom} onChange={(e)=>setNom(e.target.value)} placeholder="Ex : matin" />
+        </div>
+        <div className="ig-times">
+          <div>
+            <input type="time" value={debut} onChange={(e)=>setDebut(e.target.value)} />
+            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Début</div>
+          </div>
+          <div>
+            <input type="time" value={fin} onChange={(e)=>setFin(e.target.value)} />
+            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Fin</div>
+          </div>
+          <div>
+            <input type="number" min="0" max="4" step="0.5" value={pause} onChange={(e)=>setPause(parseFloat(e.target.value)||0)} />
+            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Pause (h)</div>
+          </div>
+        </div>
+        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:8,fontWeight:600}}>{erreur}</div>}
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={ajouter}>+ Ajouter ce shift</button>
         </div>
       </div>
     </div>
