@@ -506,10 +506,16 @@ const RhSalaries = {
   // Retire des fiches de la vue courante du directeur sans rien supprimer : bascule leur
   // saison vers celle choisie ("Archives" par défaut, ou n'importe quel nom de saison —
   // "2025", "2026"... — choisi à la volée), consultable via l'onglet de saison correspondant.
+  // Un à un (pas en un seul lot) : si une fiche entre en conflit avec une autre déjà
+  // présente dans la saison cible (même salarié déjà archivé là-bas — contrainte
+  // resto+salarie_id+saison), elle seule échoue, sans bloquer le déplacement des autres.
   async archiverPlusieurs(ids, saisonCible = "Archives") {
-    const { error } = await supabase.from("rh_salaries").update({ saison: saisonCible }).in("id", ids);
-    if (error) { console.error("RhSalaries.archiverPlusieurs:", error.message); return false; }
-    return true;
+    const echecs = [];
+    for (const id of ids) {
+      const { error } = await supabase.from("rh_salaries").update({ saison: saisonCible }).eq("id", id);
+      if (error) { console.error("RhSalaries.archiverPlusieurs:", id, error.message); echecs.push({ id, erreur: error.message }); }
+    }
+    return { ok: echecs.length === 0, echecs };
   },
 };
 
@@ -3551,12 +3557,19 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     if (!saisie || !saisie.trim()) return;
     const saisonCible = saisie.trim();
     const ids = Array.from(selection);
-    const ok = await RhSalaries.archiverPlusieurs(ids, saisonCible);
+    const { ok, echecs } = await RhSalaries.archiverPlusieurs(ids, saisonCible);
+    const idsEchecs = new Set(echecs.map((e) => e.id));
+    const idsReussis = ids.filter((id) => !idsEchecs.has(id));
+    if (idsReussis.length > 0) {
+      setListe(liste.map((s) => (idsReussis.includes(s.id) ? { ...s, saison: saisonCible } : s)));
+      setSelection(new Set(idsEchecs));
+    }
     if (ok) {
-      setListe(liste.map((s) => (ids.includes(s.id) ? { ...s, saison: saisonCible } : s)));
-      setSelection(new Set());
-      montrerFlash(`${ids.length} fiche${ids.length>1?'s':''} déplacée${ids.length>1?'s':''} vers la saison "${saisonCible}".`);
-    } else montrerErreur("Le déplacement a échoué. Réessayez.");
+      montrerFlash(`${idsReussis.length} fiche${idsReussis.length>1?'s':''} déplacée${idsReussis.length>1?'s':''} vers la saison "${saisonCible}".`);
+    } else {
+      const noms = echecs.map(({ id }) => { const s = liste.find((x) => x.id === id); return s ? `${s.prenom || ""} ${s.nom || ""}`.trim() : id; });
+      montrerErreur(`${idsReussis.length} fiche${idsReussis.length>1?'s':''} déplacée${idsReussis.length>1?'s':''}, mais ${echecs.length} en échec (probablement déjà présent${echecs.length>1?'s':''} dans "${saisonCible}") : ${noms.join(", ")}. Détail technique : ${echecs[0].erreur}`);
+    }
   }
 
   // Édition directe dans le tableau (comme un tableur) : met à jour l'affichage tout de
