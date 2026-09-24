@@ -18,7 +18,12 @@
 // automatiquement par Supabase (aucun secret à configurer manuellement). Pour "envoyerEmail",
 // il faut en plus configurer SMTP_USER et SMTP_PASSWORD (voir plus bas).
 
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+// nodemailer (via l'import npm: de Deno) plutôt que denomailer : ce dernier a un bug de
+// composition MIME (sauts de ligne mal encodés dans les frontières) qui faisait que Gmail
+// affichait le message brut au lieu de le rendre, non résolu même avec son option de debug
+// documentée pour ce symptôme. nodemailer est la librairie d'envoi SMTP la plus utilisée et
+// la mieux éprouvée, en particulier avec Gmail et les pièces jointes.
+import nodemailer from "npm:nodemailer@6.9.14";
 
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").trim();
 const SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
@@ -131,42 +136,32 @@ Deno.serve(async (req) => {
       if (!to || !sujet || (!html && !texte)) return json({ error: "champs_manquants" }, 400);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(to))) return json({ error: "email_invalide" }, 400);
 
-      // "encodeLB: true" corrige un bug connu de denomailer où les sauts de ligne mal
-      // encodés dans les frontières MIME font que Gmail affiche le message brut
-      // (en-têtes/boundaries) au lieu de la lettre mise en forme.
-      const client = new SMTPClient({
-        connection: {
-          hostname: "smtp.gmail.com",
-          port: 465,
-          tls: true,
-          auth: { username: SMTP_USER, password: SMTP_PASSWORD },
-        },
-        debug: { encodeLB: true },
+      const transporteur = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true,
+        auth: { user: SMTP_USER, pass: SMTP_PASSWORD },
       });
       try {
-        await client.send({
+        await transporteur.sendMail({
           from: `${SMTP_FROM_NOM} <${SMTP_USER}>`,
           to: String(to),
           subject: String(sujet),
-          content: String(texte || " "),
+          text: String(texte || " "),
           ...(html ? { html: String(html) } : {}),
           // Pièce jointe (ex : la promesse d'embauche en PDF, générée côté navigateur puis
-          // envoyée ici en base64). "encoding: base64" : denomailer la reconvertit lui-même
-          // en binaire, il ne faut donc jamais lui donner un fichier déjà en base64 "pour de
-          // vrai" (texte binaire brut) sous cet encodage — voir sa documentation.
+          // envoyée ici en base64).
           ...(pdfBase64 ? {
             attachments: [{
               filename: String(nomFichier || "document.pdf"),
-              contentType: "application/pdf",
-              encoding: "base64" as const,
               content: String(pdfBase64),
+              encoding: "base64",
+              contentType: "application/pdf",
             }],
           } : {}),
         });
       } catch (e) {
         return json({ error: "envoi_echoue", detail: String((e as Error)?.message || e) }, 500);
-      } finally {
-        await client.close();
       }
       return json({ ok: true });
     }
