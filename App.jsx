@@ -4883,9 +4883,16 @@ const PRIME_CHAMPS_MAJ = new Set(["raison", "etablissement_prime", "nom_salarie"
 // Formulaire d'ajout/édition d'une prime — tous les champs texte passent automatiquement
 // en majuscule à la sauvegarde (raison demandée par Océane : uniformiser sans lui imposer
 // une liste fermée de catégories, juste éviter les variantes de casse comme dans son Excel).
-function PrimeModal({ prime, resto, restaurants, moisDefaut, anneeDefaut, onSave, onClose }) {
+// Date par défaut d'une nouvelle prime : toujours le 30 du mois affiché (convention
+// d'Océane pour dater ses primes), sauf en février où l'on retombe sur le dernier jour
+// réel du mois (28 ou 29) puisqu'il n'a jamais de 30.
+function dateDefautPrime(annee, moisNum) {
+  const dernierJour = new Date(annee, moisNum, 0).getDate();
+  return dateISOLocale(new Date(annee, moisNum - 1, Math.min(30, dernierJour)));
+}
+function PrimeModal({ prime, resto, restaurants, moisDefaut, moisNumDefaut, anneeDefaut, onSave, onClose }) {
   const [f, setF] = useState(() => prime || {
-    date_prime: dateISOLocale(new Date()), raison: "", etablissement_prime: resto,
+    date_prime: dateDefautPrime(anneeDefaut, moisNumDefaut), raison: "", etablissement_prime: resto,
     nom_salarie: "", prenom_salarie: "", etablissement_origine: resto, nombre: 1,
     prime_unitaire_net: "", prime_unitaire_brut: "", prime_totale_net: "", prime_totale_brute: "",
     cout_total: "", mois_salaire: moisDefaut, annee: anneeDefaut, statut: "",
@@ -5113,6 +5120,7 @@ function PrimesRH({ resto, restaurants, superviseur }) {
           resto={resto}
           restaurants={restaurants}
           moisDefaut={moisMaj}
+          moisNumDefaut={moisNum}
           anneeDefaut={annee}
           onSave={enregistrer}
           onClose={()=>setModal(null)}
