@@ -587,7 +587,11 @@ Deno.serve(async (req: Request) => {
     // Colonnes fixes (même ordre que le fichier Excel historique d'Océane) :
     // 0 Date, 1 Raison, 2 Étab. concerné, 3 Nom, 4 Prénom, 5 Étab. origine, 6 Nbr de prime,
     // 7 Prime unitaire net, 8 Prime unitaire brut, 9 Prime totale net, 10 Prime totale brute,
-    // 11 Prime coût total, 12 Mois salaire, 13 Année, 14 Statut.
+    // 11 Prime coût total, 12 Mois salaire, 13 Année.
+    // Colonne 14 ("silae OK ?") n'est JAMAIS écrite ici, même principe que "Payfit" pour les
+    // Extras : c'est Océane qui la coche à la main une fois le traitement en paie fait. La
+    // grille de son Sheet s'arrête pile à 14 colonnes (A à N) — y écrire fait échouer
+    // l'appel entier ("exceeds grid limits").
     if (action === "upsertPrime") {
       const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
       if (!appelant) return json({ error: "non_authentifie" }, 401);
@@ -627,7 +631,6 @@ Deno.serve(async (req: Request) => {
         { colonne: 11, valeur: val(c.cout_total) },
         { colonne: 12, valeur: val(c.mois_salaire) },
         { colonne: 13, valeur: val(c.annee) },
-        { colonne: 14, valeur: val(c.statut) },
       ];
 
       const data = cellules.map(({ colonne, valeur }) => ({
