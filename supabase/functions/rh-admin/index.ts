@@ -131,6 +131,9 @@ Deno.serve(async (req) => {
       if (!to || !sujet || !html) return json({ error: "champs_manquants" }, 400);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(to))) return json({ error: "email_invalide" }, 400);
 
+      // "encodeLB: true" corrige un bug connu de denomailer où les sauts de ligne mal
+      // encodés dans les frontières MIME font que Gmail affiche le message brut
+      // (en-têtes/boundaries) au lieu de la lettre mise en forme.
       const client = new SMTPClient({
         connection: {
           hostname: "smtp.gmail.com",
@@ -138,6 +141,7 @@ Deno.serve(async (req) => {
           tls: true,
           auth: { username: SMTP_USER, password: SMTP_PASSWORD },
         },
+        debug: { encodeLB: true },
       });
       try {
         await client.send({
