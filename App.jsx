@@ -503,10 +503,11 @@ const RhSalaries = {
     if (error) { console.error("RhSalaries.supprimerPlusieurs:", error.message); return false; }
     return true;
   },
-  // Retire des contrats terminés de la vue courante du directeur sans rien supprimer : bascule
-  // leur saison sur "Archives", consultable via l'onglet de saison dédié.
-  async archiverPlusieurs(ids) {
-    const { error } = await supabase.from("rh_salaries").update({ saison: "Archives" }).in("id", ids);
+  // Retire des fiches de la vue courante du directeur sans rien supprimer : bascule leur
+  // saison vers celle choisie ("Archives" par défaut, ou n'importe quel nom de saison —
+  // "2025", "2026"... — choisi à la volée), consultable via l'onglet de saison correspondant.
+  async archiverPlusieurs(ids, saisonCible = "Archives") {
+    const { error } = await supabase.from("rh_salaries").update({ saison: saisonCible }).in("id", ids);
     if (error) { console.error("RhSalaries.archiverPlusieurs:", error.message); return false; }
     return true;
   },
@@ -3541,6 +3542,22 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     if (ok) { setListe(liste.filter((s) => !selection.has(s.id))); setSelection(new Set()); montrerFlash(`${ids.length} fiche${ids.length>1?'s':''} supprimée${ids.length>1?'s':''}.`); }
     else montrerErreur("La suppression a échoué. Réessayez.");
   }
+  // Archive la sélection vers la saison de son choix (existante ou nouvelle) : permet de
+  // choisir précisément qui va dans quel "dossier" (2025, 2026, Archives...), au lieu de
+  // dépendre uniquement de l'archivage automatique par date de fin dépassée.
+  async function archiverSelectionVers() {
+    if (selection.size === 0) return;
+    const saisie = prompt(`Vers quelle saison archiver ${selection.size} fiche${selection.size>1?'s':''} ? (ex : 2025, Archives...)`, "Archives");
+    if (!saisie || !saisie.trim()) return;
+    const saisonCible = saisie.trim();
+    const ids = Array.from(selection);
+    const ok = await RhSalaries.archiverPlusieurs(ids, saisonCible);
+    if (ok) {
+      setListe(liste.map((s) => (ids.includes(s.id) ? { ...s, saison: saisonCible } : s)));
+      setSelection(new Set());
+      montrerFlash(`${ids.length} fiche${ids.length>1?'s':''} déplacée${ids.length>1?'s':''} vers la saison "${saisonCible}".`);
+    } else montrerErreur("Le déplacement a échoué. Réessayez.");
+  }
 
   // Édition directe dans le tableau (comme un tableur) : met à jour l'affichage tout de
   // suite, puis enregistre la seule case modifiée.
@@ -3658,9 +3675,14 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
         <span className="ig-muted" style={{fontSize:12}}>Filtre/tri par couleur : cliquez « Couleur ▾ » dans le tableau.</span>
         {(filtresActifs || triCouleur) && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); setTriCouleur(null); }}>✕ Réinitialiser les filtres</button>}
         {selection.size > 0 && (
-          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={supprimerSelection} style={{marginLeft:'auto',color:'var(--coral-d)'}}>
-            🗑 Supprimer la sélection ({selection.size})
-          </button>
+          <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverSelectionVers}>
+              📦 Archiver la sélection vers… ({selection.size})
+            </button>
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={supprimerSelection} style={{color:'var(--coral-d)'}}>
+              🗑 Supprimer la sélection ({selection.size})
+            </button>
+          </div>
         )}
       </div>
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
