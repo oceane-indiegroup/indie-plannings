@@ -1317,22 +1317,29 @@ function genererDocumentsExtra(extra, etabsJ) {
 // indépendant de l'établissement concerné par l'offre (modifiable ici si besoin).
 const LIEU_SIGNATURE_PROMESSE = "Ramatuelle";
 
-// Style dédié à la promesse d'embauche : une lettre courte, pas un contrat à articles —
-// délibérément distinct de STYLE_CONTRAT (paragraphes justifiés, sections numérotées) qui ne
-// convenait pas du tout à ce format, d'où la mise en page "catastrophique" au premier essai.
+// Style dédié à la promesse d'embauche, calqué sur la mise en page exacte du modèle fourni
+// par Océane : logo centré en haut, bloc société aligné à gauche (raison sociale en style
+// manuscrit, comme le "cherry" du modèle), titre centré souligné, date alignée à droite,
+// puis le corps de la lettre. Délibérément distinct de STYLE_CONTRAT (paragraphes justifiés,
+// sections numérotées) qui ne convenait pas à ce format.
 const STYLE_PROMESSE = `
-  h1 { font-size:17px; letter-spacing:1px; margin:28px 0 26px; }
-  .entete { text-align:center; font-size:12.5px; line-height:1.6; margin-bottom:6px; }
-  p { font-size:13.5px; line-height:1.7; text-align:left; margin:0 0 16px; }
+  h1 { font-size:16px; letter-spacing:.5px; text-decoration:underline; margin:30px 0 26px; }
+  .logo { text-align:center; margin-bottom:30px; }
+  .logo img { max-height:90px; }
+  .raison-sociale { font-family:'Brush Script MT','Segoe Script',cursive; font-style:italic; font-size:22px; margin-bottom:10px; }
+  .entete { text-align:left; font-size:12px; line-height:1.6; margin-bottom:28px; }
+  .entete b { font-weight:700; }
+  .date-lieu { text-align:right; font-size:13px; margin-bottom:18px; }
+  p { font-size:13px; line-height:1.7; text-align:left; margin:0 0 14px; }
   .manque { color:#B23A2E; font-weight:700; }
-  .signature { margin-top:38px; }
-  .signature img { display:block; max-height:110px; margin-top:8px; }
+  .signature { margin-top:34px; text-align:right; }
+  .signature img { display:inline-block; max-height:110px; margin-top:6px; }
 `;
 
 // Construit le corps HTML d'une promesse d'embauche, sur le modèle du document fourni par
-// Océane (PROMESSE_EMBAUCHE___CHERRY_PARIS.docx) : en-tête société, civilité + identité du
-// salarié, poste/établissement/date de début/type de contrat, rémunération, formule de
-// politesse, puis la signature/tampon de l'établissement (si renseignée dans sa fiche
+// Océane (PROMESSE_EMBAUCHE___CHERRY_PARIS.docx) : logo, en-tête société, civilité + identité
+// du salarié, poste/établissement/date de début/type de contrat, rémunération, formule de
+// politesse, puis la signature/tampon de l'établissement (si renseignées dans sa fiche
 // juridique). Les champs manquants sont signalés en rouge plutôt que laissés silencieusement
 // vides, comme pour le contrat de prêt de main-d'œuvre.
 function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
@@ -1347,8 +1354,9 @@ function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
     ? `${esc(String(salarie.salaire_net))} € net par mois` : '<span class="manque">[salaire à compléter]</span>';
   const siren = etabJ && etabJ.siret ? etabJ.siret.replace(/\s+/g, "").slice(0, 9) : "";
   return `
+    ${etabJ && etabJ.logo ? `<div class="logo"><img src="${etabJ.logo}" alt="Logo" /></div>` : ""}
     <div class="entete">
-      <b>${valEtab(etabJ,'raisonSociale')}</b><br>
+      <div class="raison-sociale">${valEtab(etabJ,'raisonSociale')}</div>
       ${valEtab(etabJ,'adresse')}<br>
       ${valEtab(etabJ,'cp')} ${valEtab(etabJ,'ville')}<br>
       Au capital de ${valEtab(etabJ,'capital')}<br>
@@ -1357,14 +1365,14 @@ function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
       Code NAF : ${valEtab(etabJ,'ape')}
     </div>
     <h1 style="text-align:center">PROMESSE D'EMBAUCHE</h1>
-    <p>À ${esc(LIEU_SIGNATURE_PROMESSE)}, le ${dateFr}</p>
+    <div class="date-lieu">À ${esc(LIEU_SIGNATURE_PROMESSE)}, le ${dateFr}</div>
     <p>${civilite ? esc(civilite) + " " : ""}${esc((salarie.nom || "").toUpperCase())} ${esc(salarie.prenom || "")}</p>
     <p>Nous avons le plaisir de vous confirmer par la présente notre volonté de vous intégrer au sein de notre équipe en qualité de <b>${esc(salarie.poste || "")}</b> de <b>${esc(salarie.resto || "")}</b>, à compter du <b>${dateDebutFr}</b> en ${typeContratTxt}.</p>
     <p>La rémunération mensuelle associée à ce poste sera de <b>${salaire}</b>.</p>
     <p>Dans l'attente de vous accueillir officiellement au sein de notre structure, nous vous prions d'agréer, ${civilite || "Madame, Monsieur"}, l'expression de nos salutations distinguées.</p>
     <div class="signature">
       Signature de l'entreprise
-      ${etabJ && etabJ.tampon ? `<img src="${etabJ.tampon}" alt="Signature" />` : '<div class="manque" style="margin-top:8px">[aucune signature/tampon enregistrée pour cet établissement]</div>'}
+      ${etabJ && etabJ.tampon ? `<br><img src="${etabJ.tampon}" alt="Signature" />` : '<div class="manque" style="margin-top:8px">[aucune signature/tampon enregistrée pour cet établissement]</div>'}
     </div>
   `;
 }
@@ -1817,17 +1825,17 @@ function AjoutModal({ resto, onAjouter, onClose }) {
 
 // ---------- Modal Fiche juridique d'un établissement (requis pour générer les contrats) ----------
 function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
-  const [f, setF] = useState({ raisonSociale: "", adresse: "", cp: "", ville: "", capital: "", rcs: "", siret: "", ape: "", tampon: "", ...(valeurs || {}) });
+  const [f, setF] = useState({ raisonSociale: "", adresse: "", cp: "", ville: "", capital: "", rcs: "", siret: "", ape: "", tampon: "", logo: "", ...(valeurs || {}) });
   const champ = (label, key, placeholder) => (
     <div className="ig-field">
       <label>{label}</label>
       <input value={f[key]} onChange={(e)=>setF({ ...f, [key]: e.target.value })} placeholder={placeholder} />
     </div>
   );
-  function choisirTampon(file) {
+  function choisirImage(cle, file) {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setF((cur) => ({ ...cur, tampon: reader.result }));
+    reader.onload = () => setF((cur) => ({ ...cur, [cle]: reader.result }));
     reader.readAsDataURL(file);
   }
   return (
@@ -1848,11 +1856,20 @@ function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
           {champ("APE", "ape", "Ex : 5610A")}
         </div>
         <div className="ig-field">
+          <label>Logo (image)</label>
+          <div className="ig-muted" style={{fontSize:12,marginBottom:6}}>Affiché en haut des promesses d'embauche générées pour cet établissement.</div>
+          {f.logo && <img src={f.logo} alt="Logo" style={{maxHeight:70,display:'block',marginBottom:8,border:'1px solid var(--line)',borderRadius:8,padding:4}} />}
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input type="file" accept="image/*" onChange={(e)=>choisirImage('logo', e.target.files[0])} />
+            {f.logo && <button type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setF((cur)=>({ ...cur, logo: "" }))}>Retirer</button>}
+          </div>
+        </div>
+        <div className="ig-field">
           <label>Signature / tampon (image)</label>
           <div className="ig-muted" style={{fontSize:12,marginBottom:6}}>Utilisée sur les promesses d'embauche générées pour cet établissement.</div>
           {f.tampon && <img src={f.tampon} alt="Tampon" style={{maxHeight:70,display:'block',marginBottom:8,border:'1px solid var(--line)',borderRadius:8,padding:4}} />}
           <div style={{display:'flex',gap:8,alignItems:'center'}}>
-            <input type="file" accept="image/*" onChange={(e)=>choisirTampon(e.target.files[0])} />
+            <input type="file" accept="image/*" onChange={(e)=>choisirImage('tampon', e.target.files[0])} />
             {f.tampon && <button type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setF((cur)=>({ ...cur, tampon: "" }))}>Retirer</button>}
           </div>
         </div>
