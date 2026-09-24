@@ -616,6 +616,32 @@ const RhSalaries = {
   },
 };
 
+// ---------- Primes / régularisations à transmettre pour la paie (Payfit) ----------
+// Réservé au superviseur (policy RLS dédiée, voir schema.sql) : remplace le fichier Excel
+// qu'Océane tenait à la main pour noter les primes communiquées avant chaque paie.
+const RhPrimes = {
+  async list() {
+    const { data, error } = await supabase.from("rh_primes").select("*").order("date_prime", { ascending: false });
+    if (error) { console.error("RhPrimes.list:", error.message); return []; }
+    return data || [];
+  },
+  async creer(row) {
+    const { data, error } = await supabase.from("rh_primes").insert(row).select().single();
+    if (error) { console.error("RhPrimes.creer:", error.message); return null; }
+    return data;
+  },
+  async maj(id, patch) {
+    const { data, error } = await supabase.from("rh_primes").update(patch).eq("id", id).select().single();
+    if (error) { console.error("RhPrimes.maj:", error.message); return null; }
+    return data;
+  },
+  async supprimer(id) {
+    const { error } = await supabase.from("rh_primes").delete().eq("id", id);
+    if (error) { console.error("RhPrimes.supprimer:", error.message); return false; }
+    return true;
+  },
+};
+
 // ---------- Repos hebdomadaire non pris (suivi mensuel + calcul du montant à payer) ----------
 const RhReposHebdo = {
   async list(resto, unite, mois) {
@@ -4783,6 +4809,255 @@ function VueGlobaleExtrasRH({ resto, unite }) {
   );
 }
 
+// Export xlsx des primes (mêmes colonnes que le fichier Excel qu'Océane tenait à la main),
+// avec identifiant/matricule PayFit ajoutés quand connus (même logique que l'export extras).
+function exporterPrimesRH(liste, nomFichier) {
+  const entete = [
+    "Date", "Raison", "Etablissement concerné par la PRIME", "Nom du salarié", "Prénom du salarié",
+    "Identifiant PayFit", "Matricule", "Etablissement d'origine", "Nbr de prime",
+    "PRIME unitaire net", "PRIME unitaire brut", "Prime Totale Net", "Prime Totale Brute",
+    "Prime Coût Total", "Mois Salaire", "ANNEE", "Statut",
+  ];
+  const aoa = [entete];
+  liste.forEach((x) => {
+    const pf = PAYFIT_IDS[idSalarie({ n: x.nom_salarie, p: x.prenom_salarie })] || ["", ""];
+    aoa.push([
+      x.date_prime ? fmtDate(new Date(x.date_prime + "T00:00:00")) : "", x.raison, x.etablissement_prime,
+      x.nom_salarie, x.prenom_salarie, pf[0], pf[1], x.etablissement_origine, x.nombre,
+      x.prime_unitaire_net, x.prime_unitaire_brut, x.prime_totale_net, x.prime_totale_brute,
+      x.cout_total, x.mois_salaire, x.annee, x.statut,
+    ]);
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "Primes");
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomFichier;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+const PRIME_CHAMPS_MAJ = new Set(["raison", "etablissement_prime", "nom_salarie", "prenom_salarie", "etablissement_origine", "mois_salaire", "statut"]);
+
+// Formulaire d'ajout/édition d'une prime — tous les champs texte passent automatiquement
+// en majuscule à la sauvegarde (raison demandée par Océane : uniformiser sans lui imposer
+// une liste fermée de catégories, juste éviter les variantes de casse comme dans son Excel).
+function PrimeModal({ prime, restaurants, onSave, onClose }) {
+  const [f, setF] = useState(() => prime || {
+    date_prime: dateISOLocale(new Date()), raison: "", etablissement_prime: restaurants[0] || "",
+    nom_salarie: "", prenom_salarie: "", etablissement_origine: restaurants[0] || "", nombre: 1,
+    prime_unitaire_net: "", prime_unitaire_brut: "", prime_totale_net: "", prime_totale_brute: "",
+    cout_total: "", mois_salaire: MOIS_NOMS[new Date().getMonth()].toUpperCase(), annee: new Date().getFullYear(), statut: "",
+  });
+  // Recherche du salarié (tous établissements confondus, même moteur que l'ajout d'extra) :
+  // en choisir un remplit automatiquement nom/prénom ET son établissement d'origine, pour
+  // que la nomenclature reste cohérente sans ressaisie — demande explicite d'Océane. On
+  // garde quand même nom_salarie/prenom_salarie éditables juste en dessous, pour les cas où
+  // la personne n'est plus dans le Registre Embauche (ancien salarié, ou fiche à corriger).
+  const [recherche, setRecherche] = useState("");
+  const [resultats, setResultats] = useState([]);
+  const [rechBusy, setRechBusy] = useState(false);
+  useEffect(() => {
+    const q = recherche.trim();
+    if (q.length < 2) { setResultats([]); return; }
+    let on = true;
+    setRechBusy(true);
+    const t = setTimeout(() => {
+      RhAdmin.rechercherSalaries(q).then((r) => { if (on) { setResultats(r); setRechBusy(false); } });
+    }, 300);
+    return () => { on = false; clearTimeout(t); };
+  }, [recherche]);
+  function choisirSalarie(c) {
+    setF((cur) => ({ ...cur, nom_salarie: c.nom, prenom_salarie: c.prenom || "", etablissement_origine: c.resto }));
+    setRecherche("");
+    setResultats([]);
+  }
+  const champ = (label, cle, props = {}) => (
+    <div className="ig-field">
+      <label>{label}</label>
+      <input value={f[cle] ?? ""} onChange={(e)=>setF((cur)=>({ ...cur, [cle]: e.target.value }))} {...props} />
+    </div>
+  );
+  function valider() {
+    if (!f.raison.trim() || !f.nom_salarie.trim() || !f.prenom_salarie.trim()) { alert("Raison, nom et prénom sont obligatoires."); return; }
+    const patch = { ...f };
+    PRIME_CHAMPS_MAJ.forEach((c) => { if (patch[c]) patch[c] = patch[c].toUpperCase(); });
+    ["nombre","prime_unitaire_net","prime_unitaire_brut","prime_totale_net","prime_totale_brute","cout_total","annee"].forEach((c) => {
+      patch[c] = patch[c] === "" || patch[c] == null ? null : Number(patch[c]);
+    });
+    onSave(patch);
+  }
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:640}}>
+        <h3>{prime ? "Modifier la prime" : "Nouvelle prime"}</h3>
+        <div className="ig-field" style={{position:'relative',marginBottom:10}}>
+          <label>Rechercher le salarié (remplit nom/prénom/établissement automatiquement)</label>
+          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Tapez un nom (2 lettres minimum)…" />
+          {recherche.trim().length >= 2 && (rechBusy || resultats.length > 0) && (
+            <div className="ig-card" style={{position:'absolute',zIndex:5,left:0,right:0,marginTop:4,padding:6,maxHeight:220,overflowY:'auto'}}>
+              {rechBusy && <div className="ig-muted" style={{padding:8,fontSize:13}}>Recherche…</div>}
+              {!rechBusy && resultats.map((c) => (
+                <div key={c.id} style={{padding:'8px 10px',cursor:'pointer',borderRadius:8}}
+                  onClick={()=>choisirSalarie(c)} onMouseDown={(ev)=>ev.preventDefault()}>
+                  <b>{c.prenom} {c.nom}</b> <span className="ig-muted">· {c.poste || "—"} · {c.resto}</span>
+                </div>
+              ))}
+              {!rechBusy && resultats.length === 0 && <div className="ig-muted" style={{padding:8,fontSize:13}}>Aucun salarié ne correspond — renseignez nom/prénom/établissement à la main ci-dessous.</div>}
+            </div>
+          )}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          {champ("Date", "date_prime", { type: "date" })}
+          {champ("Raison", "raison")}
+          <div className="ig-field">
+            <label>Établissement concerné par la prime</label>
+            <select value={f.etablissement_prime} onChange={(e)=>setF((cur)=>({ ...cur, etablissement_prime: e.target.value }))}>
+              {restaurants.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div className="ig-field">
+            <label>Établissement d'origine du salarié</label>
+            <select value={f.etablissement_origine} onChange={(e)=>setF((cur)=>({ ...cur, etablissement_origine: e.target.value }))}>
+              {restaurants.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          {champ("Nom du salarié", "nom_salarie")}
+          {champ("Prénom du salarié", "prenom_salarie")}
+          {champ("Nombre de primes", "nombre", { type: "number" })}
+          {champ("Statut (OK, Facture...)", "statut")}
+          {champ("Prime unitaire net", "prime_unitaire_net", { type: "number" })}
+          {champ("Prime unitaire brut", "prime_unitaire_brut", { type: "number" })}
+          {champ("Prime totale net", "prime_totale_net", { type: "number" })}
+          {champ("Prime totale brute", "prime_totale_brute", { type: "number" })}
+          {champ("Coût total employeur", "cout_total", { type: "number" })}
+          {champ("Mois salaire", "mois_salaire")}
+          {champ("Année", "annee", { type: "number" })}
+        </div>
+        <div style={{display:'flex',gap:8,marginTop:16}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Module "Primes" — réservé au superviseur, transversal à tous les établissements (pas
+// rattaché à un seul resto comme les autres sections RH). Remplace le fichier Excel
+// qu'Océane tenait à la main pour noter les primes communiquées avant chaque paie, avec
+// un export prêt à réutiliser pour Payfit (mêmes colonnes que ce fichier Excel).
+function PrimesRH({ restaurants, onClose }) {
+  const [liste, setListe] = useState([]);
+  const [chargement, setChargement] = useState(true);
+  const [modal, setModal] = useState(null); // null | true (nouvelle) | {prime} (édition)
+  const [filtreAnnee, setFiltreAnnee] = useState("");
+  const [filtreMois, setFiltreMois] = useState("");
+
+  function charger() { RhPrimes.list().then((l) => { setListe(l); setChargement(false); }); }
+  useEffect(() => { charger(); }, []);
+
+  const annees = Array.from(new Set(liste.map((x) => x.annee).filter(Boolean))).sort((a,b)=>b-a);
+  const filtres = liste.filter((x) =>
+    (!filtreAnnee || String(x.annee) === filtreAnnee) &&
+    (!filtreMois || x.mois_salaire === filtreMois)
+  );
+
+  async function enregistrer(patch) {
+    if (modal && modal.prime) {
+      const maj = await RhPrimes.maj(modal.prime.id, patch);
+      if (maj) { setListe((l) => l.map((x) => x.id === maj.id ? maj : x)); setModal(null); }
+      else alert("La sauvegarde a échoué. Réessayez.");
+    } else {
+      const cree = await RhPrimes.creer(patch);
+      if (cree) { setListe((l) => [cree, ...l]); setModal(null); }
+      else alert("L'ajout a échoué. Réessayez.");
+    }
+  }
+  async function supprimer(x) {
+    if (!confirm(`Supprimer la prime de ${x.prenom_salarie} ${x.nom_salarie} (${x.raison}) ?`)) return;
+    const ok = await RhPrimes.supprimer(x.id);
+    if (ok) setListe((l) => l.filter((p) => p.id !== x.id));
+    else alert("La suppression a échoué.");
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:'96vw',width:1400}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:14}}>
+          <h3 style={{margin:0}}>💶 Primes</h3>
+          <span className="ig-muted" style={{fontSize:12.5}}>Visible uniquement par toi — sert à préparer tes exports Payfit.</span>
+          <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            {annees.length > 0 && (
+              <select value={filtreAnnee} onChange={(e)=>setFiltreAnnee(e.target.value)} style={{padding:'6px 8px',borderRadius:8,border:'1.5px solid var(--line)'}}>
+                <option value="">Toutes années</option>
+                {annees.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            )}
+            <select value={filtreMois} onChange={(e)=>setFiltreMois(e.target.value)} style={{padding:'6px 8px',borderRadius:8,border:'1.5px solid var(--line)'}}>
+              <option value="">Tous mois</option>
+              {MOIS_NOMS.map((m) => <option key={m} value={m.toUpperCase()}>{m}</option>)}
+            </select>
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>exporterPrimesRH(filtres, `Primes_${filtreAnnee || "toutes"}_${filtreMois || "tous"}.xlsx`)} disabled={filtres.length===0}>⬇ Exporter</button>
+            <button className="ig-btn ig-btn-ink ig-btn-sm" onClick={()=>setModal(true)}>+ Nouvelle prime</button>
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onClose}>✕ Fermer</button>
+          </div>
+        </div>
+        {chargement ? <div className="ig-muted">Chargement…</div> : filtres.length === 0 ? (
+          <div className="ig-muted">Aucune prime {liste.length>0 ? "pour ces filtres" : "pour le moment"}.</div>
+        ) : (
+          <div style={{overflow:'auto',maxHeight:'70vh'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5,whiteSpace:'nowrap'}}>
+              <thead>
+                <tr style={{textAlign:'center',borderBottom:'2px solid var(--sand-2)',background:'var(--sand)',position:'sticky',top:0}}>
+                  {["Date","Raison","Étab. prime","Nom","Prénom","Étab. origine","Nbr","Unit. net","Unit. brut","Total net","Total brut","Coût total","Mois","Année","Statut",""].map((h) => (
+                    <th key={h} style={{padding:'10px 8px',fontSize:12,fontWeight:800,textTransform:'uppercase',letterSpacing:'.3px'}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtres.map((x) => (
+                  <tr key={x.id} style={{borderTop:'1px solid var(--sand-2)',textAlign:'center'}}>
+                    <td style={{padding:'6px 8px'}}>{x.date_prime ? fmtDate(new Date(x.date_prime+"T00:00:00")) : "—"}</td>
+                    <td style={{padding:'6px 8px',textAlign:'left',maxWidth:220,whiteSpace:'normal'}}>{x.raison}</td>
+                    <td style={{padding:'6px 8px'}}>{x.etablissement_prime}</td>
+                    <td style={{padding:'6px 8px',fontWeight:700}}>{x.nom_salarie}</td>
+                    <td style={{padding:'6px 8px'}}>{x.prenom_salarie}</td>
+                    <td style={{padding:'6px 8px'}}>{x.etablissement_origine}</td>
+                    <td style={{padding:'6px 8px'}}>{x.nombre}</td>
+                    <td style={{padding:'6px 8px'}}>{x.prime_unitaire_net ?? "—"}</td>
+                    <td style={{padding:'6px 8px'}}>{x.prime_unitaire_brut ?? "—"}</td>
+                    <td style={{padding:'6px 8px'}}>{x.prime_totale_net ?? "—"}</td>
+                    <td style={{padding:'6px 8px'}}>{x.prime_totale_brute ?? "—"}</td>
+                    <td style={{padding:'6px 8px'}}>{x.cout_total ?? "—"}</td>
+                    <td style={{padding:'6px 8px'}}>{x.mois_salaire}</td>
+                    <td style={{padding:'6px 8px'}}>{x.annee}</td>
+                    <td style={{padding:'6px 8px'}}>{x.statut || "—"}</td>
+                    <td style={{padding:'6px 8px',display:'flex',gap:4}}>
+                      <button className="ig-btn ig-btn-ghost ig-btn-icon" title="Modifier" onClick={()=>setModal({ prime: x })}>📋</button>
+                      <button className="ig-btn ig-btn-ghost ig-btn-icon" title="Supprimer" style={{color:'var(--coral-d)'}} onClick={()=>supprimer(x)}>🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {modal && (
+          <PrimeModal
+            prime={modal.prime}
+            restaurants={restaurants}
+            onSave={enregistrer}
+            onClose={()=>setModal(null)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
@@ -4793,6 +5068,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   const [restoActif, setRestoActif] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].resto);
   const [uniteActive, setUniteActive] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].unite);
   const [gestionAcces, setGestionAcces] = useState(false);
+  const [primesOuvert, setPrimesOuvert] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -4841,10 +5117,12 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
         <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:10,alignItems:'center'}}>
           {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setPrimesOuvert(true)}>💶 Primes</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
         </div>
         <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} />
         {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
+        {primesOuvert && <PrimesRH restaurants={restaurants} onClose={()=>setPrimesOuvert(false)} />}
       </>
     );
   }
