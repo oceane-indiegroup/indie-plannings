@@ -3,20 +3,33 @@
 // depuis l'appli, sans jamais avoir besoin d'ouvrir Supabase.
 //
 // Actions :
-//   - "lister"    : renvoie tous les accès RH existants (email + établissement + unité).
-//   - "creer"     : crée le compte (ou réutilise un compte existant du même email) et
-//                   lui donne accès à un établissement + une unité.
-//   - "supprimer" : retire un accès précis (le compte reste, il perd juste ce droit-là).
+//   - "lister"       : renvoie tous les accès RH existants (email + établissement + unité).
+//   - "creer"        : crée le compte (ou réutilise un compte existant du même email) et
+//                      lui donne accès à un établissement + une unité.
+//   - "supprimer"     : retire un accès précis (le compte reste, il perd juste ce droit-là).
+//   - "envoyerEmail"  : envoie un email (ex : promesse d'embauche) à une adresse donnée,
+//                      via le compte Gmail/Google Workspace configuré (voir plus bas).
 //
 // Toutes les actions sont réservées au superviseur : vérifié en interrogeant Supabase
 // Auth avec le jeton de la personne qui appelle (pas en décodant le jeton nous-mêmes,
 // pour ne jamais faire confiance à un jeton qu'on n'a pas vérifié).
 //
 // Variables d'environnement : SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY, fournies
-// automatiquement par Supabase (aucun secret à configurer manuellement).
+// automatiquement par Supabase (aucun secret à configurer manuellement). Pour "envoyerEmail",
+// il faut en plus configurer SMTP_USER et SMTP_PASSWORD (voir plus bas).
+
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").trim();
 const SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+
+// Envoi d'email (ex : promesse d'embauche) via un compte Gmail / Google Workspace, en SMTP
+// avec un "mot de passe d'application" (jamais le vrai mot de passe du compte). À configurer
+// dans les secrets de la fonction Supabase : SMTP_USER (adresse d'envoi), SMTP_PASSWORD
+// (mot de passe d'application Google), SMTP_FROM_NOM (optionnel, nom affiché à l'expéditeur).
+const SMTP_USER = (Deno.env.get("SMTP_USER") ?? "").trim();
+const SMTP_PASSWORD = (Deno.env.get("SMTP_PASSWORD") ?? "").trim();
+const SMTP_FROM_NOM = (Deno.env.get("SMTP_FROM_NOM") ?? "Indie Group").trim();
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -106,6 +119,41 @@ Deno.serve(async (req) => {
     }
 
     if (!(await estSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+    // ---- Envoi d'un email (ex : promesse d'embauche) à une adresse donnée, via le compte
+    // Gmail/Google Workspace configuré en secrets (SMTP_USER + SMTP_PASSWORD = un "mot de
+    // passe d'application" Google, jamais le vrai mot de passe du compte). ----
+    if (action === "envoyerEmail") {
+      if (!SMTP_USER || !SMTP_PASSWORD) {
+        return json({ error: "smtp_non_configure", detail: "SMTP_USER / SMTP_PASSWORD manquants dans les secrets de la fonction rh-admin." }, 500);
+      }
+      const { to, sujet, html, texte } = corps;
+      if (!to || !sujet || !html) return json({ error: "champs_manquants" }, 400);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(to))) return json({ error: "email_invalide" }, 400);
+
+      const client = new SMTPClient({
+        connection: {
+          hostname: "smtp.gmail.com",
+          port: 465,
+          tls: true,
+          auth: { username: SMTP_USER, password: SMTP_PASSWORD },
+        },
+      });
+      try {
+        await client.send({
+          from: `${SMTP_FROM_NOM} <${SMTP_USER}>`,
+          to: String(to),
+          subject: String(sujet),
+          content: String(texte || " "),
+          html: String(html),
+        });
+      } catch (e) {
+        return json({ error: "envoi_echoue", detail: String((e as Error)?.message || e) }, 500);
+      } finally {
+        await client.close();
+      }
+      return json({ ok: true });
+    }
 
     // ---- Liste des accès RH existants ----
     if (action === "lister") {
