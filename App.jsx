@@ -4938,7 +4938,9 @@ function PrimeModal({ prime, resto, restaurants, moisDefaut, moisNumDefaut, anne
   const totalNet = net * nombre;
   const totalBrut = brut * nombre;
   const coutTotal = brut * EXTRA_BRUT_VERS_COUT_TOTAL * nombre;
-  const arrondi = (n) => Math.round(n * 100) / 100;
+  // Pas de décimale (même convention que pour les Extras) : des centimes affichés partout
+  // n'apportent rien pour une prime/régularisation de paie.
+  const arrondi = (n) => Math.round(n);
   const champCalcule = (label, valeur) => (
     <div className="ig-field">
       <label>{label}</label>
