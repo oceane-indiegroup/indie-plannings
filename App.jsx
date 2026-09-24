@@ -3901,8 +3901,8 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     return (
       <th key={c.cle} style={{padding:'14px 10px',position:'relative',minWidth:largeur,maxWidth:largeur,whiteSpace:'normal',textAlign:'center'}}>
         <button onClick={()=>setMenuOuvert(menuOuvert === c.cle ? null : c.cle)}
-          style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:14,fontWeight:800,padding:0,textAlign:'center',whiteSpace:'normal',lineHeight:1.3,textTransform:'uppercase',letterSpacing:'.4px',margin:'0 auto',color: selection ? 'var(--coral-d)' : 'var(--ink)'}}>
-          <span>{c.label}</span> <span style={{fontSize:10,flexShrink:0}}>▾</span>
+          style={{display:'block',width:'100%',background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:14,fontWeight:800,padding:0,textAlign:'center',whiteSpace:'normal',lineHeight:1.3,textTransform:'uppercase',letterSpacing:'.4px',color: selection ? 'var(--coral-d)' : 'var(--ink)'}}>
+          {c.label} <span style={{fontSize:10}}>▾</span>
         </button>
         {menuOuvert === c.cle && (
           <MenuFiltreColonne
@@ -3979,11 +3979,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                 {entete(RH_CHAMPS_BASE[3], 135)}
                 {entete(RH_CHAMPS_BASE[4], 270)}
                 {entete(RH_CHAMPS_BASE[5], 190)}
-                {entete(RH_CHAMPS_BASE[6], 130)}
+                {entete(RH_CHAMPS_BASE[6], 145)}
                 {entete(RH_CHAMPS_BASE[7], 90)}
-                {entete(RH_CHAMPS_BASE[8], 130)}
+                {entete(RH_CHAMPS_BASE[8], 145)}
                 {entete(RH_CHAMPS_BASE[10], 90)}
-                {entete(RH_CHAMPS_BASE[9], 110)}
+                {entete(RH_CHAMPS_BASE[9], 125)}
                 {entete(RH_CHAMPS_BASE[11], 70)}
                 <th style={{padding:'14px 10px',position:'relative',textAlign:'center'}}>
                   <button onClick={()=>setMenuCouleurOuvert(!menuCouleurOuvert)}
@@ -4011,21 +4011,21 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                       setSelection((sel) => { const n = new Set(sel); if (e.target.checked) n.add(s.id); else n.delete(s.id); return n; });
                     }} />
                   </td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
-                  <td style={{padding:'4px 6px'}}>
-                    <textarea className="ig-cell" rows={2} value={s.nom || ""} style={{width:150,fontSize:15.5,fontWeight:800,color:'var(--ink)',resize:'none',overflow:'hidden',lineHeight:1.2,fontFamily:'inherit'}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); e.target.blur(); } }} />
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}>
+                    <textarea className="ig-cell" rows={2} value={s.nom || ""} style={{width:150,fontSize:15.5,fontWeight:800,color:'var(--ink)',resize:'none',overflow:'hidden',lineHeight:1.2,fontFamily:'inherit',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); e.target.blur(); } }} />
                     {s.provisoire && <span title="Créée par le directeur, en attente de l'onboarding réel via le Form" style={{display:'inline-block',marginTop:2,padding:'1px 5px',borderRadius:20,background:'var(--sand-2)',color:'var(--ink-2)',fontSize:9,fontWeight:700,letterSpacing:'.3px'}}>PAS ONBOARDING</span>}
                   </td>
-                  <td style={{padding:'4px 6px'}}><textarea className="ig-cell" rows={2} value={s.prenom || ""} style={{width:145,fontSize:15.5,fontWeight:800,color:'var(--ink)',resize:'none',overflow:'hidden',lineHeight:1.2,fontFamily:'inherit'}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); e.target.blur(); } }} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:135}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:270}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:190}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:90,fontSize:15,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:90}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:110}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:70}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><textarea className="ig-cell" rows={2} value={s.prenom || ""} style={{width:145,fontSize:15.5,fontWeight:800,color:'var(--ink)',resize:'none',overflow:'hidden',lineHeight:1.2,fontFamily:'inherit',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); e.target.blur(); } }} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.telephone || ""} style={{width:135,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.email || ""} style={{width:270,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.poste || ""} style={{width:190,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:145,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:90,fontSize:15,fontWeight:800,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:145,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.loge || ""} style={{width:90,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:125,textAlign:'center'}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:70,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
