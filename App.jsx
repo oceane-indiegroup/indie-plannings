@@ -1887,11 +1887,12 @@ function ManagerView({ resto, onBack, superviseur }) {
     const base = EMPLOYEES.filter((e) => e.r === resto);
     const ajouts = roster.ajouts || [];
     // Comparaison de la même personne entre ajout manuel / fiche RH / fichier tolérante à la
-    // casse et aux accents (normTxt) : "nicolas BRAULT" saisi à la main et "Nicolas BRAULT" de
-    // la fiche RH doivent être reconnus comme LA MÊME personne, sinon les deux survivent et se
-    // retrouvent en double dans le planning. On ne touche qu'à cette comparaison — jamais à
-    // idSalarie() lui-même, qui sert aussi de clé de stockage pour les horaires déjà saisis.
-    const idNorm = (e) => normTxt(idSalarie(e));
+    // casse, aux accents (normTxt) ET à la ponctuation (tiret, apostrophe...) : "nicolas
+    // BRAULT" / "Nicolas BRAULT", ou "Jean-Baptiste POLO" / "Jean Baptiste POLO", doivent être
+    // reconnus comme LA MÊME personne, sinon les deux survivent et se retrouvent en double dans
+    // le planning. On ne touche qu'à cette comparaison — jamais à idSalarie() lui-même, qui sert
+    // aussi de clé de stockage pour les horaires déjà saisis.
+    const idNorm = (e) => normTxt(idSalarie(e)).replace(/[^a-z0-9]+/g, " ").trim();
     const ajoutIds = new Set(ajouts.map((a) => idNorm(a)));
     // Un ajout manuel a priorité sur la fiche RH de même identifiant (permet de corriger
     // ses heures/poste dans Planning sans attendre une mise à jour de la fiche RH).
