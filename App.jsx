@@ -4853,7 +4853,7 @@ function VueGlobaleExtrasRH({ resto, unite }) {
 function exporterPrimesRH(liste, nomFichier) {
   const entete = [
     "Date", "Raison", "Etablissement concerné par la PRIME", "Nom du salarié", "Prénom du salarié",
-    "Identifiant PayFit", "Matricule", "Etablissement d'origine", "Nbr de prime",
+    "Identifiant PayFit", "Matricule", "Nbr de prime",
     "PRIME unitaire net", "PRIME unitaire brut", "Prime Totale Net", "Prime Totale Brute",
     "Prime Coût Total", "Mois Salaire", "ANNEE", "Statut",
   ];
@@ -4862,7 +4862,7 @@ function exporterPrimesRH(liste, nomFichier) {
     const pf = PAYFIT_IDS[idSalarie({ n: x.nom_salarie, p: x.prenom_salarie })] || ["", ""];
     aoa.push([
       x.date_prime ? fmtDate(new Date(x.date_prime + "T00:00:00")) : "", x.raison, x.etablissement_prime,
-      x.nom_salarie, x.prenom_salarie, pf[0], pf[1], x.etablissement_origine, x.nombre,
+      x.nom_salarie, x.prenom_salarie, pf[0], pf[1], x.nombre,
       x.prime_unitaire_net, x.prime_unitaire_brut, x.prime_totale_net, x.prime_totale_brute,
       x.cout_total, x.mois_salaire, x.annee, x.statut,
     ]);
@@ -4990,12 +4990,6 @@ function PrimeModal({ prime, resto, restaurants, moisDefaut, moisNumDefaut, anne
             <label>Établissement concerné par la prime</label>
             <input value={f.etablissement_prime} disabled style={{background:'var(--sand)',color:'var(--ink-2)'}} />
           </div>
-          <div className="ig-field">
-            <label>Établissement d'origine du salarié</label>
-            <select value={f.etablissement_origine} onChange={(e)=>setF((cur)=>({ ...cur, etablissement_origine: e.target.value }))}>
-              {restaurants.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
           {champ("Nom du salarié", "nom_salarie")}
           {champ("Prénom du salarié", "prenom_salarie")}
           {champ("Nombre de primes", "nombre", { type: "number" })}
@@ -5099,7 +5093,7 @@ function PrimesRH({ resto, restaurants, superviseur }) {
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5,whiteSpace:'nowrap'}}>
             <thead>
               <tr style={{textAlign:'center',borderBottom:'2px solid var(--sand-2)',background:'var(--sand)',position:'sticky',top:0}}>
-                {["Date","Raison","Nom","Prénom","Étab. origine","Nbr","Unit. net","Unit. brut","Total net","Total brut","Coût total","Statut",""].map((h) => (
+                {["Date","Raison","Nom","Prénom","Nbr","Unit. net","Unit. brut","Total net","Total brut","Coût total","Statut",""].map((h) => (
                   <th key={h} style={{padding:'10px 8px',fontSize:12,fontWeight:800,textTransform:'uppercase',letterSpacing:'.3px'}}>{h}</th>
                 ))}
               </tr>
@@ -5111,7 +5105,6 @@ function PrimesRH({ resto, restaurants, superviseur }) {
                   <td style={{padding:'6px 8px',textAlign:'left',maxWidth:220,whiteSpace:'normal'}}>{x.raison}</td>
                   <td style={{padding:'6px 8px',fontWeight:700}}>{x.nom_salarie}</td>
                   <td style={{padding:'6px 8px'}}>{x.prenom_salarie}</td>
-                  <td style={{padding:'6px 8px'}}>{x.etablissement_origine}</td>
                   <td style={{padding:'6px 8px'}}>{x.nombre}</td>
                   <td style={{padding:'6px 8px'}}>{x.prime_unitaire_net ?? "—"}</td>
                   <td style={{padding:'6px 8px'}}>{x.prime_unitaire_brut ?? "—"}</td>

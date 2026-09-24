@@ -584,14 +584,13 @@ Deno.serve(async (req: Request) => {
     // "ligneCible" absent -> nouvelle ligne ajoutée à la fin (création) ; fourni -> écriture
     // directe dessus, sans recherche (modifications suivantes de cette même prime), la ligne
     // ayant été mémorisée par l'appli (rh_primes.sheet_ligne) dès la création.
-    // Colonnes fixes (même ordre que le fichier Excel historique d'Océane) :
-    // 0 Date, 1 Raison, 2 Étab. concerné, 3 Nom, 4 Prénom, 5 Étab. origine, 6 Nbr de prime,
-    // 7 Prime unitaire net, 8 Prime unitaire brut, 9 Prime totale net, 10 Prime totale brute,
-    // 11 Prime coût total, 12 Mois salaire, 13 Année.
-    // Colonne 14 ("silae OK ?") n'est JAMAIS écrite ici, même principe que "Payfit" pour les
-    // Extras : c'est Océane qui la coche à la main une fois le traitement en paie fait. La
-    // grille de son Sheet s'arrête pile à 14 colonnes (A à N) — y écrire fait échouer
-    // l'appel entier ("exceeds grid limits").
+    // Colonnes fixes (même ordre que le fichier Excel historique d'Océane, moins la colonne
+    // "Étab. origine" qu'elle a supprimée de son Sheet — colonnes décalées d'un cran depuis) :
+    // 0 Date, 1 Raison, 2 Étab. concerné, 3 Nom, 4 Prénom, 5 Nbr de prime,
+    // 6 Prime unitaire net, 7 Prime unitaire brut, 8 Prime totale net, 9 Prime totale brute,
+    // 10 Prime coût total, 11 Mois salaire, 12 Année.
+    // Colonne 13 ("silae OK ?") n'est JAMAIS écrite ici, même principe que "Payfit" pour les
+    // Extras : c'est Océane qui la coche à la main une fois le traitement en paie fait.
     if (action === "upsertPrime") {
       const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
       if (!appelant) return json({ error: "non_authentifie" }, 401);
@@ -622,15 +621,14 @@ Deno.serve(async (req: Request) => {
         { colonne: 2, valeur: val(c.etablissement_prime) },
         { colonne: 3, valeur: val(c.nom_salarie) },
         { colonne: 4, valeur: val(c.prenom_salarie) },
-        { colonne: 5, valeur: val(c.etablissement_origine) },
-        { colonne: 6, valeur: val(c.nombre) },
-        { colonne: 7, valeur: val(c.prime_unitaire_net) },
-        { colonne: 8, valeur: val(c.prime_unitaire_brut) },
-        { colonne: 9, valeur: val(c.prime_totale_net) },
-        { colonne: 10, valeur: val(c.prime_totale_brute) },
-        { colonne: 11, valeur: val(c.cout_total) },
-        { colonne: 12, valeur: val(c.mois_salaire) },
-        { colonne: 13, valeur: val(c.annee) },
+        { colonne: 5, valeur: val(c.nombre) },
+        { colonne: 6, valeur: val(c.prime_unitaire_net) },
+        { colonne: 7, valeur: val(c.prime_unitaire_brut) },
+        { colonne: 8, valeur: val(c.prime_totale_net) },
+        { colonne: 9, valeur: val(c.prime_totale_brute) },
+        { colonne: 10, valeur: val(c.cout_total) },
+        { colonne: 11, valeur: val(c.mois_salaire) },
+        { colonne: 12, valeur: val(c.annee) },
       ];
 
       const data = cellules.map(({ colonne, valeur }) => ({
