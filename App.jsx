@@ -306,16 +306,29 @@ function construireDocument(titre, corpsHTML, styles) {
 let polirePDFChargee = false;
 async function chargerPolicePDF() {
   if (polirePDFChargee) return;
-  if (!document.querySelector('link[data-police-pdf]')) {
-    const lien = document.createElement("link");
+  let lien = document.querySelector('link[data-police-pdf]');
+  if (!lien) {
+    lien = document.createElement("link");
     lien.rel = "stylesheet";
     lien.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap";
     lien.setAttribute("data-police-pdf", "1");
     document.head.appendChild(lien);
+    // Le chargement d'une balise <link> est asynchrone : sans attendre son évènement
+    // "load" (ou "error", ou un filet de sécurité par timeout), document.fonts.load()
+    // ci-dessous peut s'exécuter AVANT que les règles @font-face de la feuille de style
+    // soient seulement enregistrées — il ne trouve alors rien à charger et ne renvoie
+    // aucune erreur, ce qui donnait un PDF joint à l'email dans une police de repli
+    // (bonne apparence générale, mais interlignage/espacement différents de l'impression).
+    await new Promise((resolve) => {
+      lien.addEventListener("load", resolve, { once: true });
+      lien.addEventListener("error", resolve, { once: true });
+      setTimeout(resolve, 3000);
+    });
   }
   try {
     await Promise.all([
       document.fonts.load("400 14px Inter"),
+      document.fonts.load("600 14px Inter"),
       document.fonts.load("700 14px Inter"),
     ]);
     await document.fonts.ready;
