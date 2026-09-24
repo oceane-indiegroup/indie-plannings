@@ -1317,6 +1317,18 @@ function genererDocumentsExtra(extra, etabsJ) {
 // indépendant de l'établissement concerné par l'offre (modifiable ici si besoin).
 const LIEU_SIGNATURE_PROMESSE = "Ramatuelle";
 
+// Style dédié à la promesse d'embauche : une lettre courte, pas un contrat à articles —
+// délibérément distinct de STYLE_CONTRAT (paragraphes justifiés, sections numérotées) qui ne
+// convenait pas du tout à ce format, d'où la mise en page "catastrophique" au premier essai.
+const STYLE_PROMESSE = `
+  h1 { font-size:17px; letter-spacing:1px; margin:28px 0 26px; }
+  .entete { text-align:center; font-size:12.5px; line-height:1.6; margin-bottom:6px; }
+  p { font-size:13.5px; line-height:1.7; text-align:left; margin:0 0 16px; }
+  .manque { color:#B23A2E; font-weight:700; }
+  .signature { margin-top:38px; }
+  .signature img { display:block; max-height:110px; margin-top:8px; }
+`;
+
 // Construit le corps HTML d'une promesse d'embauche, sur le modèle du document fourni par
 // Océane (PROMESSE_EMBAUCHE___CHERRY_PARIS.docx) : en-tête société, civilité + identité du
 // salarié, poste/établissement/date de début/type de contrat, rémunération, formule de
@@ -1335,7 +1347,7 @@ function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
     ? `${esc(String(salarie.salaire_net))} € net par mois` : '<span class="manque">[salaire à compléter]</span>';
   const siren = etabJ && etabJ.siret ? etabJ.siret.replace(/\s+/g, "").slice(0, 9) : "";
   return `
-    <div style="text-align:center;margin-bottom:18px">
+    <div class="entete">
       <b>${valEtab(etabJ,'raisonSociale')}</b><br>
       ${valEtab(etabJ,'adresse')}<br>
       ${valEtab(etabJ,'cp')} ${valEtab(etabJ,'ville')}<br>
@@ -1350,8 +1362,10 @@ function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
     <p>Nous avons le plaisir de vous confirmer par la présente notre volonté de vous intégrer au sein de notre équipe en qualité de <b>${esc(salarie.poste || "")}</b> de <b>${esc(salarie.resto || "")}</b>, à compter du <b>${dateDebutFr}</b> en ${typeContratTxt}.</p>
     <p>La rémunération mensuelle associée à ce poste sera de <b>${salaire}</b>.</p>
     <p>Dans l'attente de vous accueillir officiellement au sein de notre structure, nous vous prions d'agréer, ${civilite || "Madame, Monsieur"}, l'expression de nos salutations distinguées.</p>
-    <p style="margin-top:32px">Signature de l'entreprise</p>
-    ${etabJ && etabJ.tampon ? `<img src="${etabJ.tampon}" alt="Signature" style="max-height:120px;margin-top:6px" />` : ""}
+    <div class="signature">
+      Signature de l'entreprise
+      ${etabJ && etabJ.tampon ? `<img src="${etabJ.tampon}" alt="Signature" />` : '<div class="manque" style="margin-top:8px">[aucune signature/tampon enregistrée pour cet établissement]</div>'}
+    </div>
   `;
 }
 
@@ -3302,20 +3316,6 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "ville", label: "Ville" },
   { cle: "secu", label: "Numéro de sécurité sociale" },
   { cle: "mutuelle", label: "Mutuelle de l'établissement", type: "bool" },
-  { cle: "affiliation_mutuelle", label: "Affiliation mutuelle" },
-  { cle: "iban", label: "IBAN" },
-  { cle: "bic", label: "BIC" },
-  { cle: "salaire_brut", label: "Salaire brut de base", type: "number" },
-  { cle: "promesse_embauche", label: "Promesse d'embauche" },
-  { cle: "periode_essai_jours", label: "Période d'essai (jours)", type: "number" },
-  { cle: "date_fin_periode_essai", label: "Fin de période d'essai", type: "date" },
-  { cle: "heures_semaine", label: "Heures / semaine", type: "number" },
-  { cle: "heures_sup", label: "Heures sup", type: "number" },
-  { cle: "niveau", label: "Niveau" },
-  { cle: "echelon", label: "Échelon" },
-  { cle: "code_pcs", label: "Code PCS" },
-  { cle: "due", label: "DUE" },
-  { cle: "statut_payfit", label: "Statut PayFit" },
 ];
 // Champs importants au quotidien pour un directeur/chef, visibles par tout le monde dans la
 // FICHE (contrairement au reste de RH_CHAMPS_SENSIBLES, réservé au superviseur) — mais pas
@@ -3339,20 +3339,6 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
     return base;
   });
   const [err, setErr] = useState("");
-  const [busyPromesse, setBusyPromesse] = useState(false);
-
-  async function genererPromesse() {
-    if (busyPromesse || !salarie) return;
-    setBusyPromesse(true);
-    try {
-      const etabsJ = await EtablissementsJuridique.load();
-      const html = construirePromesseEmbaucheHTML({ etabJ: etabsJ[resto] || null, salarie: { ...salarie, ...f, resto } });
-      const ok = imprimerDocument(`Promesse d'embauche ${f.prenom || salarie.prenom} ${f.nom || salarie.nom}`, html, STYLE_CONTRAT, `Promesse_embauche_${slugKey(resto)}_${slugKey((f.nom||salarie.nom||"")+"_"+(f.prenom||salarie.prenom||""))}`);
-      if (ok === false) setErr("Impossible de générer le document. Réessayez.");
-    } finally {
-      setBusyPromesse(false);
-    }
-  }
 
   function champ(c) {
     const valeur = f[c.cle] ?? (c.type === "bool" ? false : "");
@@ -3393,11 +3379,6 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
           </>
         )}
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-        {salarie && superviseur && (
-          <button className="ig-btn ig-btn-ghost" style={{width:'100%',marginTop:10}} onClick={genererPromesse} disabled={busyPromesse}>
-            📄 {busyPromesse ? "Génération…" : "Générer la promesse d'embauche"}
-          </button>
-        )}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
           <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
@@ -3625,6 +3606,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [saisonActive, setSaisonActive] = useState(null);
   const [selection, setSelection] = useState(new Set());
   const [archiverModal, setArchiverModal] = useState(false);
+  const [promesseBusy, setPromesseBusy] = useState(null); // id de la fiche en cours de génération
   // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
   // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
   // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
@@ -3684,6 +3666,23 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     const ok = await RhSalaries.supprimer(s.id);
     if (ok) { setListe(liste.filter((x) => x.id !== s.id)); setSelection((sel) => { const n = new Set(sel); n.delete(s.id); return n; }); montrerFlash("Fiche supprimée."); }
     else montrerErreur("La suppression a échoué. Réessayez.");
+  }
+  async function genererPromesse(s) {
+    if (promesseBusy) return;
+    setPromesseBusy(s.id);
+    try {
+      const etabsJ = await EtablissementsJuridique.load();
+      const etabJ = etabsJ[resto] || null;
+      if (!etabJ || !etabJ.tampon) {
+        montrerErreur(`Aucune signature/tampon enregistrée pour ${resto}. Ajoutez-la d'abord dans "Fiche juridique de ${resto}" (Extras).`);
+        return;
+      }
+      const html = construirePromesseEmbaucheHTML({ etabJ, salarie: s });
+      const ok = imprimerDocument(`Promesse d'embauche ${s.prenom || ""} ${s.nom || ""}`, html, STYLE_PROMESSE, `Promesse_embauche_${slugKey(resto)}_${slugKey((s.nom||"")+"_"+(s.prenom||""))}`);
+      if (ok === false) montrerErreur("Impossible de générer le document. Réessayez.");
+    } finally {
+      setPromesseBusy(null);
+    }
   }
   async function supprimerSelection() {
     if (selection.size === 0) return;
@@ -3918,6 +3917,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px',display:'flex',gap:6,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button>
+                    {superviseur && (
+                      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>genererPromesse(s)} disabled={promesseBusy===s.id}>
+                        📄 {promesseBusy===s.id ? "Génération…" : "Promesse d'embauche"}
+                      </button>
+                    )}
                     <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(s)} style={{color:'var(--coral-d)'}}>Supprimer</button>
                   </td>
                 </tr>
