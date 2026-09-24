@@ -3816,16 +3816,28 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
     if (ok) { setListe(liste.filter((x) => x.id !== s.id)); setSelection((sel) => { const n = new Set(sel); n.delete(s.id); return n; }); montrerFlash("Fiche supprimée."); }
     else montrerErreur("La suppression a échoué. Réessayez.");
   }
-  // Corrige un mauvais établissement choisi à l'onboarding (ex : onboardé sur PABLO SAINT
-  // BARTH au lieu de CREAM) : déplace la fiche vers le bon établissement, sans repasser par
-  // le Sheet (qui ne synchronise jamais un salarié déjà existant vers l'appli, dans ce
-  // sens-là). Réservé au superviseur.
+  // Transfert vers un autre établissement (ex : salarié mal onboardé sur PABLO SAINT BARTH
+  // au lieu de CREAM, ou vraie mutation interne) : garde l'historique intact sur l'ancien
+  // établissement (la fiche ici n'est jamais touchée — c'est à Océane d'y renseigner la date
+  // de fin de contrat) et crée une NOUVELLE fiche sur le nouvel établissement, reprenant les
+  // infos personnelles du salarié mais avec dates de contrat vierges (à renseigner par
+  // Océane). Réservé au superviseur.
   async function transferer(s, nouveauResto) {
     if (!nouveauResto || nouveauResto === resto) return;
-    if (!confirm(`Transférer ${s.prenom || ""} ${s.nom || ""} de ${resto} vers ${nouveauResto} ?`)) return;
-    const maj = await RhSalaries.maj(s.id, { resto: nouveauResto });
-    if (maj) { setListe(liste.filter((x) => x.id !== s.id)); montrerFlash(`${s.prenom || ""} ${s.nom || ""} transféré(e) vers ${nouveauResto}.`); }
-    else montrerErreur("Le transfert a échoué. Réessayez.");
+    if (!confirm(`Créer une nouvelle fiche pour ${s.prenom || ""} ${s.nom || ""} sur ${nouveauResto} ? Sa fiche ici sur ${resto} reste intacte pour l'historique — pensez à y renseigner sa date de fin de contrat.`)) return;
+    const { id, sheet_ligne, cree_le, maj_le, resto: _r, salarie_id, date_debut, date_fin, provisoire, ...infos } = s;
+    const nouvelleFiche = {
+      ...infos,
+      resto: nouveauResto,
+      saison: saisonActive,
+      salarie_id: idSalarie({ n: s.nom, p: s.prenom }),
+      date_debut: null,
+      date_fin: null,
+      provisoire: false,
+    };
+    const cree = await RhSalaries.creer(nouvelleFiche);
+    if (cree) montrerFlash(`Nouvelle fiche créée pour ${s.prenom || ""} ${s.nom || ""} sur ${nouveauResto}. Pensez à renseigner sa nouvelle date de début de contrat là-bas, et sa date de fin ici sur ${resto}.`);
+    else montrerErreur("La création de la nouvelle fiche a échoué (peut-être une fiche existe déjà pour ce nom sur cet établissement). Réessayez.");
   }
   async function genererPromesse(s) {
     if (promesseBusy) return;
