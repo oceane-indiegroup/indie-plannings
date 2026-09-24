@@ -3974,11 +3974,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                     }} />
                 </th>
                 {entete(RH_CHAMPS_BASE[0], 56)}
-                {entete(RH_CHAMPS_BASE[1], 125)}
-                {entete(RH_CHAMPS_BASE[2], 115)}
-                {entete(RH_CHAMPS_BASE[3], 125)}
-                {entete(RH_CHAMPS_BASE[4], 210)}
-                {entete(RH_CHAMPS_BASE[5], 180)}
+                {entete(RH_CHAMPS_BASE[1], 150)}
+                {entete(RH_CHAMPS_BASE[2], 145)}
+                {entete(RH_CHAMPS_BASE[3], 135)}
+                {entete(RH_CHAMPS_BASE[4], 270)}
+                {entete(RH_CHAMPS_BASE[5], 250)}
                 {entete(RH_CHAMPS_BASE[6], 130)}
                 {entete(RH_CHAMPS_BASE[7], 90)}
                 {entete(RH_CHAMPS_BASE[8], 130)}
@@ -4013,13 +4013,13 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   </td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
                   <td style={{padding:'4px 6px'}}>
-                    <input className="ig-cell" value={s.nom || ""} style={{width:125,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} />
+                    <input className="ig-cell" value={s.nom || ""} style={{width:150,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} />
                     {s.provisoire && <span title="Créée par le directeur, en attente de l'onboarding réel via le Form" style={{display:'inline-block',marginTop:2,padding:'1px 5px',borderRadius:20,background:'var(--sand-2)',color:'var(--ink-2)',fontSize:9,fontWeight:700,letterSpacing:'.3px'}}>PAS ONBOARDING</span>}
                   </td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:115,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:125}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:210}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:180}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:145,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:135}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:270}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:250}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:90,fontSize:15,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
@@ -4806,6 +4806,11 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     { cle: "repos_hebdo", label: "Repos hebdo non pris" },
     { cle: "extras", label: "Extras" },
     { cle: "planning", label: "Planning" },
+    // Outil externe de gestion des pourboires, propre à Pablo (salle uniquement) — un clic
+    // ouvre directement l'outil dans un nouvel onglet, rien n'est intégré/dupliqué ici.
+    ...(restoActif === "PABLO" && uniteActive === "SALLE"
+      ? [{ cle: "tips", label: "Tips", externe: "https://tips-pablo-app.vercel.app/" }]
+      : []),
   ];
 
   useEffect(() => {
@@ -4895,7 +4900,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
           <p className="ig-muted">{SOUS_SECTIONS_RH.length} section{SOUS_SECTIONS_RH.length>1?'s':''} pour {restoActif}.</p>
           <div className="ig-resto-grid">
             {SOUS_SECTIONS_RH.map((s) => (
-              <button key={s.cle} className="ig-resto" onClick={()=>setSousSection(s.cle)}>
+              <button key={s.cle} className="ig-resto" onClick={()=> s.externe ? window.open(s.externe, "_blank", "noopener,noreferrer") : setSousSection(s.cle)}>
                 <div><div className="nm">{s.label}</div></div>
                 <Icon.Chevron />
               </button>
