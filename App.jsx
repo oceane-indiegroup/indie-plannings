@@ -1886,19 +1886,25 @@ function ManagerView({ resto, onBack, superviseur }) {
   const team = useMemo(() => {
     const base = EMPLOYEES.filter((e) => e.r === resto);
     const ajouts = roster.ajouts || [];
-    const ajoutIds = new Set(ajouts.map((a) => idSalarie(a)));
+    // Comparaison de la même personne entre ajout manuel / fiche RH / fichier tolérante à la
+    // casse et aux accents (normTxt) : "nicolas BRAULT" saisi à la main et "Nicolas BRAULT" de
+    // la fiche RH doivent être reconnus comme LA MÊME personne, sinon les deux survivent et se
+    // retrouvent en double dans le planning. On ne touche qu'à cette comparaison — jamais à
+    // idSalarie() lui-même, qui sert aussi de clé de stockage pour les horaires déjà saisis.
+    const idNorm = (e) => normTxt(idSalarie(e));
+    const ajoutIds = new Set(ajouts.map((a) => idNorm(a)));
     // Un ajout manuel a priorité sur la fiche RH de même identifiant (permet de corriger
     // ses heures/poste dans Planning sans attendre une mise à jour de la fiche RH).
     const rhActifs = rhTeam.filter((e) => {
-      if (ajoutIds.has(idSalarie(e))) return false;
+      if (ajoutIds.has(idNorm(e))) return false;
       if (e._rhDebut && sem < e._rhDebut) return false; // contrat pas encore commencé cette semaine
       if (e._rhFin && sem > e._rhFin) return false; // contrat terminé avant cette semaine
       return true;
     });
-    const rhIds = new Set(rhActifs.map((e) => idSalarie(e)));
+    const rhIds = new Set(rhActifs.map((e) => idNorm(e)));
     // Une fiche "ajoutée" ou RH a priorité sur la fiche du fichier de même identifiant
     // (permet de corriger ses heures / son poste sans créer de doublon).
-    const tous = base.filter((e) => !ajoutIds.has(idSalarie(e)) && !rhIds.has(idSalarie(e))).concat(ajouts).concat(rhActifs);
+    const tous = base.filter((e) => !ajoutIds.has(idNorm(e)) && !rhIds.has(idNorm(e))).concat(ajouts).concat(rhActifs);
     const supprimes = new Set(roster.supprimes || []);
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
