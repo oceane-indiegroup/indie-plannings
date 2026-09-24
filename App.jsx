@@ -3899,9 +3899,9 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
       .map((brute) => ({ brute, label: rhValeurLabel(c.cle, brute) }));
     const selection = filtresValeurs[c.cle] || null;
     return (
-      <th key={c.cle} style={{padding:'8px 10px',position:'relative',minWidth:largeur,maxWidth:largeur,whiteSpace:'normal'}}>
+      <th key={c.cle} style={{padding:'14px 10px',position:'relative',minWidth:largeur,maxWidth:largeur,whiteSpace:'normal',textAlign:'center'}}>
         <button onClick={()=>setMenuOuvert(menuOuvert === c.cle ? null : c.cle)}
-          style={{display:'flex',alignItems:'flex-start',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:12.5,fontWeight:800,padding:0,textAlign:'left',whiteSpace:'normal',lineHeight:1.3,textTransform:'uppercase',letterSpacing:'.4px',color: selection ? 'var(--coral-d)' : 'var(--ink)'}}>
+          style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:14,fontWeight:800,padding:0,textAlign:'center',whiteSpace:'normal',lineHeight:1.3,textTransform:'uppercase',letterSpacing:'.4px',margin:'0 auto',color: selection ? 'var(--coral-d)' : 'var(--ink)'}}>
           <span>{c.label}</span> <span style={{fontSize:10,flexShrink:0}}>▾</span>
         </button>
         {menuOuvert === c.cle && (
@@ -3978,16 +3978,16 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                 {entete(RH_CHAMPS_BASE[2], 145)}
                 {entete(RH_CHAMPS_BASE[3], 135)}
                 {entete(RH_CHAMPS_BASE[4], 270)}
-                {entete(RH_CHAMPS_BASE[5], 250)}
+                {entete(RH_CHAMPS_BASE[5], 190)}
                 {entete(RH_CHAMPS_BASE[6], 130)}
                 {entete(RH_CHAMPS_BASE[7], 90)}
                 {entete(RH_CHAMPS_BASE[8], 130)}
-                {entete(RH_CHAMPS_BASE[9], 120)}
-                {entete(RH_CHAMPS_BASE[10], 70)}
+                {entete(RH_CHAMPS_BASE[10], 90)}
+                {entete(RH_CHAMPS_BASE[9], 110)}
                 {entete(RH_CHAMPS_BASE[11], 70)}
-                <th style={{padding:'8px 10px',position:'relative'}}>
+                <th style={{padding:'14px 10px',position:'relative',textAlign:'center'}}>
                   <button onClick={()=>setMenuCouleurOuvert(!menuCouleurOuvert)}
-                    style={{display:'flex',alignItems:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:12.5,fontWeight:800,padding:0,textTransform:'uppercase',letterSpacing:'.4px',color: (filtreCouleurs || triCouleur) ? 'var(--coral-d)' : 'var(--ink)'}}>
+                    style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:14,fontWeight:800,padding:0,textTransform:'uppercase',letterSpacing:'.4px',margin:'0 auto',color: (filtreCouleurs || triCouleur) ? 'var(--coral-d)' : 'var(--ink)'}}>
                     Couleur <span style={{fontSize:10}}>▾</span>
                   </button>
                   {menuCouleurOuvert && (
@@ -4019,12 +4019,12 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:145,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:135}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:270}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:250}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:190}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:90,fontSize:15,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:70}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:90}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:110}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:70}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
