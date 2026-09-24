@@ -1313,6 +1313,48 @@ function genererDocumentsExtra(extra, etabsJ) {
   return { contratHTML, contratGenereAt: dateGeneration.toISOString() };
 }
 
+// Lieu de signature figurant sur les promesses d'embauche : celui du siège du groupe,
+// indépendant de l'établissement concerné par l'offre (modifiable ici si besoin).
+const LIEU_SIGNATURE_PROMESSE = "Ramatuelle";
+
+// Construit le corps HTML d'une promesse d'embauche, sur le modèle du document fourni par
+// Océane (PROMESSE_EMBAUCHE___CHERRY_PARIS.docx) : en-tête société, civilité + identité du
+// salarié, poste/établissement/date de début/type de contrat, rémunération, formule de
+// politesse, puis la signature/tampon de l'établissement (si renseignée dans sa fiche
+// juridique). Les champs manquants sont signalés en rouge plutôt que laissés silencieusement
+// vides, comme pour le contrat de prêt de main-d'œuvre.
+function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
+  const dateFr = fmtDate(new Date());
+  const dateDebutFr = salarie.date_debut ? fmtDate(new Date(salarie.date_debut + "T00:00:00")) : '<span class="manque">[date de début à compléter]</span>';
+  const typeContrat = (salarie.type_contrat || "").trim();
+  const typeContratTxt = typeContrat
+    ? (/^cdi$/i.test(typeContrat) ? "contrat à durée indéterminée" : /^cdd$/i.test(typeContrat) ? "contrat à durée déterminée" : typeContrat)
+    : '<span class="manque">[type de contrat à compléter]</span>';
+  const civilite = (salarie.civilite || "").trim();
+  const salaire = (salarie.salaire_net !== null && salarie.salaire_net !== undefined && salarie.salaire_net !== "")
+    ? `${esc(String(salarie.salaire_net))} € net par mois` : '<span class="manque">[salaire à compléter]</span>';
+  const siren = etabJ && etabJ.siret ? etabJ.siret.replace(/\s+/g, "").slice(0, 9) : "";
+  return `
+    <div style="text-align:center;margin-bottom:18px">
+      <b>${valEtab(etabJ,'raisonSociale')}</b><br>
+      ${valEtab(etabJ,'adresse')}<br>
+      ${valEtab(etabJ,'cp')} ${valEtab(etabJ,'ville')}<br>
+      Au capital de ${valEtab(etabJ,'capital')}<br>
+      RCS ${valEtab(etabJ,'rcs')}<br>
+      SIREN : ${siren ? esc(siren) : '<span class="manque">[SIREN à compléter]</span>'}<br>
+      Code NAF : ${valEtab(etabJ,'ape')}
+    </div>
+    <h1 style="text-align:center">PROMESSE D'EMBAUCHE</h1>
+    <p>À ${esc(LIEU_SIGNATURE_PROMESSE)}, le ${dateFr}</p>
+    <p>${civilite ? esc(civilite) + " " : ""}${esc((salarie.nom || "").toUpperCase())} ${esc(salarie.prenom || "")}</p>
+    <p>Nous avons le plaisir de vous confirmer par la présente notre volonté de vous intégrer au sein de notre équipe en qualité de <b>${esc(salarie.poste || "")}</b> de <b>${esc(salarie.resto || "")}</b>, à compter du <b>${dateDebutFr}</b> en ${typeContratTxt}.</p>
+    <p>La rémunération mensuelle associée à ce poste sera de <b>${salaire}</b>.</p>
+    <p>Dans l'attente de vous accueillir officiellement au sein de notre structure, nous vous prions d'agréer, ${civilite || "Madame, Monsieur"}, l'expression de nos salutations distinguées.</p>
+    <p style="margin-top:32px">Signature de l'entreprise</p>
+    ${etabJ && etabJ.tampon ? `<img src="${etabJ.tampon}" alt="Signature" style="max-height:120px;margin-top:6px" />` : ""}
+  `;
+}
+
 // ---------- Import d'un planning existant depuis Excel ----------
 // Lit un classeur au format "PLANNING N / PLANNING CUISINE N" (une feuille par petit
 // groupe de salariés, tous pour la même semaine en général) : ligne 1 = semaine (dates),
@@ -1761,18 +1803,24 @@ function AjoutModal({ resto, onAjouter, onClose }) {
 
 // ---------- Modal Fiche juridique d'un établissement (requis pour générer les contrats) ----------
 function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
-  const [f, setF] = useState({ raisonSociale: "", adresse: "", cp: "", ville: "", capital: "", rcs: "", siret: "", ape: "", ...(valeurs || {}) });
+  const [f, setF] = useState({ raisonSociale: "", adresse: "", cp: "", ville: "", capital: "", rcs: "", siret: "", ape: "", tampon: "", ...(valeurs || {}) });
   const champ = (label, key, placeholder) => (
     <div className="ig-field">
       <label>{label}</label>
       <input value={f[key]} onChange={(e)=>setF({ ...f, [key]: e.target.value })} placeholder={placeholder} />
     </div>
   );
+  function choisirTampon(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setF((cur) => ({ ...cur, tampon: reader.result }));
+    reader.readAsDataURL(file);
+  }
   return (
     <div className="ig-overlay" onClick={onClose}>
       <div className="ig-modal" onClick={(e)=>e.stopPropagation()}>
         <h3>Fiche juridique — {resto}</h3>
-        <div className="ig-muted" style={{marginBottom:10}}>Ces informations apparaissent sur les contrats de prêt de main-d'œuvre générés pour cet établissement (comme société prêteuse ou utilisatrice).</div>
+        <div className="ig-muted" style={{marginBottom:10}}>Ces informations apparaissent sur les contrats de prêt de main-d'œuvre et les promesses d'embauche générés pour cet établissement.</div>
         {champ("Raison sociale", "raisonSociale", "Ex : SAS INDIE BEACH")}
         {champ("Adresse", "adresse", "Ex : Plage de Pampelonne")}
         <div className="ig-times">
@@ -1784,6 +1832,15 @@ function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
         <div className="ig-times">
           {champ("SIRET", "siret", "Ex : 45120187500023")}
           {champ("APE", "ape", "Ex : 5610A")}
+        </div>
+        <div className="ig-field">
+          <label>Signature / tampon (image)</label>
+          <div className="ig-muted" style={{fontSize:12,marginBottom:6}}>Utilisée sur les promesses d'embauche générées pour cet établissement.</div>
+          {f.tampon && <img src={f.tampon} alt="Tampon" style={{maxHeight:70,display:'block',marginBottom:8,border:'1px solid var(--line)',borderRadius:8,padding:4}} />}
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input type="file" accept="image/*" onChange={(e)=>choisirTampon(e.target.files[0])} />
+            {f.tampon && <button type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setF((cur)=>({ ...cur, tampon: "" }))}>Retirer</button>}
+          </div>
         </div>
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
@@ -3252,7 +3309,6 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "promesse_embauche", label: "Promesse d'embauche" },
   { cle: "periode_essai_jours", label: "Période d'essai (jours)", type: "number" },
   { cle: "date_fin_periode_essai", label: "Fin de période d'essai", type: "date" },
-  { cle: "type_contrat", label: "Type de contrat" },
   { cle: "heures_semaine", label: "Heures / semaine", type: "number" },
   { cle: "heures_sup", label: "Heures sup", type: "number" },
   { cle: "niveau", label: "Niveau" },
@@ -3260,18 +3316,43 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "code_pcs", label: "Code PCS" },
   { cle: "due", label: "DUE" },
   { cle: "statut_payfit", label: "Statut PayFit" },
+];
+// Champs importants au quotidien pour un directeur/chef, visibles par tout le monde dans la
+// FICHE (contrairement au reste de RH_CHAMPS_SENSIBLES, réservé au superviseur) — mais pas
+// ajoutés au tableau du Registre embauche, pour ne pas l'alourdir davantage.
+const RH_CHAMPS_MODAL_SUPP = [
+  { cle: "type_contrat", label: "Type de contrat (CDI, CDD...)" },
   { cle: "contact_urgence", label: "Contact d'urgence (nom et n°)" },
 ];
+// Champs de RH_CHAMPS_BASE à ne pas répéter dans la fiche pour un directeur/chef (trop
+// administratifs pour son usage courant) — n'affecte QUE la fiche modale ci-dessous, jamais
+// les colonnes du tableau (RH_CHAMPS_BASE reste inchangé, le tableau continue de les afficher).
+const RH_CHAMPS_BASE_MASQUES_DIRECTEUR = new Set(["loge", "vehicule", "date_prolongation_fin"]);
 
 // ---------- Modal fiche salarié RH (création / édition) ----------
 function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose }) {
   const [f, setF] = useState(() => {
     const base = {};
     RH_CHAMPS_BASE.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
+    RH_CHAMPS_MODAL_SUPP.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
     if (superviseur) RH_CHAMPS_SENSIBLES.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
     return base;
   });
   const [err, setErr] = useState("");
+  const [busyPromesse, setBusyPromesse] = useState(false);
+
+  async function genererPromesse() {
+    if (busyPromesse || !salarie) return;
+    setBusyPromesse(true);
+    try {
+      const etabsJ = await EtablissementsJuridique.load();
+      const html = construirePromesseEmbaucheHTML({ etabJ: etabsJ[resto] || null, salarie: { ...salarie, ...f, resto } });
+      const ok = imprimerDocument(`Promesse d'embauche ${f.prenom || salarie.prenom} ${f.nom || salarie.nom}`, html, STYLE_CONTRAT, `Promesse_embauche_${slugKey(resto)}_${slugKey((f.nom||salarie.nom||"")+"_"+(f.prenom||salarie.prenom||""))}`);
+      if (ok === false) setErr("Impossible de générer le document. Réessayez.");
+    } finally {
+      setBusyPromesse(false);
+    }
+  }
 
   function champ(c) {
     const valeur = f[c.cle] ?? (c.type === "bool" ? false : "");
@@ -3303,7 +3384,8 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
       <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:520}}>
         <h3>{salarie ? "Modifier la fiche" : "Nouveau salarié"}</h3>
         <div className="ig-muted" style={{marginBottom:10}}>{resto} · {unite === "SALLE" ? "Salle" : "Cuisine"}</div>
-        {RH_CHAMPS_BASE.map(champ)}
+        {(superviseur ? RH_CHAMPS_BASE : RH_CHAMPS_BASE.filter((c) => !RH_CHAMPS_BASE_MASQUES_DIRECTEUR.has(c.cle))).map(champ)}
+        {RH_CHAMPS_MODAL_SUPP.map(champ)}
         {superviseur && (
           <>
             <div style={{fontWeight:600,fontSize:13,marginTop:16,marginBottom:4}}>Informations complémentaires (superviseur)</div>
@@ -3311,6 +3393,11 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
           </>
         )}
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
+        {salarie && superviseur && (
+          <button className="ig-btn ig-btn-ghost" style={{width:'100%',marginTop:10}} onClick={genererPromesse} disabled={busyPromesse}>
+            📄 {busyPromesse ? "Génération…" : "Générer la promesse d'embauche"}
+          </button>
+        )}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
           <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
