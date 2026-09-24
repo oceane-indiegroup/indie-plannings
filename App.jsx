@@ -281,6 +281,19 @@ function construireDocument(titre, corpsHTML, styles) {
 </body></html>`;
 }
 
+// Construit un document HTML autonome (avec <head>/<style>) destiné à être envoyé tel quel
+// comme corps d'un email, en réutilisant exactement le même contenu/styles qu'à l'impression
+// (une seule source de vérité pour la mise en page de la lettre) — sans le bouton "Imprimer"
+// ni le déclenchement automatique de window.print(), inutiles dans un email.
+function construireDocumentEmail(corpsHTML, styles) {
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+<style>
+  * { box-sizing:border-box; }
+  body { font-family:Arial,Helvetica,sans-serif; color:#15303B; margin:0; padding:24px; background:#fff; }
+  ${styles}
+</style></head><body>${corpsHTML}</body></html>`;
+}
+
 // Tente l'ouverture dans une nouvelle fenêtre ; si elle est bloquée (sandbox),
 // retombe sur le téléchargement d'un fichier .html que l'utilisateur ouvre puis imprime en PDF.
 function imprimerDocument(titre, corpsHTML, styles, nomFichier) {
@@ -450,6 +463,9 @@ const RhAdmin = {
   creer: ({ email, motDePasse, resto, unite }) => appelerRhAdmin("creer", { email, motDePasse, resto, unite }),
   supprimer: (id) => appelerRhAdmin("supprimer", { id }),
   changerMotDePasse: ({ user_id, motDePasse }) => appelerRhAdmin("changerMotDePasse", { user_id, motDePasse }),
+  // Envoi d'un email (ex : promesse d'embauche) via l'adresse d'envoi configurée côté
+  // Supabase. Réservé au superviseur (gate déjà en place côté fonction "rh-admin").
+  envoyerEmail: ({ to, sujet, html, texte }) => appelerRhAdmin("envoyerEmail", { to, sujet, html, texte }),
   // Recherche de salariés tous établissements confondus (ex : pour un extra emprunté
   // ailleurs) — ouvert à tout compte RH, pas seulement au superviseur.
   async rechercherSalaries(q) {
@@ -3624,6 +3640,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [selection, setSelection] = useState(new Set());
   const [archiverModal, setArchiverModal] = useState(false);
   const [promesseBusy, setPromesseBusy] = useState(null); // id de la fiche en cours de génération
+  const [emailBusy, setEmailBusy] = useState(null); // id de la fiche dont la promesse est en cours d'envoi par email
   // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
   // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
   // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
@@ -3699,6 +3716,32 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
       if (ok === false) montrerErreur("Impossible de générer le document. Réessayez.");
     } finally {
       setPromesseBusy(null);
+    }
+  }
+  // Envoie la promesse d'embauche par email au salarié, à l'adresse renseignée dans le
+  // Registre Embauche — même lettre (contenu + mise en page) que la génération/impression,
+  // envoyée directement comme corps de l'email (via la fonction Supabase "rh-admin").
+  async function envoyerPromesseParEmail(s) {
+    if (emailBusy) return;
+    const email = (s.email || "").trim();
+    if (!email) { montrerErreur(`Aucune adresse email enregistrée pour ${s.prenom || ""} ${s.nom || ""}. Complétez-la dans le Registre Embauche.`); return; }
+    if (!confirm(`Envoyer la promesse d'embauche de ${s.prenom || ""} ${s.nom || ""} à ${email} ?`)) return;
+    setEmailBusy(s.id);
+    try {
+      const etabsJ = await EtablissementsJuridique.load();
+      const etabJ = etabsJ[resto] || null;
+      if (!etabJ || !etabJ.tampon) {
+        montrerErreur(`Aucune signature/tampon enregistrée pour ${resto}. Ajoutez-la d'abord dans "Fiche juridique de ${resto}" (Extras).`);
+        return;
+      }
+      const corps = construirePromesseEmbaucheHTML({ etabJ, salarie: s });
+      const html = construireDocumentEmail(corps, STYLE_PROMESSE);
+      const texte = `Bonjour,\n\nVeuillez trouver ci-dessous votre promesse d'embauche pour le poste de ${s.poste || ""} au sein de ${resto}.\n\nCordialement,\n${resto}`;
+      const r = await RhAdmin.envoyerEmail({ to: email, sujet: `Promesse d'embauche — ${resto}`, html, texte });
+      if (r.ok) montrerFlash(`Promesse d'embauche envoyée à ${email}.`);
+      else montrerErreur(`Échec de l'envoi : ${r.erreur || "erreur inconnue"}`);
+    } finally {
+      setEmailBusy(null);
     }
   }
   async function supprimerSelection() {
@@ -3937,6 +3980,11 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                     {superviseur && (
                       <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>genererPromesse(s)} disabled={promesseBusy===s.id}>
                         📄 {promesseBusy===s.id ? "Génération…" : "Promesse d'embauche"}
+                      </button>
+                    )}
+                    {superviseur && (
+                      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>envoyerPromesseParEmail(s)} disabled={emailBusy===s.id} title={s.email ? `Envoyer à ${s.email}` : "Aucun email enregistré"}>
+                        📧 {emailBusy===s.id ? "Envoi…" : "Envoyer par email"}
                       </button>
                     )}
                     <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(s)} style={{color:'var(--coral-d)'}}>Supprimer</button>
