@@ -3521,6 +3521,12 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [saisonActive, setSaisonActive] = useState(null);
   const [selection, setSelection] = useState(new Set());
   const [archiverModal, setArchiverModal] = useState(false);
+  // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
+  // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
+  // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
+  // empêchait de finir de saisir/ajuster la date tranquillement. La ligne ne bouge donc
+  // maintenant qu'au prochain chargement de la liste, jamais pendant qu'on la modifie.
+  const ordreDateFin = useRef(new Map());
 
   useEffect(() => {
     let on = true;
@@ -3529,6 +3535,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     RhSalaries.list(resto, unite).then((l) => {
       if (!on) return;
       setListe(l);
+      ordreDateFin.current = new Map(l.map((s) => [s.id, !!s.date_fin]));
       // La saison ouverte par défaut doit être l'année en cours (contrats actifs), jamais
       // "Archives" : "Archives" trie APRÈS les années dans l'ordre alphabétique ("A" > "2"),
       // donc prendre "la dernière valeur triée" ouvrait Archives par défaut — un fourre-tout
@@ -3663,10 +3670,12 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const listeSaison = liste.filter((s) => s.saison === saisonActive);
   const filtres_ = listeSaison.filter(passeFiltres);
   // Les salariés en fin de contrat (date de fin renseignée) passent en fin de liste,
-  // surlignés, pour que l'effectif actif reste visible en premier.
+  // surlignés, pour que l'effectif actif reste visible en premier. Se base sur l'état au
+  // dernier chargement (ordreDateFin), pas sur la valeur en cours de saisie : sinon la ligne
+  // saute de groupe à l'instant même où on tape la date, empêchant de la finir tranquillement.
   const listeAffichee = [
-    ...filtres_.filter((s) => !s.date_fin).sort(comparer),
-    ...filtres_.filter((s) => !!s.date_fin).sort(comparer),
+    ...filtres_.filter((s) => !ordreDateFin.current.get(s.id)).sort(comparer),
+    ...filtres_.filter((s) => !!ordreDateFin.current.get(s.id)).sort(comparer),
   ];
 
   function entete(c, largeur) {
