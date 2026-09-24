@@ -3953,10 +3953,15 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   // surlignés, pour que l'effectif actif reste visible en premier. Se base sur l'état au
   // dernier chargement (ordreDateFin), pas sur la valeur en cours de saisie : sinon la ligne
   // saute de groupe à l'instant même où on tape la date, empêchant de la finir tranquillement.
-  const listeAffichee = [
-    ...filtres_.filter((s) => !ordreDateFin.current.get(s.id)).sort(comparer),
-    ...filtres_.filter((s) => !!ordreDateFin.current.get(s.id)).sort(comparer),
-  ];
+  // Le tri par couleur, quand il est actif, prend le pas sur le groupement "fin de contrat
+  // en bas" ci-dessous : sinon une ligne coloriée pour remonter en premier reste bloquée
+  // dans son groupe (actif / fin de contrat) et ne remonte jamais réellement en tête.
+  const listeAffichee = triCouleur
+    ? [...filtres_].sort(comparer)
+    : [
+        ...filtres_.filter((s) => !ordreDateFin.current.get(s.id)).sort(comparer),
+        ...filtres_.filter((s) => !!ordreDateFin.current.get(s.id)).sort(comparer),
+      ];
 
   function entete(c, largeur) {
     const options = Array.from(new Set(listeSaison.map((s) => rhValeurBrute(s, c.cle))))
