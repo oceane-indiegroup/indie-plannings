@@ -1859,7 +1859,17 @@ function ManagerView({ resto, onBack, superviseur }) {
     RhSalaries.list(resto).then((lignes) => {
       if (!on) return;
       if (lignes.length === 0) { setRhTeam([]); return; }
-      const derniere = [...new Set(lignes.map((l) => l.saison))].sort().slice(-1)[0];
+      // La saison synchronisée dans le planning doit être l'année en cours (contrats actifs),
+      // jamais "Archives" : "Archives" trie après les années dans l'ordre alphabétique
+      // ("A" > "2"), donc prendre "la dernière valeur triée" pouvait synchroniser les fiches
+      // archivées au lieu des salariés réellement sous contrat cette année — plus aucun
+      // nouveau salarié (ni ses heures de contrat) ne remontait alors dans le planning.
+      const anneeCourante = String(new Date().getFullYear());
+      const saisonsDispo = [...new Set(lignes.map((l) => l.saison))].sort();
+      const saisonsAnnees = saisonsDispo.filter((s) => /^\d{4}$/.test(s));
+      const derniere = saisonsDispo.includes(anneeCourante)
+        ? anneeCourante
+        : (saisonsAnnees.length ? saisonsAnnees[saisonsAnnees.length - 1] : anneeCourante);
       setRhTeam(
         lignes.filter((l) => l.saison === derniere).map((l) => ({
           n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—", u: l.unite,
