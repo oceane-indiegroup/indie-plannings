@@ -802,6 +802,7 @@ const CSS = `
 .ig-btn-ink:hover { background:#0d2129; }
 .ig-btn:disabled { opacity:.45; cursor:not-allowed; }
 .ig-btn-sm { padding:7px 12px; font-size:13px; border-radius:9px; }
+.ig-btn-icon { padding:6px 8px; font-size:15px; border-radius:8px; gap:0; line-height:1; }
 
 /* Accueil */
 .ig-hero { padding: 56px 0 30px; }
@@ -4036,20 +4037,20 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:70}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:70}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
-                  <td style={{padding:'4px 6px',display:'flex',gap:6,alignItems:'center'}}>
+                  <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
-                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button>
+                    <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
                     {superviseur && (
-                      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>genererPromesse(s)} disabled={promesseBusy===s.id}>
-                        📄 {promesseBusy===s.id ? "Génération…" : "Promesse d'embauche"}
+                      <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>genererPromesse(s)} disabled={promesseBusy===s.id} title="Promesse d'embauche">
+                        {promesseBusy===s.id ? "…" : "📄"}
                       </button>
                     )}
                     {superviseur && (
-                      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>envoyerPromesseParEmail(s)} disabled={emailBusy===s.id} title={s.email ? `Envoyer à ${s.email}` : "Aucun email enregistré"}>
-                        📧 {emailBusy===s.id ? "Envoi…" : "Envoyer par email"}
+                      <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>envoyerPromesseParEmail(s)} disabled={emailBusy===s.id} title={s.email ? `Envoyer par email à ${s.email}` : "Envoyer par email (aucun email enregistré)"}>
+                        {emailBusy===s.id ? "…" : "📧"}
                       </button>
                     )}
-                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(s)} style={{color:'var(--coral-d)'}}>Supprimer</button>
+                    <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>supprimer(s)} style={{color:'var(--coral-d)'}} title="Supprimer">🗑️</button>
                   </td>
                 </tr>
               ))}
