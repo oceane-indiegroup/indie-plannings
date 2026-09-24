@@ -3985,9 +3985,9 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                 {entete(RH_CHAMPS_BASE[10], 90)}
                 {entete(RH_CHAMPS_BASE[9], 125)}
                 {entete(RH_CHAMPS_BASE[11], 70)}
-                <th style={{padding:'14px 10px',position:'relative',textAlign:'center'}}>
+                <th style={{padding:'14px 10px',position:'relative',textAlign:'center',minWidth:100}}>
                   <button onClick={()=>setMenuCouleurOuvert(!menuCouleurOuvert)}
-                    style={{display:'flex',alignItems:'center',justifyContent:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:14,fontWeight:800,padding:0,textTransform:'uppercase',letterSpacing:'.4px',margin:'0 auto',color: (filtreCouleurs || triCouleur) ? 'var(--coral-d)' : 'var(--ink)'}}>
+                    style={{display:'block',width:'100%',background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:14,fontWeight:800,padding:0,textTransform:'uppercase',letterSpacing:'.4px',color: (filtreCouleurs || triCouleur) ? 'var(--coral-d)' : 'var(--ink)'}}>
                     Couleur <span style={{fontSize:10}}>▾</span>
                   </button>
                   {menuCouleurOuvert && (
