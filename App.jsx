@@ -3309,7 +3309,6 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "promesse_embauche", label: "Promesse d'embauche" },
   { cle: "periode_essai_jours", label: "Période d'essai (jours)", type: "number" },
   { cle: "date_fin_periode_essai", label: "Fin de période d'essai", type: "date" },
-  { cle: "type_contrat", label: "Type de contrat" },
   { cle: "heures_semaine", label: "Heures / semaine", type: "number" },
   { cle: "heures_sup", label: "Heures sup", type: "number" },
   { cle: "niveau", label: "Niveau" },
@@ -3317,14 +3316,25 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "code_pcs", label: "Code PCS" },
   { cle: "due", label: "DUE" },
   { cle: "statut_payfit", label: "Statut PayFit" },
+];
+// Champs importants au quotidien pour un directeur/chef, visibles par tout le monde dans la
+// FICHE (contrairement au reste de RH_CHAMPS_SENSIBLES, réservé au superviseur) — mais pas
+// ajoutés au tableau du Registre embauche, pour ne pas l'alourdir davantage.
+const RH_CHAMPS_MODAL_SUPP = [
+  { cle: "type_contrat", label: "Type de contrat (CDI, CDD...)" },
   { cle: "contact_urgence", label: "Contact d'urgence (nom et n°)" },
 ];
+// Champs de RH_CHAMPS_BASE à ne pas répéter dans la fiche pour un directeur/chef (trop
+// administratifs pour son usage courant) — n'affecte QUE la fiche modale ci-dessous, jamais
+// les colonnes du tableau (RH_CHAMPS_BASE reste inchangé, le tableau continue de les afficher).
+const RH_CHAMPS_BASE_MASQUES_DIRECTEUR = new Set(["loge", "vehicule", "date_prolongation_fin"]);
 
 // ---------- Modal fiche salarié RH (création / édition) ----------
 function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose }) {
   const [f, setF] = useState(() => {
     const base = {};
     RH_CHAMPS_BASE.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
+    RH_CHAMPS_MODAL_SUPP.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
     if (superviseur) RH_CHAMPS_SENSIBLES.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
     return base;
   });
@@ -3374,7 +3384,8 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
       <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:520}}>
         <h3>{salarie ? "Modifier la fiche" : "Nouveau salarié"}</h3>
         <div className="ig-muted" style={{marginBottom:10}}>{resto} · {unite === "SALLE" ? "Salle" : "Cuisine"}</div>
-        {RH_CHAMPS_BASE.map(champ)}
+        {(superviseur ? RH_CHAMPS_BASE : RH_CHAMPS_BASE.filter((c) => !RH_CHAMPS_BASE_MASQUES_DIRECTEUR.has(c.cle))).map(champ)}
+        {RH_CHAMPS_MODAL_SUPP.map(champ)}
         {superviseur && (
           <>
             <div style={{fontWeight:600,fontSize:13,marginTop:16,marginBottom:4}}>Informations complémentaires (superviseur)</div>
@@ -3382,7 +3393,7 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
           </>
         )}
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-        {salarie && (
+        {salarie && superviseur && (
           <button className="ig-btn ig-btn-ghost" style={{width:'100%',marginTop:10}} onClick={genererPromesse} disabled={busyPromesse}>
             📄 {busyPromesse ? "Génération…" : "Générer la promesse d'embauche"}
           </button>
