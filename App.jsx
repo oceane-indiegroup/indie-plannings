@@ -3458,6 +3458,52 @@ function MenuCouleur({ filtreCouleurs, triCouleur, toutesLesCouleurs, onFiltrer,
   );
 }
 
+// ---------- Modal : archiver vers un dossier (saison) existant ou tout nouveau ----------
+function ArchiverVersModal({ saisons, onValider, onClose }) {
+  const [mode, setMode] = useState(saisons.length > 0 ? "existant" : "nouveau"); // 'existant' | 'nouveau'
+  const [choix, setChoix] = useState(saisons[0] || "");
+  const [nouveauNom, setNouveauNom] = useState("");
+  const [erreur, setErreur] = useState("");
+
+  function valider() {
+    const cible = mode === "existant" ? choix : nouveauNom.trim();
+    if (!cible) { setErreur(mode === "existant" ? "Choisissez un dossier." : "Donnez un nom au nouveau dossier."); return; }
+    onValider(cible);
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:420}}>
+        <h3>Archiver vers…</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>Choisissez un dossier (saison) déjà existant, ou créez-en un nouveau.</div>
+        {saisons.length > 0 && (
+          <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,cursor:'pointer'}}>
+            <input type="radio" checked={mode === "existant"} onChange={()=>{ setMode("existant"); setErreur(""); }} />
+            Dossier existant
+          </label>
+        )}
+        {mode === "existant" && saisons.length > 0 && (
+          <select value={choix} onChange={(e)=>setChoix(e.target.value)} style={{marginBottom:14}}>
+            {saisons.map((s) => (<option key={s} value={s}>{s}</option>))}
+          </select>
+        )}
+        <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,cursor:'pointer'}}>
+          <input type="radio" checked={mode === "nouveau"} onChange={()=>{ setMode("nouveau"); setErreur(""); }} />
+          Nouveau dossier
+        </label>
+        {mode === "nouveau" && (
+          <input value={nouveauNom} onChange={(e)=>{ setNouveauNom(e.target.value); setErreur(""); }} placeholder="Ex : 2025" style={{marginBottom:14}} autoFocus />
+        )}
+        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
+        <div style={{display:'flex',gap:10,marginTop:6}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Archiver</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- Liste des salariés RH d'un établissement + unité ----------
 function ListeSalariesRH({ resto, unite, superviseur }) {
   const [liste, setListe] = useState(null);
@@ -3475,6 +3521,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [saisonActive, setSaisonActive] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [selection, setSelection] = useState(new Set());
+  const [archiverModal, setArchiverModal] = useState(false);
 
   useEffect(() => {
     let on = true;
@@ -3548,14 +3595,12 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     if (ok) { setListe(liste.filter((s) => !selection.has(s.id))); setSelection(new Set()); montrerFlash(`${ids.length} fiche${ids.length>1?'s':''} supprimée${ids.length>1?'s':''}.`); }
     else montrerErreur("La suppression a échoué. Réessayez.");
   }
-  // Archive la sélection vers la saison de son choix (existante ou nouvelle) : permet de
-  // choisir précisément qui va dans quel "dossier" (2025, 2026, Archives...), au lieu de
-  // dépendre uniquement de l'archivage automatique par date de fin dépassée.
-  async function archiverSelectionVers() {
-    if (selection.size === 0) return;
-    const saisie = prompt(`Vers quelle saison archiver ${selection.size} fiche${selection.size>1?'s':''} ? (ex : 2025, Archives...)`, "Archives");
-    if (!saisie || !saisie.trim()) return;
-    const saisonCible = saisie.trim();
+  // Archive la sélection vers la saison de son choix — dossier déjà existant ou tout
+  // nouveau dossier créé à la volée (voir ArchiverVersModal) — au lieu de dépendre
+  // uniquement de l'archivage automatique par date de fin dépassée.
+  async function archiverSelectionVers(saisonCible) {
+    if (selection.size === 0 || !saisonCible) return;
+    setArchiverModal(false);
     const ids = Array.from(selection);
     const { ok, echecs } = await RhSalaries.archiverPlusieurs(ids, saisonCible);
     const idsEchecs = new Set(echecs.map((e) => e.id));
@@ -3667,37 +3712,44 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 
   return (
     <div>
-      <div className="ig-noprint" style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
-        {saisons.map((s) => (
-          <button key={s} className={"ig-btn ig-btn-sm "+(saisonActive===s?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setSaisonActive(s)}>Saison {s}</button>
-        ))}
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={nouvelleSaison}>+ Nouvelle saison</button>
-        {termines.length > 0 && (
-          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverTermines} style={{marginLeft: superviseur ? 0 : 'auto'}}>
-            📦 Archiver les {termines.length} contrat{termines.length>1?'s':''} terminé{termines.length>1?'s':''}
-          </button>
-        )}
-        {superviseur && (
+      {/* Saisons/archives : réservé au superviseur — un directeur/chef ne voit et ne travaille
+          que sur la saison en cours (l'année actuelle), jamais sur les dossiers archivés. */}
+      {superviseur && (
+        <div className="ig-noprint" style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
+          {saisons.map((s) => (
+            <button key={s} className={"ig-btn ig-btn-sm "+(saisonActive===s?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setSaisonActive(s)}>Saison {s}</button>
+          ))}
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={nouvelleSaison}>+ Nouvelle saison</button>
+          {termines.length > 0 && (
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverTermines}>
+              📦 Archiver les {termines.length} contrat{termines.length>1?'s':''} terminé{termines.length>1?'s':''}
+            </button>
+          )}
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverSaisonCourante} disabled={archiveBusy} style={{marginLeft:'auto'}}>
             {archiveBusy ? "Archivage…" : `↓ Archiver la saison ${saisonActive} vers le Sheet`}
           </button>
-        )}
-      </div>
+        </div>
+      )}
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
         <span className="ig-muted" style={{fontSize:12}}>Filtre/tri par couleur : cliquez « Couleur ▾ » dans le tableau.</span>
         {(filtresActifs || triCouleur) && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); setTriCouleur(null); }}>✕ Réinitialiser les filtres</button>}
         {selection.size > 0 && (
           <div style={{marginLeft:'auto',display:'flex',gap:8}}>
-            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverSelectionVers}>
-              📦 Archiver la sélection vers… ({selection.size})
-            </button>
+            {superviseur && (
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setArchiverModal(true)}>
+                📦 Archiver la sélection vers… ({selection.size})
+              </button>
+            )}
             <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={supprimerSelection} style={{color:'var(--coral-d)'}}>
               🗑 Supprimer la sélection ({selection.size})
             </button>
           </div>
         )}
       </div>
+      {archiverModal && (
+        <ArchiverVersModal saisons={saisons.filter((s)=>s!==saisonActive)} onValider={archiverSelectionVers} onClose={()=>setArchiverModal(false)} />
+      )}
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
       {listeAffichee.length === 0 ? <div className="ig-muted">{filtresActifs ? "Aucun salarié ne correspond aux filtres." : "Aucun salarié pour l'instant."}</div> : (
