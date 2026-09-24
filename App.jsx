@@ -5027,6 +5027,10 @@ function PrimesRH({ resto, restaurants, superviseur }) {
   const moisMaj = MOIS_NOMS[moisNum - 1].toUpperCase();
   const [liste, setListe] = useState(null);
   const [modal, setModal] = useState(null); // null | true (nouvelle) | {prime} (édition)
+  // Bandeau permanent (contrairement à alert(), qui peut être fermé sans être lu) montrant
+  // le texte BRUT de l'erreur renvoyée par le Sheet sync, pour pouvoir le lire/le capturer
+  // en écran sans avoir besoin d'accéder aux logs Supabase.
+  const [erreurSync, setErreurSync] = useState("");
 
   useEffect(() => {
     let on = true;
@@ -5042,13 +5046,13 @@ function PrimesRH({ resto, restaurants, superviseur }) {
       const maj = await RhPrimes.maj(modal.prime.id, patch);
       if (maj) {
         setListe((l) => l.map((x) => x.id === maj.id ? maj : x)); setModal(null);
-        if (maj._erreurSync) alert(`Prime enregistrée dans l'appli, mais l'écriture dans le Google Sheet a échoué : ${maj._erreurSync}. Réessayez une modification pour resynchroniser.`);
+        setErreurSync(maj._erreurSync || "");
       } else alert("La sauvegarde a échoué. Réessayez.");
     } else {
       const cree = await RhPrimes.creer(patch);
       if (cree) {
         setListe((l) => [cree, ...(l || [])]); setModal(null);
-        if (cree._erreurSync) alert(`Prime enregistrée dans l'appli, mais l'écriture dans le Google Sheet a échoué : ${cree._erreurSync}. Réessayez une modification pour resynchroniser.`);
+        setErreurSync(cree._erreurSync || "");
       } else alert("L'ajout a échoué. Réessayez.");
     }
   }
@@ -5063,6 +5067,15 @@ function PrimesRH({ resto, restaurants, superviseur }) {
 
   return (
     <div>
+      {erreurSync && (
+        <div className="ig-noprint" style={{background:'#fde2e2',border:'1px solid #e88',color:'#900',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:13,display:'flex',gap:10,alignItems:'flex-start'}}>
+          <div style={{flex:1}}>
+            <strong>La prime est enregistrée dans l'appli, mais l'écriture dans le Google Sheet a échoué :</strong>
+            <div style={{marginTop:4,fontFamily:'monospace',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{erreurSync}</div>
+          </div>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setErreurSync("")}>✕</button>
+        </div>
+      )}
       <div className="ig-noprint" style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee - 1)}>◀</button>
         <span style={{fontWeight:700,minWidth:44,textAlign:'center'}}>{annee}</span>
