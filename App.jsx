@@ -3738,7 +3738,7 @@ function ArchiverVersModal({ saisons, onValider, onClose }) {
 }
 
 // ---------- Liste des salariés RH d'un établissement + unité ----------
-function ListeSalariesRH({ resto, unite, superviseur }) {
+function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   const [liste, setListe] = useState(null);
   const [ajout, setAjout] = useState(false);
   const [edition, setEdition] = useState(null);
@@ -3815,6 +3815,17 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     const ok = await RhSalaries.supprimer(s.id);
     if (ok) { setListe(liste.filter((x) => x.id !== s.id)); setSelection((sel) => { const n = new Set(sel); n.delete(s.id); return n; }); montrerFlash("Fiche supprimée."); }
     else montrerErreur("La suppression a échoué. Réessayez.");
+  }
+  // Corrige un mauvais établissement choisi à l'onboarding (ex : onboardé sur PABLO SAINT
+  // BARTH au lieu de CREAM) : déplace la fiche vers le bon établissement, sans repasser par
+  // le Sheet (qui ne synchronise jamais un salarié déjà existant vers l'appli, dans ce
+  // sens-là). Réservé au superviseur.
+  async function transferer(s, nouveauResto) {
+    if (!nouveauResto || nouveauResto === resto) return;
+    if (!confirm(`Transférer ${s.prenom || ""} ${s.nom || ""} de ${resto} vers ${nouveauResto} ?`)) return;
+    const maj = await RhSalaries.maj(s.id, { resto: nouveauResto });
+    if (maj) { setListe(liste.filter((x) => x.id !== s.id)); montrerFlash(`${s.prenom || ""} ${s.nom || ""} transféré(e) vers ${nouveauResto}.`); }
+    else montrerErreur("Le transfert a échoué. Réessayez.");
   }
   async function genererPromesse(s) {
     if (promesseBusy) return;
@@ -4107,6 +4118,13 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
                       <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>envoyerPromesseParEmail(s)} disabled={emailBusy===s.id} title={s.email ? `Envoyer par email à ${s.email}` : "Envoyer par email (aucun email enregistré)"}>
                         {emailBusy===s.id ? "…" : "📧"}
                       </button>
+                    )}
+                    {superviseur && (restaurants || []).length > 1 && (
+                      <select className="ig-cell" value="" onChange={(e)=>transferer(s, e.target.value)}
+                        title="Transférer vers un autre établissement" style={{width:28,fontSize:11,padding:0,textAlign:'center',cursor:'pointer'}}>
+                        <option value="">🔀</option>
+                        {restaurants.filter((r) => r !== resto).map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
                     )}
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>supprimer(s)} style={{color:'var(--coral-d)'}} title="Supprimer">🗑️</button>
                   </td>
@@ -5270,7 +5288,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
           </div>
         </div>
       ) : sousSection === "registre" ? (
-        <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+        <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} restaurants={restaurants} />
       ) : sousSection === "repos_hebdo" ? (
         <ReposHebdoRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
       ) : sousSection === "extras" ? (
