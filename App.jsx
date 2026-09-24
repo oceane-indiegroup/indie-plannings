@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "./supabaseClient";
 // Photo de fond de l'écran d'accueil : chargée en chemin public (pas un import), pour que le
 // build ne casse jamais si le fichier est absent ou pas encore uploadé — au pire, pas de photo.
@@ -7,8 +8,19 @@ const fondAccueil = "/22.jpeg";
 // données internes à l'appli — jamais XLSX.read()/readFile() sur un fichier externe : les
 // failles connues de ce paquet concernent la lecture de fichiers xlsx non fiables.
 import * as XLSX from "xlsx";
+// Génération de PDF côté navigateur (pour joindre la promesse d'embauche à un email) —
+// voir genererPromessePDFBase64 plus bas pour la mise en garde sur le positionnement du
+// conteneur de rendu (un conteneur déplacé hors écran donne un canvas de hauteur 0).
+import html2pdf from "html2pdf.js";
+// Police "Inter" auto-hébergée (empaquetée au build, servie depuis l'appli elle-même) —
+// utilisée pour que la génération de PDF (genererPDFBase64) ait TOUJOURS cette police
+// disponible instantanément, sans dépendre du chargement réseau de Google Fonts au moment
+// précis de la génération (source d'un bug d'espacement/police déjà rencontré deux fois).
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/inter/700.css";
 
-const EMPLOYEES = [{"n":"HASMI","p":"Yacine","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ABOU","p":"Ismail","r":"PABLO","po":"Plongeur","u":"CUISINE","h":35},{"n":"FERRAND","p":"Anthony","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":44},{"n":"DORSO","p":"Marie-Cécile","r":"INDIE BEACH","po":"Directeur","u":"SALLE","h":35},{"n":"DUFOUR","p":"Alexandre","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"FROMMHERZ","p":"Tristan","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"RIET","p":"Antoine","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":39},{"n":"ID HADDOUCH","p":"Réda","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":35},{"n":"RIBE","p":"Oceane","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"GUILLET","p":"Valentin","r":"PABLO","po":"Runner","u":"SALLE","h":35},{"n":"THOMAS","p":"Lou","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":35},{"n":"CARDONA DE MARINIS","p":"Camille","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BERNARD","p":"Camille","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BALLUET","p":"Arthur","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":35},{"n":"LOPIS","p":"Adrien","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":35},{"n":"HORVILLE","p":"Brice","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ANDRE","p":"Lisa","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Vestiaire","u":"SALLE","h":39},{"n":"IBANEZ","p":"Guilhem","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"LEBARILLIER","p":"Juliette","r":"LA SAUVAGEONNE","po":"Barman","u":"SALLE","h":35},{"n":"SANTINI","p":"Yael","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"INZOUDINE","p":"Chaher","r":"CAFE FLORA","po":"Commis de Cuisine","u":"CUISINE","h":35},{"n":"LAROMIGUIÈRE","p":"Pierre-Alexandre","r":"CAFE FLORA","po":"Barman","u":"SALLE","h":35},{"n":"ROBIN","p":"Lou","r":"CAFE FLORA","po":"COMMIS DE SALLE","u":"SALLE","h":35},{"n":"ROY","p":"Maiwen","r":"CAFE FLORA","po":"Runner","u":"SALLE","h":35},{"n":"BILLARD","p":"Thibault","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"BRAULT","p":"Nicolas","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"MANGER MONTALS","p":"Humberto","r":"CAFE DE L ORMEAU","po":"chef de cuisine","u":"CUISINE","h":42},{"n":"DE PADOVA","p":"Marcio","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LANCON","p":"Romain","r":"INDIE GROUP BUREAU","po":"Directeur","u":"SALLE","h":35},{"n":"BILLERY","p":"Éléonore","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"GARCIA","p":"Florian","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BEAUFRERE","p":"Herman","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"INNELLA","p":"Camila","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":42},{"n":"CANTERA MORALES","p":"Magaly","r":"INDIE BEACH","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"AIRO","p":"Andrea","r":"INDIE BEACH","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"ANGLES","p":"Louis","r":"INDIE BEACH","po":"Chef Plagiste","u":"SALLE","h":42},{"n":"BELL","p":"Nathan","r":"INDIE BEACH","po":"Plagiste","u":"SALLE","h":42},{"n":"BONNEVIE","p":"Cynthia","r":"INDIE BEACH","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"DUPON","p":"Romain","r":"INDIE BEACH","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"DAOUPHARS","p":"Mathieu","r":"INDIE BEACH","po":"Chef de Bar","u":"SALLE","h":42},{"n":"MSAHAZI","p":"Ousseine","r":"CAFE DE L ORMEAU","po":"Commis de Cuisine","u":"CUISINE","h":39},{"n":"SOULAIMANA","p":"Said","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":42},{"n":"COMBEAU","p":"Vincent","r":"INDIE BEACH","po":"Chef de Bar","u":"SALLE","h":42},{"n":"DIAFAT","p":"Selim","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BOUAZZA","p":"Sâra","r":"PABLO","po":"Hotesse","u":"SALLE","h":42},{"n":"HANTZ","p":"Loane","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":35},{"n":"DOUX","p":"Clemence","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":42},{"n":"GRANET","p":"Romain","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"MACCHINI","p":"David","r":"PLAYAMIGOS","po":"Plagiste","u":"SALLE","h":42},{"n":"BENICHOU","p":"Marine","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BIGORGNE","p":"Adrien","r":"PABLO","po":"Commis de Salle","u":"SALLE","h":35},{"n":"GUELI","p":"Estefanía","r":"PABLO","po":"Patissier","u":"CUISINE","h":42},{"n":"KOSCIAREK","p":"Nicolas","r":"INDIE BEACH","po":"Manager","u":"SALLE","h":42},{"n":"PANES","p":"Stanislas","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":42},{"n":"PORRE","p":"Lorin","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":42},{"n":"CUARTERO","p":"Emmanuel","r":"PABLO","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"ANTUNES","p":"Léna","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":39},{"n":"BOGLIETTI","p":"Mercedes","r":"CAFE FLORA","po":"Second de Cuisine","u":"CUISINE","h":44},{"n":"DUFOUR","p":"Nicolas","r":"CAFE FLORA","po":"Chef de Cuisine","u":"CUISINE","h":44},{"n":"GONZALEZ CARO","p":"Francisco","r":"CAFE FLORA","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"LILLOUX","p":"Matuanui","r":"CAFE FLORA","po":"Barman","u":"SALLE","h":44},{"n":"SARKADI","p":"Zoltánné","r":"CAFE FLORA","po":"Plongeur","u":"CUISINE","h":44},{"n":"TERNES","p":"Camilla","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CARNEIRO","p":"Mélinda","r":"PABLO","po":"Directeur","u":"SALLE","h":35},{"n":"NEVES","p":"Jessica","r":"PABLO","po":"Manager","u":"SALLE","h":42},{"n":"FAZIO","p":"Luca","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ROUX","p":"Ange","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"THERY","p":"Elias","r":"INDIE BEACH","po":"Officier","u":"SALLE","h":42},{"n":"DUPERTHUY","p":"Jean","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"ATHOUMANI","p":"Azali","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":42},{"n":"RIVET","p":"Maurine","r":"PLAYAMIGOS","po":"Directeur","u":"SALLE","h":42},{"n":"SOULAT","p":"Geoffrey","r":"PLAYAMIGOS","po":"Chef Plagiste","u":"SALLE","h":42},{"n":"DENIS","p":"Adrian","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":42},{"n":"MONNIER","p":"Sebastien","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LEVY","p":"Corinne","r":"CAFE FLORA","po":"Directeur","u":"SALLE","h":44},{"n":"VALEMBOIS","p":"Ange","r":"PABLO","po":"Chef de Bar","u":"SALLE","h":42},{"n":"LE TOUX","p":"Aéla","r":"INDIE BEACH","po":"CONSEILLERE EN VENTE","u":"SALLE","h":35},{"n":"NIBEAUDEAU","p":"Solenne","r":"INDIE BEACH","po":"autres","u":"SALLE","h":35},{"n":"BENAT","p":"Alexia","r":"INDIE BEACH","po":"Caissière","u":"SALLE","h":42},{"n":"JEAN PIERRE","p":"Maëlle","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LEAL OSORIO","p":"Jesus Enrique","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LAURENT","p":"Margaux","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":42},{"n":"ABOUBACAR","p":"Kassim Mrenda","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"CALTAGIRONE","p":"Clement","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"MARTINEZ VASQUEZ","p":"Francisco Leonel","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"VILLEDIEU","p":"Romane","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":42},{"n":"CELIA","p":"Federico","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"DUARTE","p":"Dwayne Lloyd","r":"PABLO","po":"Officier","u":"SALLE","h":42},{"n":"KOKA","p":"Victoria","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"DENIS","p":"Alexis","r":"PABLO","po":"Barman","u":"SALLE","h":42},{"n":"DUFOUR","p":"Maxence","r":"PABLO","po":"Runner","u":"SALLE","h":39},{"n":"BELHADJ","p":"Adil","r":"CAFE FLORA","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"VILLARINI","p":"Julien","r":"CAFE FLORA","po":"pizzaiolo","u":"CUISINE","h":44},{"n":"KOGLER","p":"Theo","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LLOBERES","p":"Manon","r":"PABLO","po":"Barman","u":"SALLE","h":42},{"n":"ROUSSEL","p":"Fabien","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LANNOY","p":"Aurélien","r":"PLAYAMIGOS","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"ATTOUMANI","p":"Dilane","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":39},{"n":"SALAS","p":"Mickaël","r":"PLAYAMIGOS","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"BARRAGAN","p":"Paola","r":"PLAYAMIGOS","po":"Chef de Bar","u":"SALLE","h":42},{"n":"MALLEK","p":"Hadj","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"RADJABOU","p":"Soule","r":"PLAYAMIGOS","po":"Plongeur","u":"CUISINE","h":42},{"n":"FERRAH","p":"Claire","r":"PLAYAMIGOS","po":"Manager","u":"SALLE","h":42},{"n":"POLO","p":"Jean-Baptiste","r":"CAFE DE L ORMEAU","po":"Manager","u":"SALLE","h":42},{"n":"BAROUDI","p":"Mehdi Charles","r":"INDIE BEACH","po":"autres","u":"SALLE","h":42},{"n":"BENHADJ","p":"Kamil","r":"INDIE BEACH","po":"Agent Entretien","u":"SALLE","h":39},{"n":"LEGENDRE","p":"Sacha","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LOUSSOUARN","p":"Ahès","r":"PABLO","po":"Commis de Salle","u":"SALLE","h":42},{"n":"RASZKOWSKI","p":"Noah","r":"PABLO","po":"Runner","u":"SALLE","h":42},{"n":"LASCHUCK","p":"Ahirton","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":42},{"n":"GOMEZ","p":"Cristian","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"MOLANO RIOS","p":"Leslie Tatiana","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":42},{"n":"LE BORGNE","p":"Maxime","r":"PABLO","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"SAID","p":"Faielledine Ben","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":42},{"n":"BIANCHI","p":"Augusto","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":39},{"n":"SANTONI","p":"Agathe","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"DUMAS PELLECHIA","p":"Quentin","r":"PABLO","po":"Public Relation","u":"SALLE","h":24},{"n":"GNEBEHI","p":"Maellie","r":"PABLO","po":"Hotesse","u":"SALLE","h":42},{"n":"TRAMBAUD","p":"Maxence","r":"PABLO","po":"Runner","u":"SALLE","h":39},{"n":"GIRARD","p":"Alexis","r":"CAFE FLORA","po":"Second de Cuisine","u":"CUISINE","h":44},{"n":"CORBET","p":"Kathleen","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CHARLOT","p":"Alexandre","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"MOREL","p":"Sébastien","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BOCABEILLE","p":"Ilona","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"AMODIO","p":"Francesco Paolo","r":"CHERRY","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"RICCARDI","p":"Vito","r":"CHERRY","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"CARRILLO RAMIREZ","p":"Victor Hugo","r":"LA SAUVAGEONNE","po":"Chef de Cuisine","u":"CUISINE","h":35},{"n":"GALIONE","p":"Giusepe","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"GALIONE","p":"Gennaro","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BENECKO","p":"Alin","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"DUJARDIN","p":"Maxime","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":35},{"n":"MULLER","p":"Cyril","r":"LA SAUVAGEONNE","po":"Chef de Cuisine","u":"CUISINE","h":44},{"n":"SARRAT","p":"Paola","r":"CHERRY","po":"Directeur","u":"SALLE","h":42},{"n":"STRACH","p":"Sarah","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":39},{"n":"ALI MOUSSA","p":"Anziz Habib","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":42},{"n":"GOUX","p":"Fabien","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LE PORZE","p":"Nathan","r":"CHERRY","po":"Chef de Bar","u":"SALLE","h":42},{"n":"BLANC","p":"Thomas","r":"LA SAUVAGEONNE","po":"Manager","u":"SALLE","h":44},{"n":"VERNAT","p":"Guillaume","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":39},{"n":"DERRARIDJ","p":"Fabien","r":"CAFE FLORA","po":"pizzaiolo","u":"CUISINE","h":44},{"n":"HIRET","p":"Salomé","r":"CAFE FLORA","po":"Barman","u":"SALLE","h":35},{"n":"MORELLO","p":"Lenny","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":42},{"n":"SOTO MUNOZ","p":"Lliuvashka","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":42},{"n":"PESTY","p":"Heloise","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"MALO","p":"Julien","r":"CAFE DE L ORMEAU","po":"Chef de Bar","u":"SALLE","h":39},{"n":"BRANDO RUBIANO","p":"Maria Camila","r":"PLAYAMIGOS","po":"Patissier","u":"CUISINE","h":42},{"n":"HELLER","p":"Emma","r":"CHERRY","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"MANENT","p":"Maëna","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"GUEMBOU","p":"Gwenaëlle","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":39},{"n":"KAYA","p":"Axel","r":"LA SAUVAGEONNE","po":"Second de Cuisine","u":"CUISINE","h":44},{"n":"TANG","p":"Chhunhay","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"VIRET","p":"Kevin","r":"INDIE BEACH","po":"Manager","u":"SALLE","h":42},{"n":"BOULAY","p":"Ariane","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"FERNANDEZ GOMEZ","p":"Agustin","r":"INDIE BEACH","po":"Commis de cuisine","u":"CUISINE","h":42},{"n":"SEIBANE","p":"Silvana","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"BOEUF","p":"Etienne","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"DESMEDT","p":"Guillaume","r":"LA SAUVAGEONNE","po":"Runner","u":"SALLE","h":35},{"n":"FABRE","p":"Mathis","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"IBRAHIMA","p":"Zidani","r":"CAFE DE L ORMEAU","po":"Plongeur","u":"CUISINE","h":39},{"n":"MOUIGNI","p":"Kassim","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":42},{"n":"ANESSI","p":"Abel","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"LAMY","p":"Hugo","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"ORIGET","p":"Anais","r":"LA SAUVAGEONNE","po":"Barman","u":"SALLE","h":44},{"n":"ROUDERGUES","p":"Cezanne","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":39},{"n":"PROCHASSON","p":"Maelle","r":"LA SAUVAGEONNE","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"SOMNARD","p":"Thomas","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LESELLIER","p":"Marine","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":42},{"n":"BOMSEL","p":"Charles-Elie","r":"LA SAUVAGEONNE","po":"Sommelier","u":"SALLE","h":35},{"n":"CHIQUET","p":"Manon","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":42},{"n":"BENOIT","p":"Joffrey","r":"PLAYAMIGOS","po":"Commis de Bar","u":"SALLE","h":35},{"n":"DE VINCENTI MENNA","p":"Franco","r":"INDIE BEACH","po":"Demi chef de partie","u":"CUISINE","h":42},{"n":"AVILEZ SANTANA","p":"Oscar","r":"INDIE GROUP BUREAU","po":"CHEF EXECUTIF","u":"CUISINE","h":35},{"n":"DHIB","p":"Kheira","r":"PABLO","po":"Agent Entretien","u":"SALLE","h":35},{"n":"MOUZON","p":"Justin","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":42},{"n":"COLLINET","p":"Sarah Marie","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CAILLOL","p":"Margot","r":"CHERRY","po":"Barman","u":"SALLE","h":42},{"n":"LUFTMAN","p":"Louis","r":"INDIE GROUP BUREAU","po":"RESPONSABLE MARKETING","u":"SALLE","h":39},{"n":"BAKAR","p":"Yanisse","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"BARNA","p":"Yan","r":"INDIE BEACH","po":"Demi Chef de Partie","u":"CUISINE","h":42},{"n":"TCHOUPE","p":"Lenny","r":"INDIE BEACH","po":"autres","u":"CUISINE","h":42},{"n":"VILLAMOR","p":"Victor","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"KHERRAZ","p":"Mohamed","r":"CHERRY","po":"Runner","u":"SALLE","h":39},{"n":"LELUAN","p":"Leïla","r":"LA SAUVAGEONNE","po":"Patissier","u":"CUISINE","h":44},{"n":"MAILLARD","p":"Jules","r":"INDIE BEACH","po":"Commis de Bar","u":"SALLE","h":42},{"n":"LE TRIONNAIRE","p":"Leo","r":"INDIE BEACH","po":"Plagiste","u":"SALLE","h":39},{"n":"GOBIN","p":"Mathis","r":"INDIE BEACH","po":"Sommelier","u":"SALLE","h":42},{"n":"NGUYEN","p":"Lou","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"DO ROSARIO","p":"Franco","r":"INDIE BEACH","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"COURIAUD","p":"Yanis","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"CARVIN","p":"Sofiane","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"RAMIREZ PLATA","p":"Franyuly Maritza","r":"PABLO","po":"Patissier","u":"CUISINE","h":42},{"n":"FRANCO MENDES","p":"Tiago","r":"INDIE BEACH","po":"Commis de Bar","u":"SALLE","h":39},{"n":"MIQUEL","p":"Ornella","r":"CAFE FLORA","po":"Commis de Salle","u":"SALLE","h":35},{"n":"RENAUX","p":"Tom","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"CELESTINE","p":"Adrien","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":35},{"n":"PERADEL","p":"Nathan","r":"CAFE DE L ORMEAU","po":"Sommelier","u":"SALLE","h":35},{"n":"BOURGOIS","p":"Gael","r":"INDIE BEACH","po":"Directeur","u":"SALLE","h":42},{"n":"BALBI SABARROS","p":"Noelia","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":42},{"n":"DABOVE LÓPEZ","p":"Gaston","r":"INDIE BEACH","po":"Chef de Cuisine","u":"CUISINE","h":44},{"n":"GRANDVOINET","p":"Gilles","r":"CAFE DE L ORMEAU","po":"Chef de Cuisine","u":"CUISINE","h":35},{"n":"RALLO","p":"Alexandre","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":42},{"n":"ELSENSOHN","p":"Jade","r":"PABLO","po":"Commis de Salle","u":"SALLE","h":42},{"n":"BAL","p":"Sébastien","r":"PLAYAMIGOS","po":"Officier","u":"SALLE","h":35},{"n":"TERMELLIL","p":"Tarek","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":44},{"n":"BIRD","p":"Kelly","r":"INDIE BEACH","po":"Conseillère de vente","u":"SALLE","h":35},{"n":"KHENOUCHE","p":"Ademe","r":"LA SAUVAGEONNE","po":"Runner","u":"SALLE","h":35},{"n":"PEZZULLI","p":"Gianni","r":"PABLO","po":"Commis de Salle","u":"SALLE","h":42},{"n":"BONEVIE","p":"Cynthia","r":"INDIE BEACH","po":"Chef Hotesse","u":"SALLE","h":44},{"n":"TITEUX","p":"Dylan","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"HARDUIN","p":"Romane","r":"PLAYAMIGOS","po":"Hotesse","u":"SALLE","h":42},{"n":"NEVES","p":"Marie","r":"INDIE BEACH","po":"Caissière","u":"SALLE","h":44},{"n":"ACHIKIAN","p":"Justine","r":"PLAYAMIGOS","po":"Manager","u":"SALLE","h":44},{"n":"ICHAMBE","p":"Marie","r":"CAFE DE L ORMEAU","po":"Manager","u":"SALLE","h":44},{"n":"RIVIERE","p":"Aurelien","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":39},{"n":"JULIEN","p":"Lucas","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":44},{"n":"BOUZNAD","p":"Hamza","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"DE VASCONCELOS","p":"Margot","r":"LA SAUVAGEONNE","po":"Barman","u":"SALLE","h":35},{"n":"MARTIN","p":"Thibaut","r":"LA SAUVAGEONNE","po":"Runner","u":"SALLE","h":35},{"n":"PETRUCHELLI","p":"Philippe","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"POLO","p":"Jean Baptiste","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":44},{"n":"DENURA","p":"Frédéric","r":"PLAYAMIGOS","po":"Chef de Bar","u":"SALLE","h":44},{"n":"PASQUINI","p":"Noah","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LAQUET","p":"Alexis","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"CHICHE","p":"Benjamin","r":"CHERRY","po":"Directeur","u":"SALLE","h":35},{"n":"BORDJIBA","p":"Abdelkarim","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"CAPPODANNO","p":"Lisa","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":39},{"n":"NASSERDINE","p":"Ahamed","r":"LA SAUVAGEONNE","po":"Plongeur","u":"CUISINE","h":39},{"n":"QUENET","p":"Lisa","r":"INDIE GROUP BUREAU","po":"assitante administrative","u":"SALLE","h":44},{"n":"PALOMO DEL RIO","p":"Serge","r":"CHERRY","po":"chef de bar","u":"SALLE","h":42},{"n":"BEY","p":"Hugo","r":"CHERRY","po":"Manager","u":"SALLE","h":42},{"n":"EL KENOUNI BOUSBAA","p":"Soumia","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"MAHAMADOU","p":"Bathily","r":"CHERRY","po":"commis de salle","u":"SALLE","h":42},{"n":"GOSALBES","p":"Lauriane","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ZANCHI","p":"Magali Luz","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"CHOUCHANE","p":"Mathis","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":35},{"n":"SELOUANE","p":"Aissa","r":"CHERRY","po":"Runner","u":"SALLE","h":42},{"n":"OLAZ","p":"Johana Nerea Eugenia","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"GODET DES MARAIS","p":"Marine","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"SOUMARE","p":"Yaya","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":35},{"n":"TCHAKO","p":"Aissata","r":"CHERRY","po":"Hotesse","u":"SALLE","h":42},{"n":"GUILLEMIN","p":"Oscar","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ABOUMADI","p":"Mohamed","r":"CHERRY","po":"Runner","u":"SALLE","h":35},{"n":"DIALLO","p":"Moussa","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":35},{"n":"RODRÍGUEZ ALARCON","p":"Felipe Andres","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"MORENO LOPEZ","p":"Ricardo Israel","r":"CHERRY","po":"Commis de Cuisine","u":"CUISINE","h":35},{"n":"MAUREIRA CHANDÍA","p":"Sebastián Nickolas","r":"CHERRY","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"AZZARA","p":"Sofia","r":"CHERRY","po":"cheffe hotesse","u":"SALLE","h":42},{"n":"MISSONSA","p":"Rohann","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"LASSALLE","p":"Benoit","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"COLIN","p":"Jeremie","r":"CHERRY","po":"Chef de Bar","u":"SALLE","h":42},{"n":"COURTHIEU","p":"Gregoire","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"OUAKKA","p":"Ihsan","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BERTIN","p":"Julie","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":39},{"n":"GARAVAGLIA","p":"Alessandro","r":"PABLO SAINT BARTH","po":"Sommelier","u":"SALLE","h":42},{"n":"HEBRARD","p":"Florian","r":"PABLO SAINT BARTH","po":"Manager","u":"SALLE","h":42},{"n":"REYES","p":"Prince-Zyrose","r":"PABLO SAINT BARTH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"MARCEL","p":"Julien","r":"PABLO SAINT BARTH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BRISBOUT","p":"Thomas","r":"PABLO SAINT BARTH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"CUXAC","p":"Daniel","r":"PABLO SAINT BARTH","po":"Chef de Bar","u":"SALLE","h":42},{"n":"CESPITES","p":"Benjamin","r":"PABLO SAINT BARTH","po":"Chef de partie","u":"CUISINE","h":42},{"n":"MOLINIER","p":"Alexandre","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"BEAL","p":"Faustine","r":"PABLO SAINT BARTH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"PANIZZA STAIANO","p":"Facundo Alejo","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"DAVIS","p":"Carmen Luisa","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":42},{"n":"MATHIEU","p":"Paul","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"TROIANO PALUMBO","p":"Naomi","r":"PABLO SAINT BARTH","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"KAPELA","p":"Adonis","r":"PABLO SAINT BARTH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"VINCENT","p":"Margot","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":42},{"n":"SUD","p":"Gabin","r":"PABLO SAINT BARTH","po":"Runner","u":"SALLE","h":35},{"n":"OPALA","p":"Romain","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"BADACHE","p":"Sophian","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"REY","p":"Benjamin","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Chef de Bar","u":"SALLE","h":42},{"n":"IDRISSI","p":"Khalid","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"CARVAJAL MOLANO","p":"Elides","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"BOCHARD","p":"Marsile","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"CRAPOULET","p":"Marine","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LEGER","p":"Ella","r":"PABLO SAINT BARTH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"BASTERRICA","p":"Camila Aylen","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"BERNAT","p":"Emma","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BONAVENTURE","p":"Margaux","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"FERNANDEZ","p":"Noah","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Runner","u":"SALLE","h":39},{"n":"LANGLOIS","p":"Arthur","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Commis de Salle","u":"SALLE","h":39},{"n":"ZOFFOLI","p":"Carla","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Commis de Salle","u":"SALLE","h":39},{"n":"BARBERO DE LUCAS","p":"Manuel","r":"PABLO SAINT BARTH","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"LEPORI","p":"Gianluca","r":"PABLO SAINT BARTH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"CESAIRE","p":"Joris","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"BELLEVUE","p":"Bervirson","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"BERNARDINI","p":"Theo","r":"CHERRY","po":"Runner","u":"SALLE","h":35},{"n":"COQUILLAS","p":"Randy","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"PAMBOU","p":"Kimberley","r":"CHERRY","po":"Hotesse","u":"SALLE","h":42},{"n":"HENRY","p":"Ricardo","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"REGNAULD","p":"Pacome","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":44},{"n":"NADHOIM","p":"Youssouf","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"JUAN ALBERTO","p":"Rincón Paez","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"FORTILLIEN PEDRO","p":"Maria","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"SAHOUI","p":"Julian","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":42},{"n":"SAID","p":"Ibrahim","r":"CAFE DE L ORMEAU","po":"Plongeur","u":"CUISINE","h":39},{"n":"DESESSARD","p":"Alexis","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":44},{"n":"DEVIANNE","p":"Raphael","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"BRANDO","p":"Maria Camila","r":"PLAYAMIGOS","po":"Patissier","u":"CUISINE","h":44},{"n":"SCHWARTZ","p":"Adryan","r":"CAFE DE L ORMEAU","po":"Commis de Cuisine","u":"CUISINE","h":39},{"n":"GAËL","p":"Martin","r":"INDIE GROUP BUREAU","po":"autres","u":"SALLE","h":35},{"n":"LEBARRILIER","p":"Juliette","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":39},{"n":"CARRIER","p":"Jules","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":35},{"n":"SANTAMARIA","p":"Nolan","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":35},{"n":"ALEM","p":"Elyes","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":39},{"n":"HERRERO","p":"Allison","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MEROLLE","p":"Sophie","r":"CAT CLUB","po":"Chef de Rang","u":"SALLE","h":42},{"n":"TELMAT","p":"Marine","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BEGUIN","p":"Antoine","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":35},{"n":"QUD","p":"Gabin","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"ST PAUL","p":"Guilhem","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":35},{"n":"REYTINAT-HARDOUIN","p":"Alice","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"BARTHELEMY","p":"Anaïs","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":35},{"n":"NYANG","p":"Ebrima","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"NKOLO","p":"Theodore","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"CHARLES","p":"Alexis","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":42},{"n":"LABUNETS","p":"Anatolii","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Runner","u":"SALLE","h":35},{"n":"SELLAM","p":"Alexis","r":"CAT CLUB","po":"Officier","u":"SALLE","h":42},{"n":"SORRESSO","p":"Davide","r":"PABLO SAINT BARTH","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"POLANCO","p":"Roberto","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"COMBE","p":"Baptiste","r":"LA SAUVAGEONNE","po":"Runner","u":"SALLE","h":35},{"n":"ADAM","p":"Paul","r":"CAT CLUB","po":"Commis de Bar","u":"SALLE","h":35},{"n":"LEGOUVERNEUR","p":"Tommy","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"ROMAIN","p":"Panabieres","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"SAFFIOTI","p":"Gianni","r":"CAT CLUB","po":"Chef de Rang","u":"SALLE","h":35},{"n":"VAN MOE","p":"Andrea","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"POLANCO PALMA","p":"Celina","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"LAFRANCE","p":"Guillaume","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"GARCIA MENDOZA","p":"Miguel Angel","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"DOERN","p":"Léa","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"ARAUJO","p":"Audrey","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":39},{"n":"ARANDELOVIC","p":"Sasa","r":"CHERRY","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"PROST","p":"Matthieu","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"NUSSBAUM","p":"Samuel","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"GESMUNDO","p":"Francesca","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"DURST","p":"Lilou","r":"PABLO SAINT BARTH","po":"autres","u":"SALLE","h":35},{"n":"THOMAS","p":"Sarah","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Sommelier","u":"SALLE","h":39},{"n":"BISSOLY","p":"Jordan","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"WANN","p":"Zenab","r":"CHERRY","po":"Sommelier","u":"SALLE","h":42},{"n":"BEGUIN","p":"Naïs","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"RAKOTOSAONA","p":"Fitia","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"ROMANO","p":"Mattia","r":"CHERRY","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"FOGTMAN","p":"Ayrton","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":44},{"n":"DABOVE LÓPEZ","p":"Gastón","r":"INDIE GROUP BUREAU","po":"Chef de Cuisine","u":"CUISINE","h":35},{"n":"ZAGHDOUD","p":"Mourad","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"NDIAYE","p":"Hamidou","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":39},{"n":"SOMAN","p":"Saha","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"GODARD","p":"Andy","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"BENEDETTI","p":"Aurelia","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LOUGASSI","p":"Mano","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":44},{"n":"MOREL","p":"Sebastien","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":44},{"n":"ROTA","p":"Anthony","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"FRANGEUL","p":"Lea","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"FRIH","p":"Majid","r":"INDIE BEACH","po":"Officier","u":"SALLE","h":44},{"n":"FLESCHEN","p":"Zoé","r":"PABLO SAINT BARTH","po":"autres","u":"SALLE","h":35},{"n":"GAITAN","p":"Santiago","r":"CAFE FLORA","po":"Cuisinier","u":"CUISINE","h":42},{"n":"MENDEZ","p":"Yojan Alexander","r":"CHERRY","po":"Patissier","u":"CUISINE","h":42},{"n":"GAUCHAT","p":"Claudia","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":42},{"n":"COSTANZA","p":"Paul","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":39},{"n":"ROSSO UGO","p":"Sacha","r":"PLAYAMIGOS","po":"Commis de Bar","u":"SALLE","h":39},{"n":"LUNT","p":"Malachi","r":"PLAYAMIGOS","po":"Plagiste","u":"SALLE","h":44},{"n":"DERVIEAU CAPELLE","p":"Margot","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":39},{"n":"BERNARD","p":"Angelys","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":44},{"n":"AUGUSTE","p":"Lukas","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"LAMBERTI","p":"Tom Pablo César","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"COMPAIN","p":"Ludovic","r":"CAFE FLORA","po":"Barman","u":"SALLE","h":39},{"n":"GHIRINGHELLI","p":"Joaquin","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"PETKOVIC","p":"Milosav","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"CORNILLON","p":"Victor","r":"PABLO","po":"Runner","u":"SALLE","h":39},{"n":"LAMBERTON","p":"Robinson","r":"PLAYAMIGOS","po":"Officier","u":"SALLE","h":39},{"n":"MUTEL","p":"Hugo","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":44},{"n":"HOUCINI","p":"Yanis","r":"INDIE GROUP BUREAU","po":"CONTROLE DE GESTION","u":"BUREAU","h":42},{"n":"EVRAD","p":"Clara","r":"PABLO","po":"Agent Entretien","u":"SALLE","h":35},{"n":"KERANGUYADER","p":"Thomas","r":"CAFE FLORA","po":"Manager","u":"SALLE","h":42},{"n":"LOMBARDI","p":"Cloe","r":"CAFE FLORA","po":"Manager","u":"SALLE","h":42},{"n":"LEBARRILLIER","p":"Juliette","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":44},{"n":"RIVIERE","p":"Jules","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":35},{"n":"PERES","p":"Guillaume","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"TROIN","p":"Agathe","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":39},{"n":"SANCHEZ-PASTOR AYLLON","p":"Victoria Qianlu","r":"CHERRY","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"BOULASSEL","p":"Abdelfettah","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"REVERTE","p":"Jordan","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":44},{"n":"ORLA","p":"Lily-Rose","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":44},{"n":"GOMEZ MONTES","p":"Maria Del Pilar","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":42},{"n":"GHARSALLAH","p":"Adem","r":"CAFE DE L ORMEAU","po":"Plongeur","u":"CUISINE","h":42},{"n":"AMON","p":"Eloge Ferdinand","r":"CAFE FLORA","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"REDER","p":"Jean Charles","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"ROSANO","p":"Emma","r":"CHERRY","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"MENNEA","p":"Salvatore","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":44},{"n":"SERRE","p":"Candice","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BARBIER","p":"Anna","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LA RANA","p":"Andrea","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"LAGACHE","p":"Marine","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":44},{"n":"AHMED","p":"Harouna","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":39},{"n":"MICHALLAT","p":"Julie","r":"INDIE BEACH","po":"Agent d'entretien","u":"SALLE","h":39},{"n":"VESELOVSKYI","p":"Vitalii","r":"INDIE GROUP BUREAU","po":"intendant","u":"SALLE","h":35},{"n":"PALUSSIÈRE","p":"Alexis","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"TREMOULET PAJOT","p":"Malou","r":"PLAYAMIGOS","po":"Hotesse","u":"SALLE","h":35},{"n":"ESTEVE","p":"Guillaume","r":"INDIE BEACH","po":"Plagiste","u":"SALLE","h":35},{"n":"TAGANZA","p":"Yassine","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":42},{"n":"CURTIL","p":"Paul","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":39},{"n":"GARAVAGLIA","p":"Gloria","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":35},{"n":"MACAULEY","p":"Tara","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"MAURETTE","p":"Oscar","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LAVEDER","p":"Laurette","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"POLLIER","p":"Bastien","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":35},{"n":"FALCOZ","p":"Costin","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":39},{"n":"BIOLLEY","p":"Lola","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"HAMIDOU","p":"Chiraz","r":"CAFE DE L ORMEAU","po":"Plongeur","u":"CUISINE","h":39},{"n":"JULIAN DELALANDE","p":"Axel","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":42},{"n":"LAMRI","p":"Ahmed","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LO","p":"Maeva Gueda","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CARBONE","p":"Sonny","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":39},{"n":"VENEGAS MARISCAL","p":"Rodolfo Ignacio","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"ARCHERAY LEBLOND","p":"Clara","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"PICARD","p":"Laure","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"BODIN","p":"Victor","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":39},{"n":"MARCON","p":"Mathis","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":39},{"n":"FRANCO MENDES","p":"Ricardo","r":"INDIE BEACH","po":"Plagiste","u":"SALLE","h":35},{"n":"GARCIA","p":"Remi","r":"PABLO","po":"Runner","u":"SALLE","h":39},{"n":"PLAYOUST","p":"Gabin","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"CANTERA","p":"Magaly","r":"INDIE BEACH","po":"Second de Cuisine","u":"CUISINE","h":44},{"n":"DELORME","p":"Elisa","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CHAILLOU","p":"Marianne","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":42},{"n":"ANTONA","p":"Jean Dominique","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"DRODE","p":"Axel","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LE VERGE—SERANDOUR","p":"Ewenn","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BELASCO","p":"Pierre","r":"CHERRY","po":"Sommelier","u":"SALLE","h":44},{"n":"FERAY","p":"Gregory","r":"CHERRY","po":"Patissier","u":"CUISINE","h":44},{"n":"DEDIEU","p":"Loan","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"GUITTON","p":"Mathilde","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":39},{"n":"DUMAS","p":"Edouard","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":39},{"n":"JARDSON GESMAR","p":"Junior Frederico","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BEEDASSY","p":"Mathea","r":"LA SAUVAGEONNE","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"ORIGET","p":"Anaïs","r":"LA SAUVAGEONNE","po":"Barman","u":"SALLE","h":42},{"n":"SAQUET","p":"Fanny","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BAUDINO","p":"Eliza","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":42},{"n":"DUBOYS DE LABARRE","p":"Andreas","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":39},{"n":"BORDERES","p":"Célia","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":42},{"n":"LEGRIER","p":"Aurore","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":44},{"n":"TOSTO","p":"Alexandre","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ROUMLY","p":"Charif","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":39},{"n":"ARNAL","p":"Noe","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":42},{"n":"SMAILI","p":"Eva","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":42},{"n":"VERDIER","p":"Sadio","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"DESBIENS","p":"Lhone","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":35},{"n":"DI MAGGIO","p":"Yaron","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"BERTUCCI","p":"Mickaël","r":"CHERRY","po":"Runner","u":"SALLE","h":39},{"n":"ANDRADE","p":"Adriana","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"DAGUIER","p":"Rebecca","r":"PABLO","po":"Agent Entretien","u":"SALLE","h":35},{"n":"GODET","p":"Melina","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"DI CARMINE","p":"Julia","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"HATTON","p":"Lucy","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"ROUAG","p":"Morad","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"TADDEI","p":"Maxime","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":39},{"n":"BLANCKAERT","p":"John","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":42},{"n":"DELFOSSE","p":"Oriane","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":35},{"n":"DJAI","p":"Manola","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":39},{"n":"CHARTIER","p":"Jean","r":"PLAYAMIGOS","po":"Plagiste","u":"SALLE","h":42},{"n":"COLLINET","p":"Sarah","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"RIJO SOARES","p":"Aloice","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"WEHRLEN","p":"Romane","r":"INDIE BEACH","po":"autres","u":"SALLE","h":35},{"n":"BORNEUF","p":"Rose","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":42},{"n":"ABOUBACAR","p":"Kassim","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":44},{"n":"GOMES","p":"Angelique","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":44},{"n":"ALAIN","p":"Dubois","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"ID HADDOUCH","p":"Reda","r":"PLAYAMIGOS","po":"Plagiste","u":"SALLE","h":39},{"n":"COSTA","p":"Noa","r":"CAFE FLORA","po":"Commis de Salle","u":"SALLE","h":35},{"n":"ALCAMO","p":"Marie","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":44},{"n":"PETIT","p":"Fiona","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"GALIBERT","p":"Rudy","r":"LA SAUVAGEONNE","po":"Directeur","u":"SALLE","h":35},{"n":"MEIGNAN","p":"Pablo","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":35},{"n":"PRES","p":"Sofiia","r":"PABLO","po":"Agent d'entretien sanitaire","u":"SALLE","h":35},{"n":"DESIGAUX","p":"Clemence","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MAURETTE","p":"Lucas","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":35},{"n":"ALDA","p":"Manon","r":"CAT CLUB","po":"Hotesse","u":"SALLE","h":35},{"n":"BOURDIN","p":"Corentin","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Barman","u":"SALLE","h":35},{"n":"BOUCHAREYCHAS","p":"Romain","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"BUCCI","p":"Chiara","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"DEROUGEMONT","p":"Maxime","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MULLER","p":"Mathilde","r":"PABLO","po":"autres","u":"SALLE","h":35},{"n":"DESACHY","p":"Marion","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"GINOUX","p":"Andrea","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"LAJOUS","p":"Karine","r":"PABLO","po":"Agent Entretien","u":"SALLE","h":35},{"n":"POINSOT","p":"Eddy","r":"CHERRY","po":"Barman","u":"SALLE","h":35},{"n":"GOMEZ GAMEZ","p":"Eduard","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MARIOTTI","p":"Carla-Marie","r":"CAT CLUB","po":"Hotesse","u":"SALLE","h":35},{"n":"NADAUD","p":"Lisa","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"LOPEZ CRUZ","p":"Vanessa Carolina","r":"CAFE DE L ORMEAU","po":"Cuisinier","u":"CUISINE","h":35},{"n":"MANDIN","p":"Nathanael","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":35},{"n":"NGUYEN","p":"Kim Lorelei","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"AGOSTINHO","p":"Mikael","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":35},{"n":"CHAWKI","p":"Walid","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"CRISTI","p":"Giovanni","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"DESBRUGERES","p":"Paul","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"COUCHOT","p":"Olivier","r":"CHERRY","po":"Barman","u":"SALLE","h":35},{"n":"FORTILIEN PEDRO","p":"Maria Altagracia","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"GIGANTE","p":"Diane","r":"PABLO SAINT BARTH","po":"autres","u":"SALLE","h":35},{"n":"RAUFASTE","p":"Lola","r":"PABLO SAINT BARTH","po":"autres","u":"SALLE","h":35},{"n":"JOSEPH","p":"Anton","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"BELINGO","p":"Donatien","r":"CHERRY","po":"Runner","u":"SALLE","h":35},{"n":"HOUNET","p":"Gabriel","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"KALAYCI","p":"Timucin","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"LEBASTARD","p":"Noe-Baltazar","r":"CHERRY","po":"Runner","u":"SALLE","h":35},{"n":"REINERTZ","p":"Mélody","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"SAINTINI","p":"Kevin","r":"LA SAUVAGEONNE","po":"Cuisinier","u":"CUISINE","h":35},{"n":"CHENNIT","p":"Adam","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MICHEL","p":"Denis","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":35},{"n":"GÜELI","p":"Estefania","r":"PABLO","po":"Patissier","u":"CUISINE","h":35},{"n":"COLLART","p":"Ines","r":"PABLO SAINT BARTH","po":"Hotesse","u":"SALLE","h":35},{"n":"LOMBARD","p":"Daniel","r":"CAFE FLORA","po":"Chef de Partie","u":"CUISINE","h":35},{"n":"WARDI","p":"Inès","r":"PABLO SAINT BARTH","po":"Chef de Rang","u":"SALLE","h":35},{"n":"AYAD","p":"Sabrina","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BARBAS","p":"Charlize","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"TOMAS","p":"Lola","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"CAILLOL","p":"Margot","r":"CAT CLUB","po":"Agent Entretien","u":"SALLE","h":35},{"n":"BENAT","p":"Alexia","r":"CAT CLUB","po":"Caissière","u":"SALLE","h":35},{"n":"DENIS","p":"Alexis","r":"CAT CLUB","po":"Chef de Bar","u":"SALLE","h":35},{"n":"DUCLOZ","p":"Jordan","r":"CAT CLUB","po":"Chef de Rang","u":"SALLE","h":35},{"n":"THERRY","p":"Elias","r":"CAT CLUB","po":"Officier","u":"SALLE","h":35},{"n":"NIBEAUDEAU","p":"Solene","r":"CAT CLUB","po":"Vestiaire","u":"SALLE","h":35},{"n":"LAURENT","p":"Margaux","r":"CAT CLUB","po":"Chef Hotesse","u":"SALLE","h":35},{"n":"DJ","p":"Django","r":"CAT CLUB","po":"DJ Resident","u":"SALLE","h":35},{"n":"BERJONNEAU","p":"Mathilde","r":"CAT CLUB","po":"Barman","u":"SALLE","h":35},{"n":"GALLLEGO","p":"Cristina","r":"CAT CLUB","po":"Chef de Rang","u":"SALLE","h":35},{"n":"MONNIER","p":"Sebastien","r":"CAT CLUB","po":"Chef de Rang","u":"SALLE","h":35},{"n":"LANGLOIS","p":"Arthur","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"RODRIGUEZ","p":"Aroa","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"GALIBERT","p":"Rudy","r":"CAT CLUB","po":"Directeur","u":"SALLE","h":35},{"n":"MICHEL","p":"Mathieu","r":"CAT CLUB","po":"VIP Host","u":"SALLE","h":35}];
+const EMPLOYEES = [{"n":"HASMI","p":"Yacine","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ABOU","p":"Ismail","r":"PABLO","po":"Plongeur","u":"CUISINE","h":35},{"n":"FERRAND","p":"Anthony","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":44},{"n":"DORSO","p":"Marie-Cécile","r":"INDIE BEACH","po":"Directeur","u":"SALLE","h":35},{"n":"DUFOUR","p":"Alexandre","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"FROMMHERZ","p":"Tristan","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"RIET","p":"Antoine","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":39},{"n":"ID HADDOUCH","p":"Réda","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":35},{"n":"RIBE","p":"Oceane","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"GUILLET","p":"Valentin","r":"PABLO","po":"Runner","u":"SALLE","h":35},{"n":"THOMAS","p":"Lou","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":35},{"n":"CARDONA DE MARINIS","p":"Camille","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BERNARD","p":"Camille","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BALLUET","p":"Arthur","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":35},{"n":"LOPIS","p":"Adrien","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":35},{"n":"HORVILLE","p":"Brice","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ANDRE","p":"Lisa","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Vestiaire","u":"SALLE","h":39},{"n":"IBANEZ","p":"Guilhem","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"LEBARILLIER","p":"Juliette","r":"LA SAUVAGEONNE","po":"Barman","u":"SALLE","h":35},{"n":"SANTINI","p":"Yael","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"INZOUDINE","p":"Chaher","r":"CAFE FLORA","po":"Commis de Cuisine","u":"CUISINE","h":35},{"n":"LAROMIGUIÈRE","p":"Pierre-Alexandre","r":"CAFE FLORA","po":"Barman","u":"SALLE","h":35},{"n":"ROBIN","p":"Lou","r":"CAFE FLORA","po":"COMMIS DE SALLE","u":"SALLE","h":35},{"n":"ROY","p":"Maiwen","r":"CAFE FLORA","po":"Runner","u":"SALLE","h":35},{"n":"BILLARD","p":"Thibault","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"BRAULT","p":"Nicolas","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"MANGER MONTALS","p":"Humberto","r":"CAFE DE L ORMEAU","po":"chef de cuisine","u":"CUISINE","h":42},{"n":"DE PADOVA","p":"Marcio","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LANCON","p":"Romain","r":"INDIE GROUP BUREAU","po":"Directeur","u":"SALLE","h":35},{"n":"BILLERY","p":"Éléonore","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"GARCIA","p":"Florian","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BEAUFRERE","p":"Herman","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"INNELLA","p":"Camila","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":42},{"n":"CANTERA MORALES","p":"Magaly","r":"INDIE BEACH","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"AIRO","p":"Andrea","r":"INDIE BEACH","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"ANGLES","p":"Louis","r":"INDIE BEACH","po":"Chef Plagiste","u":"SALLE","h":42},{"n":"BELL","p":"Nathan","r":"INDIE BEACH","po":"Plagiste","u":"SALLE","h":42},{"n":"BONNEVIE","p":"Cynthia","r":"INDIE BEACH","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"DUPON","p":"Romain","r":"INDIE BEACH","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"DAOUPHARS","p":"Mathieu","r":"INDIE BEACH","po":"Chef de Bar","u":"SALLE","h":42},{"n":"MSAHAZI","p":"Ousseine","r":"CAFE DE L ORMEAU","po":"Commis de Cuisine","u":"CUISINE","h":39},{"n":"SOULAIMANA","p":"Said","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":42},{"n":"COMBEAU","p":"Vincent","r":"INDIE BEACH","po":"Chef de Bar","u":"SALLE","h":42},{"n":"DIAFAT","p":"Selim","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BOUAZZA","p":"Sâra","r":"PABLO","po":"Hotesse","u":"SALLE","h":42},{"n":"HANTZ","p":"Loane","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":35},{"n":"DOUX","p":"Clemence","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":42},{"n":"GRANET","p":"Romain","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"MACCHINI","p":"David","r":"PLAYAMIGOS","po":"Plagiste","u":"SALLE","h":42},{"n":"BENICHOU","p":"Marine","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BIGORGNE","p":"Adrien","r":"PABLO","po":"Commis de Salle","u":"SALLE","h":35},{"n":"GUELI","p":"Estefanía","r":"PABLO","po":"Patissier","u":"CUISINE","h":42},{"n":"KOSCIAREK","p":"Nicolas","r":"INDIE BEACH","po":"Manager","u":"SALLE","h":42},{"n":"PANES","p":"Stanislas","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":42},{"n":"PORRE","p":"Lorin","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":42},{"n":"CUARTERO","p":"Emmanuel","r":"PABLO","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"ANTUNES","p":"Léna","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":39},{"n":"BOGLIETTI","p":"Mercedes","r":"CAFE FLORA","po":"Second de Cuisine","u":"CUISINE","h":44},{"n":"DUFOUR","p":"Nicolas","r":"CAFE FLORA","po":"Chef de Cuisine","u":"CUISINE","h":44},{"n":"GONZALEZ CARO","p":"Francisco","r":"CAFE FLORA","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"LILLOUX","p":"Matuanui","r":"CAFE FLORA","po":"Barman","u":"SALLE","h":44},{"n":"SARKADI","p":"Zoltánné","r":"CAFE FLORA","po":"Plongeur","u":"CUISINE","h":44},{"n":"TERNES","p":"Camilla","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CARNEIRO","p":"Mélinda","r":"PABLO","po":"Directeur","u":"SALLE","h":35},{"n":"NEVES","p":"Jessica","r":"PABLO","po":"Manager","u":"SALLE","h":42},{"n":"FAZIO","p":"Luca","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ROUX","p":"Ange","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"THERY","p":"Elias","r":"INDIE BEACH","po":"Officier","u":"SALLE","h":42},{"n":"DUPERTHUY","p":"Jean","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"ATHOUMANI","p":"Azali","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":42},{"n":"RIVET","p":"Maurine","r":"PLAYAMIGOS","po":"Directeur","u":"SALLE","h":42},{"n":"SOULAT","p":"Geoffrey","r":"PLAYAMIGOS","po":"Chef Plagiste","u":"SALLE","h":42},{"n":"DENIS","p":"Adrian","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":42},{"n":"MONNIER","p":"Sebastien","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LEVY","p":"Corinne","r":"CAFE FLORA","po":"Directeur","u":"SALLE","h":44},{"n":"VALEMBOIS","p":"Ange","r":"PABLO","po":"Chef de Bar","u":"SALLE","h":42},{"n":"LE TOUX","p":"Aéla","r":"INDIE BEACH","po":"CONSEILLERE EN VENTE","u":"SALLE","h":35},{"n":"NIBEAUDEAU","p":"Solenne","r":"INDIE BEACH","po":"autres","u":"SALLE","h":35},{"n":"BENAT","p":"Alexia","r":"INDIE BEACH","po":"Caissière","u":"SALLE","h":42},{"n":"JEAN PIERRE","p":"Maëlle","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LEAL OSORIO","p":"Jesus Enrique","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LAURENT","p":"Margaux","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":42},{"n":"ABOUBACAR","p":"Kassim Mrenda","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"CALTAGIRONE","p":"Clement","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"MARTINEZ VASQUEZ","p":"Francisco Leonel","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"VILLEDIEU","p":"Romane","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":42},{"n":"CELIA","p":"Federico","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"DUARTE","p":"Dwayne Lloyd","r":"PABLO","po":"Officier","u":"SALLE","h":42},{"n":"KOKA","p":"Victoria","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"DENIS","p":"Alexis","r":"PABLO","po":"Barman","u":"SALLE","h":42},{"n":"DUFOUR","p":"Maxence","r":"PABLO","po":"Runner","u":"SALLE","h":39},{"n":"BELHADJ","p":"Adil","r":"CAFE FLORA","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"VILLARINI","p":"Julien","r":"CAFE FLORA","po":"pizzaiolo","u":"CUISINE","h":44},{"n":"KOGLER","p":"Theo","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LLOBERES","p":"Manon","r":"PABLO","po":"Barman","u":"SALLE","h":42},{"n":"ROUSSEL","p":"Fabien","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LANNOY","p":"Aurélien","r":"PLAYAMIGOS","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"ATTOUMANI","p":"Dilane","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":39},{"n":"SALAS","p":"Mickaël","r":"PLAYAMIGOS","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"BARRAGAN","p":"Paola","r":"PLAYAMIGOS","po":"Chef de Bar","u":"SALLE","h":42},{"n":"MALLEK","p":"Hadj","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"RADJABOU","p":"Soule","r":"PLAYAMIGOS","po":"Plongeur","u":"CUISINE","h":42},{"n":"FERRAH","p":"Claire","r":"PLAYAMIGOS","po":"Manager","u":"SALLE","h":42},{"n":"POLO","p":"Jean-Baptiste","r":"CAFE DE L ORMEAU","po":"Manager","u":"SALLE","h":42},{"n":"BAROUDI","p":"Mehdi Charles","r":"INDIE BEACH","po":"autres","u":"SALLE","h":42},{"n":"BENHADJ","p":"Kamil","r":"INDIE BEACH","po":"Agent Entretien","u":"SALLE","h":39},{"n":"LEGENDRE","p":"Sacha","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LOUSSOUARN","p":"Ahès","r":"PABLO","po":"Commis de Salle","u":"SALLE","h":42},{"n":"RASZKOWSKI","p":"Noah","r":"PABLO","po":"Runner","u":"SALLE","h":42},{"n":"LASCHUCK","p":"Ahirton","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":42},{"n":"GOMEZ","p":"Cristian","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"MOLANO RIOS","p":"Leslie Tatiana","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":42},{"n":"LE BORGNE","p":"Maxime","r":"PABLO","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"SAID","p":"Faielledine Ben","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":42},{"n":"BIANCHI","p":"Augusto","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":39},{"n":"SANTONI","p":"Agathe","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"DUMAS PELLECHIA","p":"Quentin","r":"PABLO","po":"Public Relation","u":"SALLE","h":24},{"n":"GNEBEHI","p":"Maellie","r":"PABLO","po":"Hotesse","u":"SALLE","h":42},{"n":"TRAMBAUD","p":"Maxence","r":"PABLO","po":"Runner","u":"SALLE","h":39},{"n":"GIRARD","p":"Alexis","r":"CAFE FLORA","po":"Second de Cuisine","u":"CUISINE","h":44},{"n":"CORBET","p":"Kathleen","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CHARLOT","p":"Alexandre","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"MOREL","p":"Sébastien","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BOCABEILLE","p":"Ilona","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"AMODIO","p":"Francesco Paolo","r":"CHERRY","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"RICCARDI","p":"Vito","r":"CHERRY","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"CARRILLO RAMIREZ","p":"Victor Hugo","r":"LA SAUVAGEONNE","po":"Chef de Cuisine","u":"CUISINE","h":35},{"n":"GALIONE","p":"Giusepe","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"GALIONE","p":"Gennaro","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BENECKO","p":"Alin","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"DUJARDIN","p":"Maxime","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":35},{"n":"MULLER","p":"Cyril","r":"LA SAUVAGEONNE","po":"Chef de Cuisine","u":"CUISINE","h":44},{"n":"SARRAT","p":"Paola","r":"CHERRY","po":"Directeur","u":"SALLE","h":42},{"n":"STRACH","p":"Sarah","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":39},{"n":"ALI MOUSSA","p":"Anziz Habib","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":42},{"n":"GOUX","p":"Fabien","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LE PORZE","p":"Nathan","r":"CHERRY","po":"Chef de Bar","u":"SALLE","h":42},{"n":"BLANC","p":"Thomas","r":"LA SAUVAGEONNE","po":"Manager","u":"SALLE","h":44},{"n":"VERNAT","p":"Guillaume","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":39},{"n":"DERRARIDJ","p":"Fabien","r":"CAFE FLORA","po":"pizzaiolo","u":"CUISINE","h":44},{"n":"HIRET","p":"Salomé","r":"CAFE FLORA","po":"Barman","u":"SALLE","h":35},{"n":"MORELLO","p":"Lenny","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":42},{"n":"SOTO MUNOZ","p":"Lliuvashka","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":42},{"n":"PESTY","p":"Heloise","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"MALO","p":"Julien","r":"CAFE DE L ORMEAU","po":"Chef de Bar","u":"SALLE","h":39},{"n":"BRANDO RUBIANO","p":"Maria Camila","r":"PLAYAMIGOS","po":"Patissier","u":"CUISINE","h":42},{"n":"HELLER","p":"Emma","r":"CHERRY","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"MANENT","p":"Maëna","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"GUEMBOU","p":"Gwenaëlle","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":39},{"n":"KAYA","p":"Axel","r":"LA SAUVAGEONNE","po":"Second de Cuisine","u":"CUISINE","h":44},{"n":"TANG","p":"Chhunhay","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"VIRET","p":"Kevin","r":"INDIE BEACH","po":"Manager","u":"SALLE","h":42},{"n":"BOULAY","p":"Ariane","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"FERNANDEZ GOMEZ","p":"Agustin","r":"INDIE BEACH","po":"Commis de cuisine","u":"CUISINE","h":42},{"n":"SEIBANE","p":"Silvana","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"BOEUF","p":"Etienne","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"DESMEDT","p":"Guillaume","r":"LA SAUVAGEONNE","po":"Runner","u":"SALLE","h":35},{"n":"FABRE","p":"Mathis","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"IBRAHIMA","p":"Zidani","r":"CAFE DE L ORMEAU","po":"Plongeur","u":"CUISINE","h":39},{"n":"MOUIGNI","p":"Kassim","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":42},{"n":"ANESSI","p":"Abel","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"LAMY","p":"Hugo","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"ORIGET","p":"Anais","r":"LA SAUVAGEONNE","po":"Barman","u":"SALLE","h":44},{"n":"ROUDERGUES","p":"Cezanne","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":39},{"n":"PROCHASSON","p":"Maelle","r":"LA SAUVAGEONNE","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"SOMNARD","p":"Thomas","r":"PABLO","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LESELLIER","p":"Marine","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":42},{"n":"BOMSEL","p":"Charles-Elie","r":"LA SAUVAGEONNE","po":"Sommelier","u":"SALLE","h":35},{"n":"CHIQUET","p":"Manon","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":42},{"n":"BENOIT","p":"Joffrey","r":"PLAYAMIGOS","po":"Commis de Bar","u":"SALLE","h":35},{"n":"DE VINCENTI MENNA","p":"Franco","r":"INDIE BEACH","po":"Demi chef de partie","u":"CUISINE","h":42},{"n":"AVILEZ SANTANA","p":"Oscar","r":"INDIE GROUP BUREAU","po":"CHEF EXECUTIF","u":"CUISINE","h":35},{"n":"DHIB","p":"Kheira","r":"PABLO","po":"Agent Entretien","u":"SALLE","h":35},{"n":"MOUZON","p":"Justin","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":42},{"n":"COLLINET","p":"Sarah Marie","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CAILLOL","p":"Margot","r":"CHERRY","po":"Barman","u":"SALLE","h":42},{"n":"LUFTMAN","p":"Louis","r":"INDIE GROUP BUREAU","po":"RESPONSABLE MARKETING","u":"SALLE","h":39},{"n":"BAKAR","p":"Yanisse","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"BARNA","p":"Yan","r":"INDIE BEACH","po":"Demi Chef de Partie","u":"CUISINE","h":42},{"n":"TCHOUPE","p":"Lenny","r":"INDIE BEACH","po":"autres","u":"CUISINE","h":42},{"n":"VILLAMOR","p":"Victor","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"KHERRAZ","p":"Mohamed","r":"CHERRY","po":"Runner","u":"SALLE","h":39},{"n":"LELUAN","p":"Leïla","r":"LA SAUVAGEONNE","po":"Patissier","u":"CUISINE","h":44},{"n":"MAILLARD","p":"Jules","r":"INDIE BEACH","po":"Commis de Bar","u":"SALLE","h":42},{"n":"LE TRIONNAIRE","p":"Leo","r":"INDIE BEACH","po":"Plagiste","u":"SALLE","h":39},{"n":"GOBIN","p":"Mathis","r":"INDIE BEACH","po":"Sommelier","u":"SALLE","h":42},{"n":"NGUYEN","p":"Lou","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"DO ROSARIO","p":"Franco","r":"INDIE BEACH","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"COURIAUD","p":"Yanis","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"CARVIN","p":"Sofiane","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"RAMIREZ PLATA","p":"Franyuly Maritza","r":"PABLO","po":"Patissier","u":"CUISINE","h":42},{"n":"FRANCO MENDES","p":"Tiago","r":"INDIE BEACH","po":"Commis de Bar","u":"SALLE","h":39},{"n":"MIQUEL","p":"Ornella","r":"CAFE FLORA","po":"Commis de Salle","u":"SALLE","h":35},{"n":"RENAUX","p":"Tom","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"CELESTINE","p":"Adrien","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":35},{"n":"PERADEL","p":"Nathan","r":"CAFE DE L ORMEAU","po":"Sommelier","u":"SALLE","h":35},{"n":"BOURGOIS","p":"Gael","r":"INDIE BEACH","po":"Directeur","u":"SALLE","h":42},{"n":"BALBI SABARROS","p":"Noelia","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":42},{"n":"DABOVE LÓPEZ","p":"Gaston","r":"INDIE BEACH","po":"Chef de Cuisine","u":"CUISINE","h":44},{"n":"GRANDVOINET","p":"Gilles","r":"CAFE DE L ORMEAU","po":"Chef de Cuisine","u":"CUISINE","h":35},{"n":"RALLO","p":"Alexandre","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":42},{"n":"ELSENSOHN","p":"Jade","r":"PABLO","po":"Commis de Salle","u":"SALLE","h":42},{"n":"BAL","p":"Sébastien","r":"PLAYAMIGOS","po":"Officier","u":"SALLE","h":35},{"n":"TERMELLIL","p":"Tarek","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":44},{"n":"BIRD","p":"Kelly","r":"INDIE BEACH","po":"Conseillère de vente","u":"SALLE","h":35},{"n":"KHENOUCHE","p":"Ademe","r":"LA SAUVAGEONNE","po":"Runner","u":"SALLE","h":35},{"n":"PEZZULLI","p":"Gianni","r":"PABLO","po":"Commis de Salle","u":"SALLE","h":42},{"n":"BONEVIE","p":"Cynthia","r":"INDIE BEACH","po":"Chef Hotesse","u":"SALLE","h":44},{"n":"TITEUX","p":"Dylan","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"HARDUIN","p":"Romane","r":"PLAYAMIGOS","po":"Hotesse","u":"SALLE","h":42},{"n":"NEVES","p":"Marie","r":"INDIE BEACH","po":"Caissière","u":"SALLE","h":44},{"n":"ACHIKIAN","p":"Justine","r":"PLAYAMIGOS","po":"Manager","u":"SALLE","h":44},{"n":"ICHAMBE","p":"Marie","r":"CAFE DE L ORMEAU","po":"Manager","u":"SALLE","h":44},{"n":"RIVIERE","p":"Aurelien","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":39},{"n":"JULIEN","p":"Lucas","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":44},{"n":"BOUZNAD","p":"Hamza","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"DE VASCONCELOS","p":"Margot","r":"LA SAUVAGEONNE","po":"Barman","u":"SALLE","h":35},{"n":"MARTIN","p":"Thibaut","r":"LA SAUVAGEONNE","po":"Runner","u":"SALLE","h":35},{"n":"PETRUCHELLI","p":"Philippe","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"POLO","p":"Jean Baptiste","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":44},{"n":"DENURA","p":"Frédéric","r":"PLAYAMIGOS","po":"Chef de Bar","u":"SALLE","h":44},{"n":"PASQUINI","p":"Noah","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LAQUET","p":"Alexis","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"CHICHE","p":"Benjamin","r":"CHERRY","po":"Directeur","u":"SALLE","h":35},{"n":"BORDJIBA","p":"Abdelkarim","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"CAPPODANNO","p":"Lisa","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":39},{"n":"NASSERDINE","p":"Ahamed","r":"LA SAUVAGEONNE","po":"Plongeur","u":"CUISINE","h":39},{"n":"QUENET","p":"Lisa","r":"INDIE GROUP BUREAU","po":"assitante administrative","u":"SALLE","h":44},{"n":"PALOMO DEL RIO","p":"Serge","r":"CHERRY","po":"chef de bar","u":"SALLE","h":42},{"n":"BEY","p":"Hugo","r":"CHERRY","po":"Manager","u":"SALLE","h":42},{"n":"EL KENOUNI BOUSBAA","p":"Soumia","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"MAHAMADOU","p":"Bathily","r":"CHERRY","po":"commis de salle","u":"SALLE","h":42},{"n":"GOSALBES","p":"Lauriane","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ZANCHI","p":"Magali Luz","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"CHOUCHANE","p":"Mathis","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":35},{"n":"SELOUANE","p":"Aissa","r":"CHERRY","po":"Runner","u":"SALLE","h":42},{"n":"OLAZ","p":"Johana Nerea Eugenia","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"GODET DES MARAIS","p":"Marine","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"SOUMARE","p":"Yaya","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":35},{"n":"TCHAKO","p":"Aissata","r":"CHERRY","po":"Hotesse","u":"SALLE","h":42},{"n":"GUILLEMIN","p":"Oscar","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ABOUMADI","p":"Mohamed","r":"CHERRY","po":"Runner","u":"SALLE","h":35},{"n":"DIALLO","p":"Moussa","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":35},{"n":"RODRÍGUEZ ALARCON","p":"Felipe Andres","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"MORENO LOPEZ","p":"Ricardo Israel","r":"CHERRY","po":"Commis de Cuisine","u":"CUISINE","h":35},{"n":"MAUREIRA CHANDÍA","p":"Sebastián Nickolas","r":"CHERRY","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"AZZARA","p":"Sofia","r":"CHERRY","po":"cheffe hotesse","u":"SALLE","h":42},{"n":"MISSONSA","p":"Rohann","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"LASSALLE","p":"Benoit","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"COLIN","p":"Jeremie","r":"CHERRY","po":"Chef de Bar","u":"SALLE","h":42},{"n":"COURTHIEU","p":"Gregoire","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"OUAKKA","p":"Ihsan","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BERTIN","p":"Julie","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":39},{"n":"GARAVAGLIA","p":"Alessandro","r":"PABLO SAINT BARTH","po":"Sommelier","u":"SALLE","h":42},{"n":"HEBRARD","p":"Florian","r":"PABLO SAINT BARTH","po":"Manager","u":"SALLE","h":42},{"n":"REYES","p":"Prince-Zyrose","r":"PABLO SAINT BARTH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"MARCEL","p":"Julien","r":"PABLO SAINT BARTH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BRISBOUT","p":"Thomas","r":"PABLO SAINT BARTH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"CUXAC","p":"Daniel","r":"PABLO SAINT BARTH","po":"Chef de Bar","u":"SALLE","h":42},{"n":"CESPITES","p":"Benjamin","r":"PABLO SAINT BARTH","po":"Chef de partie","u":"CUISINE","h":42},{"n":"MOLINIER","p":"Alexandre","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"BEAL","p":"Faustine","r":"PABLO SAINT BARTH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"PANIZZA STAIANO","p":"Facundo Alejo","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"DAVIS","p":"Carmen Luisa","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":42},{"n":"MATHIEU","p":"Paul","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"TROIANO PALUMBO","p":"Naomi","r":"PABLO SAINT BARTH","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"KAPELA","p":"Adonis","r":"PABLO SAINT BARTH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"VINCENT","p":"Margot","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":42},{"n":"SUD","p":"Gabin","r":"PABLO SAINT BARTH","po":"Runner","u":"SALLE","h":35},{"n":"OPALA","p":"Romain","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"BADACHE","p":"Sophian","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"REY","p":"Benjamin","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Chef de Bar","u":"SALLE","h":42},{"n":"IDRISSI","p":"Khalid","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"CARVAJAL MOLANO","p":"Elides","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"BOCHARD","p":"Marsile","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"CRAPOULET","p":"Marine","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LEGER","p":"Ella","r":"PABLO SAINT BARTH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"BASTERRICA","p":"Camila Aylen","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"BERNAT","p":"Emma","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BONAVENTURE","p":"Margaux","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"FERNANDEZ","p":"Noah","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Runner","u":"SALLE","h":39},{"n":"LANGLOIS","p":"Arthur","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Commis de Salle","u":"SALLE","h":39},{"n":"ZOFFOLI","p":"Carla","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Commis de Salle","u":"SALLE","h":39},{"n":"BARBERO DE LUCAS","p":"Manuel","r":"PABLO SAINT BARTH","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"LEPORI","p":"Gianluca","r":"PABLO SAINT BARTH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"CESAIRE","p":"Joris","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"BELLEVUE","p":"Bervirson","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"BERNARDINI","p":"Theo","r":"CHERRY","po":"Runner","u":"SALLE","h":35},{"n":"COQUILLAS","p":"Randy","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"PAMBOU","p":"Kimberley","r":"CHERRY","po":"Hotesse","u":"SALLE","h":42},{"n":"HENRY","p":"Ricardo","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"REGNAULD","p":"Pacome","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":44},{"n":"NADHOIM","p":"Youssouf","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"JUAN ALBERTO","p":"Rincón Paez","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"FORTILLIEN PEDRO","p":"Maria","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"SAHOUI","p":"Julian","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":42},{"n":"SAID","p":"Ibrahim","r":"CAFE DE L ORMEAU","po":"Plongeur","u":"CUISINE","h":39},{"n":"DESESSARD","p":"Alexis","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":44},{"n":"DEVIANNE","p":"Raphael","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"BRANDO","p":"Maria Camila","r":"PLAYAMIGOS","po":"Patissier","u":"CUISINE","h":44},{"n":"SCHWARTZ","p":"Adryan","r":"CAFE DE L ORMEAU","po":"Commis de Cuisine","u":"CUISINE","h":39},{"n":"GAËL","p":"Martin","r":"INDIE GROUP BUREAU","po":"autres","u":"SALLE","h":35},{"n":"LEBARRILIER","p":"Juliette","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":39},{"n":"CARRIER","p":"Jules","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":35},{"n":"SANTAMARIA","p":"Nolan","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":35},{"n":"ALEM","p":"Elyes","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":39},{"n":"HERRERO","p":"Allison","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MEROLLE","p":"Sophie","r":"CAT CLUB","po":"Chef de Rang","u":"SALLE","h":42},{"n":"TELMAT","p":"Marine","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BEGUIN","p":"Antoine","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":35},{"n":"QUD","p":"Gabin","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"ST PAUL","p":"Guilhem","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":35},{"n":"REYTINAT-HARDOUIN","p":"Alice","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"BARTHELEMY","p":"Anaïs","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":35},{"n":"NYANG","p":"Ebrima","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"NKOLO","p":"Theodore","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"CHARLES","p":"Alexis","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":42},{"n":"LABUNETS","p":"Anatolii","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Runner","u":"SALLE","h":35},{"n":"SELLAM","p":"Alexis","r":"CAT CLUB","po":"Officier","u":"SALLE","h":42},{"n":"SORRESSO","p":"Davide","r":"PABLO SAINT BARTH","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"POLANCO","p":"Roberto","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"COMBE","p":"Baptiste","r":"LA SAUVAGEONNE","po":"Runner","u":"SALLE","h":35},{"n":"ADAM","p":"Paul","r":"CAT CLUB","po":"Commis de Bar","u":"SALLE","h":35},{"n":"LEGOUVERNEUR","p":"Tommy","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"ROMAIN","p":"Panabieres","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"SAFFIOTI","p":"Gianni","r":"CAT CLUB","po":"Chef de Rang","u":"SALLE","h":35},{"n":"VAN MOE","p":"Andrea","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"POLANCO PALMA","p":"Celina","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"LAFRANCE","p":"Guillaume","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"GARCIA MENDOZA","p":"Miguel Angel","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"DOERN","p":"Léa","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"ARAUJO","p":"Audrey","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":39},{"n":"ARANDELOVIC","p":"Sasa","r":"CHERRY","po":"Chef de Cuisine","u":"CUISINE","h":42},{"n":"PROST","p":"Matthieu","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"NUSSBAUM","p":"Samuel","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"GESMUNDO","p":"Francesca","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"DURST","p":"Lilou","r":"PABLO SAINT BARTH","po":"autres","u":"SALLE","h":35},{"n":"THOMAS","p":"Sarah","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Sommelier","u":"SALLE","h":39},{"n":"BISSOLY","p":"Jordan","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"WANN","p":"Zenab","r":"CHERRY","po":"Sommelier","u":"SALLE","h":42},{"n":"BEGUIN","p":"Naïs","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"RAKOTOSAONA","p":"Fitia","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"ROMANO","p":"Mattia","r":"CHERRY","po":"Second de Cuisine","u":"CUISINE","h":42},{"n":"FOGTMAN","p":"Ayrton","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":44},{"n":"DABOVE LÓPEZ","p":"Gastón","r":"INDIE GROUP BUREAU","po":"Chef de Cuisine","u":"CUISINE","h":35},{"n":"ZAGHDOUD","p":"Mourad","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"NDIAYE","p":"Hamidou","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":39},{"n":"SOMAN","p":"Saha","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"GODARD","p":"Andy","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"BENEDETTI","p":"Aurelia","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LOUGASSI","p":"Mano","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":44},{"n":"MOREL","p":"Sebastien","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":44},{"n":"ROTA","p":"Anthony","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"FRANGEUL","p":"Lea","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"FRIH","p":"Majid","r":"INDIE BEACH","po":"Officier","u":"SALLE","h":44},{"n":"FLESCHEN","p":"Zoé","r":"PABLO SAINT BARTH","po":"autres","u":"SALLE","h":35},{"n":"GAITAN","p":"Santiago","r":"CAFE FLORA","po":"Cuisinier","u":"CUISINE","h":42},{"n":"MENDEZ","p":"Yojan Alexander","r":"CHERRY","po":"Patissier","u":"CUISINE","h":42},{"n":"GAUCHAT","p":"Claudia","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":42},{"n":"COSTANZA","p":"Paul","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":39},{"n":"ROSSO UGO","p":"Sacha","r":"PLAYAMIGOS","po":"Commis de Bar","u":"SALLE","h":39},{"n":"LUNT","p":"Malachi","r":"PLAYAMIGOS","po":"Plagiste","u":"SALLE","h":44},{"n":"DERVIEAU CAPELLE","p":"Margot","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":39},{"n":"BERNARD","p":"Angelys","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":44},{"n":"AUGUSTE","p":"Lukas","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"LAMBERTI","p":"Tom Pablo César","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"COMPAIN","p":"Ludovic","r":"CAFE FLORA","po":"Barman","u":"SALLE","h":39},{"n":"GHIRINGHELLI","p":"Joaquin","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"PETKOVIC","p":"Milosav","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"CORNILLON","p":"Victor","r":"PABLO","po":"Runner","u":"SALLE","h":39},{"n":"LAMBERTON","p":"Robinson","r":"PLAYAMIGOS","po":"Officier","u":"SALLE","h":39},{"n":"MUTEL","p":"Hugo","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":44},{"n":"HOUCINI","p":"Yanis","r":"INDIE GROUP BUREAU","po":"CONTROLE DE GESTION","u":"BUREAU","h":42},{"n":"EVRAD","p":"Clara","r":"PABLO","po":"Agent Entretien","u":"SALLE","h":35},{"n":"KERANGUYADER","p":"Thomas","r":"CAFE FLORA","po":"Manager","u":"SALLE","h":42},{"n":"LOMBARDI","p":"Cloe","r":"CAFE FLORA","po":"Manager","u":"SALLE","h":42},{"n":"LEBARRILLIER","p":"Juliette","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":44},{"n":"RIVIERE","p":"Jules","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":35},{"n":"PERES","p":"Guillaume","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"TROIN","p":"Agathe","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":39},{"n":"SANCHEZ-PASTOR AYLLON","p":"Victoria Qianlu","r":"CHERRY","po":"Commis de Cuisine","u":"CUISINE","h":42},{"n":"BOULASSEL","p":"Abdelfettah","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"REVERTE","p":"Jordan","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":44},{"n":"ORLA","p":"Lily-Rose","r":"PLAYAMIGOS","po":"Commis de Salle","u":"SALLE","h":44},{"n":"GOMEZ MONTES","p":"Maria Del Pilar","r":"CAFE DE L ORMEAU","po":"Patissier","u":"CUISINE","h":42},{"n":"GHARSALLAH","p":"Adem","r":"CAFE DE L ORMEAU","po":"Plongeur","u":"CUISINE","h":42},{"n":"AMON","p":"Eloge Ferdinand","r":"CAFE FLORA","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"REDER","p":"Jean Charles","r":"PLAYAMIGOS","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"ROSANO","p":"Emma","r":"CHERRY","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"MENNEA","p":"Salvatore","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":44},{"n":"SERRE","p":"Candice","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BARBIER","p":"Anna","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LA RANA","p":"Andrea","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"LAGACHE","p":"Marine","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":44},{"n":"AHMED","p":"Harouna","r":"INDIE BEACH","po":"Plongeur","u":"CUISINE","h":39},{"n":"MICHALLAT","p":"Julie","r":"INDIE BEACH","po":"Agent d'entretien","u":"SALLE","h":39},{"n":"VESELOVSKYI","p":"Vitalii","r":"INDIE GROUP BUREAU","po":"intendant","u":"SALLE","h":35},{"n":"PALUSSIÈRE","p":"Alexis","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"TREMOULET PAJOT","p":"Malou","r":"PLAYAMIGOS","po":"Hotesse","u":"SALLE","h":35},{"n":"ESTEVE","p":"Guillaume","r":"INDIE BEACH","po":"Plagiste","u":"SALLE","h":35},{"n":"TAGANZA","p":"Yassine","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":42},{"n":"CURTIL","p":"Paul","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":39},{"n":"GARAVAGLIA","p":"Gloria","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":35},{"n":"MACAULEY","p":"Tara","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"MAURETTE","p":"Oscar","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"LAVEDER","p":"Laurette","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"POLLIER","p":"Bastien","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":35},{"n":"FALCOZ","p":"Costin","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":39},{"n":"BIOLLEY","p":"Lola","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"HAMIDOU","p":"Chiraz","r":"CAFE DE L ORMEAU","po":"Plongeur","u":"CUISINE","h":39},{"n":"JULIAN DELALANDE","p":"Axel","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":42},{"n":"LAMRI","p":"Ahmed","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"LO","p":"Maeva Gueda","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CARBONE","p":"Sonny","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":39},{"n":"VENEGAS MARISCAL","p":"Rodolfo Ignacio","r":"PABLO","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"ARCHERAY LEBLOND","p":"Clara","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"PICARD","p":"Laure","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"BODIN","p":"Victor","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":39},{"n":"MARCON","p":"Mathis","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":39},{"n":"FRANCO MENDES","p":"Ricardo","r":"INDIE BEACH","po":"Plagiste","u":"SALLE","h":35},{"n":"GARCIA","p":"Remi","r":"PABLO","po":"Runner","u":"SALLE","h":39},{"n":"PLAYOUST","p":"Gabin","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":42},{"n":"CANTERA","p":"Magaly","r":"INDIE BEACH","po":"Second de Cuisine","u":"CUISINE","h":44},{"n":"DELORME","p":"Elisa","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"CHAILLOU","p":"Marianne","r":"INDIE BEACH","po":"Patissier","u":"CUISINE","h":42},{"n":"ANTONA","p":"Jean Dominique","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"DRODE","p":"Axel","r":"CAFE FLORA","po":"Chef de Rang","u":"SALLE","h":42},{"n":"LE VERGE—SERANDOUR","p":"Ewenn","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BELASCO","p":"Pierre","r":"CHERRY","po":"Sommelier","u":"SALLE","h":44},{"n":"FERAY","p":"Gregory","r":"CHERRY","po":"Patissier","u":"CUISINE","h":44},{"n":"DEDIEU","p":"Loan","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"GUITTON","p":"Mathilde","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":39},{"n":"DUMAS","p":"Edouard","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":39},{"n":"JARDSON GESMAR","p":"Junior Frederico","r":"LA SAUVAGEONNE","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"BEEDASSY","p":"Mathea","r":"LA SAUVAGEONNE","po":"Chef Hotesse","u":"SALLE","h":42},{"n":"ORIGET","p":"Anaïs","r":"LA SAUVAGEONNE","po":"Barman","u":"SALLE","h":42},{"n":"SAQUET","p":"Fanny","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BAUDINO","p":"Eliza","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":42},{"n":"DUBOYS DE LABARRE","p":"Andreas","r":"PLAYAMIGOS","po":"Runner","u":"SALLE","h":39},{"n":"BORDERES","p":"Célia","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":42},{"n":"LEGRIER","p":"Aurore","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":44},{"n":"TOSTO","p":"Alexandre","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"ROUMLY","p":"Charif","r":"CHERRY","po":"Plongeur","u":"CUISINE","h":39},{"n":"ARNAL","p":"Noe","r":"LA SAUVAGEONNE","po":"Chef de Rang","u":"SALLE","h":42},{"n":"SMAILI","p":"Eva","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":42},{"n":"VERDIER","p":"Sadio","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"DESBIENS","p":"Lhone","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":35},{"n":"DI MAGGIO","p":"Yaron","r":"CHERRY","po":"Chef de Partie","u":"CUISINE","h":44},{"n":"BERTUCCI","p":"Mickaël","r":"CHERRY","po":"Runner","u":"SALLE","h":39},{"n":"ANDRADE","p":"Adriana","r":"CAFE DE L ORMEAU","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"DAGUIER","p":"Rebecca","r":"PABLO","po":"Agent Entretien","u":"SALLE","h":35},{"n":"GODET","p":"Melina","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":42},{"n":"DI CARMINE","p":"Julia","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"HATTON","p":"Lucy","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":39},{"n":"ROUAG","p":"Morad","r":"CAFE DE L ORMEAU","po":"Chef de Rang","u":"SALLE","h":42},{"n":"TADDEI","p":"Maxime","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":39},{"n":"BLANCKAERT","p":"John","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":42},{"n":"DELFOSSE","p":"Oriane","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":35},{"n":"DJAI","p":"Manola","r":"INDIE BEACH","po":"Barman","u":"SALLE","h":39},{"n":"CHARTIER","p":"Jean","r":"PLAYAMIGOS","po":"Plagiste","u":"SALLE","h":42},{"n":"COLLINET","p":"Sarah","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"RIJO SOARES","p":"Aloice","r":"INDIE BEACH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"WEHRLEN","p":"Romane","r":"INDIE BEACH","po":"autres","u":"SALLE","h":35},{"n":"BORNEUF","p":"Rose","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":42},{"n":"ABOUBACAR","p":"Kassim","r":"INDIE BEACH","po":"Commis de Cuisine","u":"CUISINE","h":44},{"n":"GOMES","p":"Angelique","r":"INDIE BEACH","po":"Hotesse","u":"SALLE","h":44},{"n":"ALAIN","p":"Dubois","r":"INDIE BEACH","po":"Chef de Partie","u":"CUISINE","h":42},{"n":"ID HADDOUCH","p":"Reda","r":"PLAYAMIGOS","po":"Plagiste","u":"SALLE","h":39},{"n":"COSTA","p":"Noa","r":"CAFE FLORA","po":"Commis de Salle","u":"SALLE","h":35},{"n":"ALCAMO","p":"Marie","r":"INDIE BEACH","po":"Chef de Rang","u":"SALLE","h":44},{"n":"PETIT","p":"Fiona","r":"LA SAUVAGEONNE","po":"Commis de Salle","u":"SALLE","h":35},{"n":"GALIBERT","p":"Rudy","r":"LA SAUVAGEONNE","po":"Directeur","u":"SALLE","h":35},{"n":"MEIGNAN","p":"Pablo","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":35},{"n":"PRES","p":"Sofiia","r":"PABLO","po":"Agent d'entretien sanitaire","u":"SALLE","h":35},{"n":"DESIGAUX","p":"Clemence","r":"PABLO SAINT BARTH","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MAURETTE","p":"Lucas","r":"INDIE BEACH","po":"Runner","u":"SALLE","h":35},{"n":"ALDA","p":"Manon","r":"CAT CLUB","po":"Hotesse","u":"SALLE","h":35},{"n":"BOURDIN","p":"Corentin","r":"JCP LA SAUVAGEONNE MEGEVE","po":"Barman","u":"SALLE","h":35},{"n":"BOUCHAREYCHAS","p":"Romain","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"BUCCI","p":"Chiara","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"DEROUGEMONT","p":"Maxime","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MULLER","p":"Mathilde","r":"PABLO","po":"autres","u":"SALLE","h":35},{"n":"DESACHY","p":"Marion","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"GINOUX","p":"Andrea","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"LAJOUS","p":"Karine","r":"PABLO","po":"Agent Entretien","u":"SALLE","h":35},{"n":"POINSOT","p":"Eddy","r":"CHERRY","po":"Barman","u":"SALLE","h":35},{"n":"GOMEZ GAMEZ","p":"Eduard","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MARIOTTI","p":"Carla-Marie","r":"CAT CLUB","po":"Hotesse","u":"SALLE","h":35},{"n":"NADAUD","p":"Lisa","r":"CAT CLUB","po":"autres","u":"SALLE","h":35},{"n":"LOPEZ CRUZ","p":"Vanessa Carolina","r":"CAFE DE L ORMEAU","po":"Cuisinier","u":"CUISINE","h":35},{"n":"MANDIN","p":"Nathanael","r":"CAFE DE L ORMEAU","po":"Runner","u":"SALLE","h":35},{"n":"NGUYEN","p":"Kim Lorelei","r":"CAT CLUB","po":"Commis de Salle","u":"SALLE","h":35},{"n":"AGOSTINHO","p":"Mikael","r":"PABLO SAINT BARTH","po":"Barman","u":"SALLE","h":35},{"n":"CHAWKI","p":"Walid","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"CRISTI","p":"Giovanni","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"DESBRUGERES","p":"Paul","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"COUCHOT","p":"Olivier","r":"CHERRY","po":"Barman","u":"SALLE","h":35},{"n":"FORTILIEN PEDRO","p":"Maria Altagracia","r":"PABLO SAINT BARTH","po":"Plongeur","u":"CUISINE","h":35},{"n":"GIGANTE","p":"Diane","r":"PABLO SAINT BARTH","po":"autres","u":"SALLE","h":35},{"n":"RAUFASTE","p":"Lola","r":"PABLO SAINT BARTH","po":"autres","u":"SALLE","h":35},{"n":"JOSEPH","p":"Anton","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"BELINGO","p":"Donatien","r":"CHERRY","po":"Runner","u":"SALLE","h":35},{"n":"HOUNET","p":"Gabriel","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"KALAYCI","p":"Timucin","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"LEBASTARD","p":"Noe-Baltazar","r":"CHERRY","po":"Runner","u":"SALLE","h":35},{"n":"REINERTZ","p":"Mélody","r":"CHERRY","po":"Chef de Rang","u":"SALLE","h":35},{"n":"SAINTINI","p":"Kevin","r":"LA SAUVAGEONNE","po":"Cuisinier","u":"CUISINE","h":35},{"n":"CHENNIT","p":"Adam","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"MICHEL","p":"Denis","r":"CAFE DE L ORMEAU","po":"Barman","u":"SALLE","h":35},{"n":"GÜELI","p":"Estefania","r":"PABLO","po":"Patissier","u":"CUISINE","h":35},{"n":"COLLART","p":"Ines","r":"PABLO SAINT BARTH","po":"Hotesse","u":"SALLE","h":35},{"n":"LOMBARD","p":"Daniel","r":"CAFE FLORA","po":"Chef de Partie","u":"CUISINE","h":35},{"n":"WARDI","p":"Inès","r":"PABLO SAINT BARTH","po":"Chef de Rang","u":"SALLE","h":35},{"n":"AYAD","p":"Sabrina","r":"PLAYAMIGOS","po":"Chef de Rang","u":"SALLE","h":42},{"n":"BARBAS","p":"Charlize","r":"CHERRY","po":"Commis de Salle","u":"SALLE","h":35},{"n":"TOMAS","p":"Lola","r":"CAT CLUB","po":"autres","u":"SALLE","h":35}];
 
 // Correspondance salarié -> PayFit (colonne "Identifiant (ne pas modifier)" + "Matricule"),
 // construite à partir des fichiers d'import fournis par le manager. Clé = idSalarie(e),
@@ -66,7 +78,25 @@ function fmtDate(d) {
 function fmtJour(d) {
   return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
 }
+// "AAAA-MM-JJ" en heure LOCALE : contrairement à toISOString() (qui convertit en UTC), ne
+// décale jamais la date d'un jour selon le fuseau du navigateur — minuit heure de Paris
+// (UTC+1/+2) correspond encore à la veille en UTC, donc toISOString() y donnait la mauvaise
+// date pour toute date/heure construite en heure locale (ce qui a longtemps faussé les clés
+// de semaine et les comparaisons à "aujourd'hui" pour les établissements en France).
+function dateISOLocale(d) {
+  const a = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const j = String(d.getDate()).padStart(2, "0");
+  return `${a}-${m}-${j}`;
+}
 function cleSemaine(d) {
+  // ATTENTION : reste volontairement sur toISOString() (pas dateISOLocale) même si ça décale
+  // la date d'un jour pour les établissements en France. C'est cette clé, telle quelle, qui a
+  // servi pendant des années à nommer les plannings déjà enregistrés (kPlanning/kValidation en
+  // dépendent) : la "corriger" changerait la clé de recherche et rendrait tout l'historique
+  // déjà saisi introuvable (déjà arrivé une fois, ne pas reproduire). Le bug de fuseau horaire
+  // reste réel ici, mais toucher à cette fonction précise casse la compatibilité avec les
+  // données existantes — un futur correctif devra migrer les clés, pas juste changer le calcul.
   const l = lundiDeLaSemaine(d);
   return l.toISOString().slice(0, 10);
 }
@@ -240,7 +270,7 @@ function chargerScript(src) {
 // Nom de fichier sûr : Emargement_RESTO_AAAA-MM-JJ.pdf
 function nomFichierEmargement(resto, lundi) {
   const slug = normTxt(resto).toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `Emargement_${slug}_${lundi.toISOString().slice(0, 10)}.pdf`;
+  return `Emargement_${slug}_${dateISOLocale(lundi)}.pdf`;
 }
 
 // Construit le document HTML complet, auto-imprimable.
@@ -260,6 +290,88 @@ function construireDocument(titre, corpsHTML, styles) {
 </div>
 <script>window.onload=function(){setTimeout(function(){window.print();},500);};</script>
 </body></html>`;
+}
+
+// Génère un vrai fichier PDF (en base64) à partir d'un contenu HTML + styles — la même
+// source que celle utilisée à l'impression (imprimerDocument), pour joindre le document
+// généré directement à un email au lieu d'obliger à l'imprimer/enregistrer à la main puis
+// le joindre soi-même. Rendu dans un conteneur temporaire ajouté au DOM.
+//
+// ATTENTION, piège vérifié à la main (deux tentatives cassées avant de trouver celle-ci) :
+// le conteneur doit rester en position "normale" (statique) dans la page pour que html2canvas
+// mesure correctement sa hauteur — le déplacer hors écran (position:fixed/absolute, avec ou
+// sans opacity:0) donne un canvas de hauteur 0, donc un PDF vide. Pour le garder invisible
+// sans casser la mesure, on le met dans une enveloppe "height:0; overflow:hidden" : le
+// conteneur lui-même reste en flux normal (donc mesuré normalement), seul son rendu visuel
+// est masqué par l'enveloppe.
+// Police + couleur de base utilisées par tous les documents imprimés (construireDocument) —
+// dupliquées ici (au lieu d'être partagées) car construireDocument s'exécute dans une AUTRE
+// fenêtre/document (celle ouverte par window.open) ; ici, le rendu se fait dans LA page de
+// l'appli. La police "Inter" est importée en haut du fichier (@fontsource/inter, empaquetée
+// au build) plutôt que chargée depuis Google Fonts à la volée : deux tentatives avec un
+// <link> chargé dynamiquement ont donné un PDF joint à l'email dans une police de repli aux
+// proportions différentes (interlignage/espacement tassés, texte ne remplissant pas la page
+// comme l'impression) — la police empaquetée est disponible immédiatement, sans réseau.
+let polirePDFChargee = false;
+async function chargerPolicePDF() {
+  if (polirePDFChargee) return;
+  try {
+    await Promise.all([
+      document.fonts.load("400 14px Inter"),
+      document.fonts.load("600 14px Inter"),
+      document.fonts.load("700 14px Inter"),
+    ]);
+    await document.fonts.ready;
+  } catch { /* au pire, repli sur une police système — pas bloquant */ }
+  polirePDFChargee = true;
+}
+
+// html2pdf.js ignore TOUJOURS la largeur du conteneur qu'on lui donne : en interne (voir son
+// code source, Worker.prototype.toContainer), il clone le contenu dans SON PROPRE conteneur,
+// forcé à la largeur imprimable de la page (ici 190mm), quoi qu'on mette sur l'élément d'origine.
+// Or ce conteneur est ensuite capturé en pixels (96px = 1 pouce, la convention CSS standard)
+// puis réinjecté dans le PDF à sa taille physique réelle (190mm) SANS AUCUN redimensionnement —
+// alors que le PDF obtenu par "Imprimer > Enregistrer en PDF" du navigateur (imprimerDocument)
+// n'applique PAS cette conversion : Chrome y transpose directement chaque valeur en px de la
+// feuille de style en points PDF (1px → 1pt), qui sont 96/72 = 1,33 fois plus grands qu'un px
+// physique. Résultat vérifié : à styles identiques, le texte du PDF joint à l'email ressort
+// visiblement plus petit/tassé que celui de l'impression, sans remplir la page correctement.
+// On corrige en agrandissant toutes les valeurs en px de la feuille de style (polices, marges,
+// interlignage compris) de ce même facteur 96/72 avant de les donner à html2canvas — pour un
+// rendu final à l'identique de l'impression, vérifié à la main avant de livrer ce correctif.
+const ECHELLE_PDF = 96 / 72;
+function stylesEchellePDF(styles) {
+  return styles.replace(/(\d+(?:\.\d+)?)px/g, (_, n) => `${parseFloat(n) * ECHELLE_PDF}px`);
+}
+
+async function genererPDFBase64(corpsHTML, styles) {
+  await chargerPolicePDF();
+  const enveloppe = document.createElement("div");
+  enveloppe.style.height = "0";
+  enveloppe.style.overflow = "hidden";
+  const conteneur = document.createElement("div");
+  conteneur.style.width = "190mm"; // largeur imprimable d'une page A4 (210mm - 2x10mm de marge)
+  conteneur.style.background = "#fff";
+  conteneur.style.fontFamily = "'Inter', system-ui, sans-serif";
+  conteneur.style.color = "#15303B";
+  conteneur.innerHTML = `<style>${stylesEchellePDF(styles)}</style><div style="padding:${24 * ECHELLE_PDF}px">${corpsHTML}</div>`;
+  enveloppe.appendChild(conteneur);
+  document.body.appendChild(enveloppe);
+  try {
+    const blob = await html2pdf().set({
+      margin: 10,
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+    }).from(conteneur).outputPdf("blob");
+    return await new Promise((resolve, reject) => {
+      const lecteur = new FileReader();
+      lecteur.onloadend = () => resolve(String(lecteur.result).split(",")[1]);
+      lecteur.onerror = reject;
+      lecteur.readAsDataURL(blob);
+    });
+  } finally {
+    document.body.removeChild(enveloppe);
+  }
 }
 
 // Tente l'ouverture dans une nouvelle fenêtre ; si elle est bloquée (sandbox),
@@ -341,6 +453,108 @@ const Store = {
 };
 
 // ---------- RH : fiches salariés (table dédiée, cloisonnée par établissement + unité) ----------
+// ---------- Synchro vers le Google Sheet "onboarding" existant ----------
+// Ne bloque jamais l'appli : appelée en tâche de fond après chaque écriture réussie dans
+// rh_salaries, elle répercute les mêmes champs dans le Sheet qu'Océane continue de tenir
+// à jour elle-même. Passe par la fonction Supabase "sheet-sync" (clé Google côté serveur).
+const RhSheetSync = {
+  async upsert({ resto, unite, nom, prenom, champs }) {
+    if (!resto || !nom || !prenom) return;
+    const { error } = await supabase.functions.invoke("sheet-sync", {
+      body: { action: "upsertRow", resto, unite, nom, prenom, champs },
+    });
+    if (error) console.error("RhSheetSync.upsert:", error.message);
+  },
+  // Rattrapage en un clic : crée en base les salariés déjà présents dans le Sheet mais
+  // jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique).
+  // Ne touche jamais aux fiches déjà existantes. Réservé au superviseur. resto optionnel :
+  // s'il est précisé, seul cet établissement est importé (évite de mélanger avec les autres).
+  async importerTout(resto) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "importerTout", resto } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
+  // Archive de fin de saison : copie toutes les fiches d'une saison donnée dans un onglet
+  // dédié du Google Sheet. N'efface rien en base. Réservé au superviseur.
+  async archiverSaison(saison) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "archiverSaison", saison } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
+  // Exporte le suivi "Repos hebdo non pris" d'un établissement/unité/mois vers un onglet
+  // dédié du Google Sheet, pour un réimport ailleurs (paie...). Réservé au superviseur.
+  async exporterReposHebdo(resto, unite, mois) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "exporterReposHebdo", resto, unite, mois } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
+  // Synchronise un extra (création, saisie heures/taux, ou validation) vers le Sheet "Extra".
+  // "ligneCible" absent -> nouvelle ligne ajoutée à la fin (appel de création) ; fourni (le
+  // numéro mémorisé dans rh_extras.sheet_ligne dès la création) -> écrit directement dessus,
+  // sans jamais rechercher/fusionner avec une autre ligne (deux extras de la même personne à
+  // la même date restent deux lignes distinctes). N'empêche jamais l'appli de fonctionner
+  // (l'appelant continue même en cas d'échec), mais renvoie le détail de l'erreur pour que
+  // l'appelant puisse quand même prévenir la personne.
+  async upsertExtra({ resto, unite, restoOrigine, salarieNom, salariePrenom, date, champs, ligneCible }) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", {
+      body: { action: "upsertExtra", resto, unite, restoOrigine, salarieNom, salariePrenom, date, champs, ligneCible },
+    });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      console.error("RhSheetSync.upsertExtra:", detail);
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) { console.error("RhSheetSync.upsertExtra:", data.error); return { ok: false, erreur: data.error }; }
+    return { ok: true, ...data };
+  },
+};
+
+// ---------- Gestion des accès RH (créer/retirer un compte directeur/chef) ----------
+// Passe par la fonction Supabase "rh-admin" : le superviseur crée/gère les comptes
+// directement dans l'appli, sans jamais avoir besoin d'ouvrir Supabase.
+async function appelerRhAdmin(action, corps) {
+  const { data, error } = await supabase.functions.invoke("rh-admin", { body: { action, ...corps } });
+  if (error) {
+    let detail = error.message;
+    try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+    return { ok: false, erreur: detail };
+  }
+  if (data?.error) return { ok: false, erreur: data.error };
+  return data;
+}
+const RhAdmin = {
+  lister: () => appelerRhAdmin("lister"),
+  creer: ({ email, motDePasse, resto, unite }) => appelerRhAdmin("creer", { email, motDePasse, resto, unite }),
+  supprimer: (id) => appelerRhAdmin("supprimer", { id }),
+  changerMotDePasse: ({ user_id, motDePasse }) => appelerRhAdmin("changerMotDePasse", { user_id, motDePasse }),
+  // Envoi d'un email (ex : promesse d'embauche, en pièce jointe PDF) via l'adresse d'envoi
+  // configurée côté Supabase. Réservé au superviseur (gate déjà en place côté fonction
+  // "rh-admin"). pdfBase64/nomFichier optionnels : sans eux, envoie un simple email texte.
+  envoyerEmail: ({ to, sujet, texte, pdfBase64, nomFichier }) => appelerRhAdmin("envoyerEmail", { to, sujet, texte, pdfBase64, nomFichier }),
+  // Recherche de salariés tous établissements confondus (ex : pour un extra emprunté
+  // ailleurs) — ouvert à tout compte RH, pas seulement au superviseur.
+  async rechercherSalaries(q) {
+    const r = await appelerRhAdmin("rechercherSalaries", { q });
+    return r.ok ? r.resultats : [];
+  },
+};
+
 const RhSalaries = {
   async list(resto, unite) {
     let q = supabase.from("rh_salaries").select("*").eq("resto", resto);
@@ -352,59 +566,132 @@ const RhSalaries = {
   async creer(row) {
     const { data, error } = await supabase.from("rh_salaries").insert(row).select().single();
     if (error) { console.error("RhSalaries.creer:", error.message); return null; }
+    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data });
     return data;
   },
   async maj(id, patch) {
     const { data, error } = await supabase.from("rh_salaries").update(patch).eq("id", id).select().single();
     if (error) { console.error("RhSalaries.maj:", error.message); return null; }
+    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch });
     return data;
   },
-  // Soumission publique du formulaire d'onboarding (sans connexion) : crée la fiche,
-  // ou la complète si un directeur avait déjà créé une entrée de base pour ce salarié.
-  // Soumission publique du formulaire d'onboarding (sans connexion). Toujours une
-  // création (jamais d'upsert) : un upsert exigerait un droit de lecture qu'on ne
-  // veut pas donner à un lien public. Si une fiche existe déjà pour ce nom à cet
-  // établissement (créée par un directeur, ou double envoi), on le signale au lieu
-  // d'échouer avec une erreur générique.
-  async onboarder(row) {
-    const { error } = await supabase.from("rh_salaries").insert(row);
-    if (error) {
-      console.error("RhSalaries.onboarder:", error.message);
-      if (error.code === "23505") return "existe_deja";
-      return false;
+  // Effectif réel par établissement (saison la plus récente de chaque établissement),
+  // pour l'écran de choix d'établissement de l'Espace RH — distinct du roster Planning.
+  async compterParResto() {
+    const { data, error } = await supabase.from("rh_salaries").select("resto, saison");
+    if (error) { console.error("RhSalaries.compterParResto:", error.message); return {}; }
+    const parResto = {};
+    (data || []).forEach((r) => { (parResto[r.resto] ||= []).push(r.saison); });
+    const counts = {};
+    Object.keys(parResto).forEach((resto) => {
+      const saisons = parResto[resto];
+      const derniere = [...saisons].sort().slice(-1)[0];
+      counts[resto] = saisons.filter((s) => s === derniere).length;
+    });
+    return counts;
+  },
+  async supprimer(id) {
+    const { error } = await supabase.from("rh_salaries").delete().eq("id", id);
+    if (error) { console.error("RhSalaries.supprimer:", error.message); return false; }
+    return true;
+  },
+  async supprimerPlusieurs(ids) {
+    const { error } = await supabase.from("rh_salaries").delete().in("id", ids);
+    if (error) { console.error("RhSalaries.supprimerPlusieurs:", error.message); return false; }
+    return true;
+  },
+  // Retire des fiches de la vue courante du directeur sans rien supprimer : bascule leur
+  // saison vers celle choisie ("Archives" par défaut, ou n'importe quel nom de saison —
+  // "2025", "2026"... — choisi à la volée), consultable via l'onglet de saison correspondant.
+  // Un à un (pas en un seul lot) : si une fiche entre en conflit avec une autre déjà
+  // présente dans la saison cible (même salarié déjà archivé là-bas — contrainte
+  // resto+salarie_id+saison), elle seule échoue, sans bloquer le déplacement des autres.
+  async archiverPlusieurs(ids, saisonCible = "Archives") {
+    const echecs = [];
+    for (const id of ids) {
+      const { error } = await supabase.from("rh_salaries").update({ saison: saisonCible }).eq("id", id);
+      if (error) { console.error("RhSalaries.archiverPlusieurs:", id, error.message); echecs.push({ id, erreur: error.message }); }
     }
+    return { ok: echecs.length === 0, echecs };
+  },
+};
+
+// ---------- Repos hebdomadaire non pris (suivi mensuel + calcul du montant à payer) ----------
+const RhReposHebdo = {
+  async list(resto, unite, mois) {
+    const { data, error } = await supabase.from("rh_repos_hebdo").select("*")
+      .eq("resto", resto).eq("unite", unite).eq("mois", mois).order("nom", { ascending: true });
+    if (error) { console.error("RhReposHebdo.list:", error.message); return []; }
+    return data || [];
+  },
+  // Ajoute au mois choisi tous les salariés réellement sous contrat ce mois-là (pas les
+  // fiches "provisoire", pas encore vraiment onboardées), sans jamais toucher aux lignes
+  // déjà présentes (leur "repos non pris" déjà saisi n'est donc jamais écrasé).
+  async genererMois(resto, unite, mois) {
+    const debut = `${mois}-01`;
+    const finDate = new Date(Number(mois.slice(0, 4)), Number(mois.slice(5, 7)), 0);
+    const fin = dateISOLocale(finDate);
+    const { data: salaries, error } = await supabase.from("rh_salaries").select("id, nom, prenom, salaire_net")
+      .eq("resto", resto).eq("unite", unite).eq("provisoire", false)
+      .not("date_debut", "is", null).lte("date_debut", fin)
+      .or(`date_fin.is.null,date_fin.gte.${debut}`);
+    if (error) { console.error("RhReposHebdo.genererMois (lecture):", error.message); return false; }
+    if (!salaries || salaries.length === 0) return true;
+    const lignes = salaries.map((s) => ({
+      resto, unite, mois, salarie_id: s.id, nom: s.nom, prenom: s.prenom, salaire_net: s.salaire_net,
+    }));
+    const { error: err2 } = await supabase.from("rh_repos_hebdo").upsert(lignes, {
+      onConflict: "resto,unite,mois,salarie_id", ignoreDuplicates: true,
+    });
+    if (err2) { console.error("RhReposHebdo.genererMois (écriture):", err2.message); return false; }
+    return true;
+  },
+  async maj(id, patch) {
+    const { data, error } = await supabase.from("rh_repos_hebdo").update(patch).eq("id", id).select().single();
+    if (error) { console.error("RhReposHebdo.maj:", error.message); return null; }
+    return data;
+  },
+  async supprimer(id) {
+    const { error } = await supabase.from("rh_repos_hebdo").delete().eq("id", id);
+    if (error) { console.error("RhReposHebdo.supprimer:", error.message); return false; }
     return true;
   },
 };
 
-// ---------- Documents RH : dossier par salarié, classé par établissement/unité/année ----------
-// Bucket privé "rh-documents", chemin <resto>/<unite>/<année>/<salarie_id>/<fichier> — les
-// documents des années précédentes restent accessibles (rien n'est jamais écrasé par année).
-const RhDocuments = {
-  dossier(resto, unite, annee, salarieId) {
-    return `${resto}/${unite}/${annee}/${salarieId}`;
+// ---------- Extras (prêt de main-d'œuvre entre établissements) — Espace RH ----------
+const RhExtras = {
+  // "resto"/"unite" = établissement DESTINATAIRE (celui qui gère la ligne).
+  async list(resto, unite, mois) {
+    const debut = `${mois}-01`;
+    const finDate = new Date(Number(mois.slice(0, 4)), Number(mois.slice(5, 7)), 0);
+    const fin = dateISOLocale(finDate);
+    const { data, error } = await supabase.from("rh_extras").select("*")
+      .eq("resto", resto).eq("unite", unite).gte("date", debut).lte("date", fin).order("date", { ascending: false });
+    if (error) { console.error("RhExtras.list:", error.message); return []; }
+    return data || [];
   },
-  async lister(resto, unite, annee, salarieId) {
-    const { data, error } = await supabase.storage.from("rh-documents").list(this.dossier(resto, unite, annee, salarieId));
-    if (error) { console.error("RhDocuments.lister:", error.message); return []; }
-    return (data || []).filter((f) => f.name && !f.name.startsWith("."));
+  // Historique complet d'UN établissement + une unité (tous mois confondus) : chaque
+  // établissement — et, au sein d'un établissement, chaque unité (Salle/Cuisine) — a son
+  // propre historique, jamais mélangé avec celui d'un autre établissement.
+  async listParEtablissement(resto, unite) {
+    const { data, error } = await supabase.from("rh_extras").select("*")
+      .eq("resto", resto).eq("unite", unite).order("date", { ascending: false });
+    if (error) { console.error("RhExtras.listParEtablissement:", error.message); return []; }
+    return data || [];
   },
-  async uploader(resto, unite, annee, salarieId, fichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${fichier.name}`;
-    const { error } = await supabase.storage.from("rh-documents").upload(chemin, fichier, { upsert: true });
-    if (error) { console.error("RhDocuments.uploader:", error.message); return false; }
-    return true;
+  async creer(row) {
+    const { data, error } = await supabase.from("rh_extras").insert(row).select().single();
+    if (error) { console.error("RhExtras.creer:", error.message); return null; }
+    return data;
   },
-  async lienTelechargement(resto, unite, annee, salarieId, nomFichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${nomFichier}`;
-    const { data, error } = await supabase.storage.from("rh-documents").createSignedUrl(chemin, 60);
-    if (error) { console.error("RhDocuments.lienTelechargement:", error.message); return null; }
-    return data.signedUrl;
+  async maj(id, patch) {
+    const { data, error } = await supabase.from("rh_extras").update(patch).eq("id", id).select().single();
+    if (error) { console.error("RhExtras.maj:", error.message); return null; }
+    return data;
   },
-  async supprimer(resto, unite, annee, salarieId, nomFichier) {
-    const chemin = `${this.dossier(resto, unite, annee, salarieId)}/${nomFichier}`;
-    const { error } = await supabase.storage.from("rh-documents").remove([chemin]);
-    if (error) { console.error("RhDocuments.supprimer:", error.message); return false; }
+  async supprimer(id) {
+    const { error } = await supabase.from("rh_extras").delete().eq("id", id);
+    if (error) { console.error("RhExtras.supprimer:", error.message); return false; }
     return true;
   },
 };
@@ -461,9 +748,8 @@ const kPointages = (resto, sem) => `pointages:${slugKey(resto)}:${sem}`;
 const kRoster = (resto) => `roster:${slugKey(resto)}`;
 // Modèle de planning enregistré pour le restaurant : { idSalarie: { 0..6 } }
 const kModele = (resto) => `modele:${slugKey(resto)}`;
-// Shifts prêts à l'emploi pour le restaurant : [{ id, nom, debut, fin, pause }, ...]. Le
-// manager les prépare une fois, puis les applique d'un clic en remplissant une case du
-// planning, au lieu de retaper les mêmes horaires à chaque fois.
+// Shifts prêts à l'emploi (ex : "matin" 09:00-17:00) propres à l'établissement, proposés en
+// raccourci quand on édite le créneau d'un jour : [{ id, nom, debut, fin, pause }, ...].
 const kShifts = (resto) => `shifts:${slugKey(resto)}`;
 // Correspondance PayFit (identifiant + matricule) tenue à jour par le superviseur, en plus
 // de PAYFIT_IDS codé en dur. Une clé PAR ÉTABLISSEMENT : chaque resto a son propre fichier
@@ -474,16 +760,9 @@ const kPayfitMapping = (resto) => `payfit_mapping:${slugKey(resto)}`;
 const kEtablissements = "etablissements";
 // Validation du planning d'une semaine (booléen) : publie le planning aux salariés.
 const kValidation = (resto, sem) => `validation:${slugKey(resto)}:${sem}`;
-// Extras (prêt de main-d'œuvre) : une seule liste par mois calendaire, partagée entre tous
-// les établissements (comme l'ancien "Réponses au formulaire" partagé). mois = "AAAA-MM".
-const kExtras = (mois) => `extras:${mois}`;
 // Fiche juridique de chaque établissement (raison sociale, SIRET...) : nécessaire pour
 // générer les contrats de prêt. Clé unique, valeur = { [resto]: {...} }.
 const kEtablissementsJuridique = "etablissements_juridique";
-// Codes d'accès par établissement, choisis par le superviseur : un directeur qui tape ce
-// code arrive directement (et uniquement) sur cet établissement, sans pouvoir en choisir
-// un autre. Clé unique, valeur = { [resto]: "code" }.
-const kCodesEtablissements = "codes_etablissements";
 function cleMois(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 
 // ---------- Icônes (SVG inline, pas de dépendance) ----------
@@ -522,6 +801,7 @@ const CSS = `
 }
 .ig-display { font-family: 'Inter', system-ui, sans-serif; }
 .ig-wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+.ig-wrap-rh { max-width: none; }
 
 .ig-topbar {
   background: var(--ink); color: var(--sand);
@@ -543,6 +823,7 @@ const CSS = `
 .ig-btn-ink:hover { background:#0d2129; }
 .ig-btn:disabled { opacity:.45; cursor:not-allowed; }
 .ig-btn-sm { padding:7px 12px; font-size:13px; border-radius:9px; }
+.ig-btn-icon { padding:6px 8px; font-size:15px; border-radius:8px; gap:0; line-height:1; }
 
 /* Accueil */
 .ig-hero { padding: 56px 0 30px; }
@@ -820,9 +1101,11 @@ function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
   }
   // Aperçu du total d'heures pour ce jour (hors pause), tient compte de la coupure.
   const apercu = dureeJour({ statut, debut, fin, pause, coupure, debut2, fin2 });
-  // Applique un shift prêt à l'emploi (préparé via "Gérer les shifts") : remplit
-  // instantanément début/fin/pause, sans coupure ni demi-journée.
+
+  // Applique un shift prêt à l'emploi (ex : "matin" 09:00-17:00) : remplit directement les
+  // horaires, en repassant en statut Travail et sans coupure (un shift = un seul créneau).
   function appliquerShift(s) {
+    setStatut(STATUTS.TRAVAIL);
     setCoupure(false);
     setDebut(s.debut);
     setFin(s.fin);
@@ -846,6 +1129,16 @@ function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
             <option value={STATUTS.SANS_SOLDE}>Congé sans solde (CSS)</option>
           </select>
         </div>
+        {montreHoraires && shifts && shifts.length > 0 && (
+          <div className="ig-field">
+            <label>Shifts prêts à l'emploi</label>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {shifts.map((s) => (
+                <button key={s.id} type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>appliquerShift(s)} title={`${s.debut}–${s.fin} · ${s.pause}h pause`}>⚡ {s.nom}</button>
+              ))}
+            </div>
+          </div>
+        )}
         {statut === STATUTS.DEMI_CP && (
           <div className="ig-field">
             <label>Demi-journée de congé</label>
@@ -853,18 +1146,6 @@ function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
               <option value="am">Matin en congé (travaille l'après-midi)</option>
               <option value="pm">Après-midi en congé (travaille le matin)</option>
             </select>
-          </div>
-        )}
-        {statut === STATUTS.TRAVAIL && shifts && shifts.length > 0 && (
-          <div className="ig-field">
-            <label>Shifts prêts à l'emploi</label>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              {shifts.map((s) => (
-                <button key={s.id} type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>appliquerShift(s)} title={`${s.debut} – ${s.fin}${s.pause ? `, ${s.pause}h pause` : ''}`}>
-                  ⚡ {s.nom}
-                </button>
-              ))}
-            </div>
           </div>
         )}
         {montreHoraires && (
@@ -922,68 +1203,6 @@ function EditModal({ jour, jourLabel, emp, p, shifts, onSave, onClose }) {
   );
 }
 
-// ---------- Modal Gestion des shifts prêts à l'emploi ----------
-function ShiftsModal({ resto, shifts, onAjouter, onSupprimer, onClose }) {
-  const [nom, setNom] = useState("");
-  const [debut, setDebut] = useState("09:00");
-  const [fin, setFin] = useState("17:00");
-  const [pause, setPause] = useState(1);
-  const [err, setErr] = useState(false);
-
-  function valider() {
-    if (!nom.trim()) { setErr(true); return; }
-    onAjouter({ nom: nom.trim(), debut, fin, pause: Number(pause) });
-    setNom(""); setDebut("09:00"); setFin("17:00"); setPause(1); setErr(false);
-  }
-
-  return (
-    <div className="ig-overlay" onClick={onClose}>
-      <div className="ig-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Shifts prêts à l'emploi</h3>
-        <div className="ig-muted">{resto} · préparez des créneaux type (ex : "Matin", "Soir"), vos managers les appliqueront d'un clic en remplissant le planning.</div>
-
-        {shifts.length > 0 && (
-          <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:16}}>
-            {shifts.map((s) => (
-              <div key={s.id} style={{display:'flex',alignItems:'center',gap:10,border:'1.5px solid var(--line)',borderRadius:10,padding:'8px 12px'}}>
-                <div style={{flex:1}}>
-                  <b>{s.nom}</b>
-                  <div className="ig-muted" style={{fontSize:13}}>{s.debut} – {s.fin}{s.pause ? `, ${s.pause}h pause` : ''}</div>
-                </div>
-                <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>onSupprimer(s.id)}>Supprimer</button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="ig-field" style={{marginTop:18}}>
-          <label>Nom du shift</label>
-          <input value={nom} onChange={(e)=>{ setNom(e.target.value); setErr(false); }} placeholder="Ex : Matin" />
-        </div>
-        <div className="ig-times">
-          <div>
-            <input type="time" value={debut} onChange={(e)=>setDebut(e.target.value)} />
-            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Début</div>
-          </div>
-          <div>
-            <input type="time" value={fin} onChange={(e)=>setFin(e.target.value)} />
-            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Fin</div>
-          </div>
-          <div>
-            <input type="number" min="0" max="4" step="0.5" value={pause} onChange={(e)=>setPause(parseFloat(e.target.value) || 0)} />
-            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Pause (h)</div>
-          </div>
-        </div>
-        {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>Donnez un nom au shift.</div>}
-        <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
-          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>+ Ajouter ce shift</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ---------- Export PayFit (congés / absences) ----------
 // Reconstruit la structure exacte du modèle d'import PayFit fourni par le manager :
 // 33 colonnes (A à AG), 2 lignes d'en-tête groupées par type d'absence. Seules les
@@ -1015,12 +1234,6 @@ function fmtDatePayFit(d) {
 // Retourne les noms des salariés sans identifiant PayFit connu (à compléter à la main).
 function exporterCongesPayFit(lignesAbsences, nomFichier, mapping) {
   const table = mapping || PAYFIT_IDS;
-  // Index normalisé (casse/accents ignorés) : une fiche resaisie autrement (ex: prénom en
-  // MAJUSCULES via "Modifier ses informations") donne un idSalarie différent de celui utilisé
-  // quand PAYFIT_IDS / la correspondance PayFit a été construite — sans ça, l'identifiant
-  // déjà connu du salarié devient introuvable à l'export.
-  const tableNorm = {};
-  Object.keys(table).forEach((k) => { tableNorm[normTxt(k.replace(/_/g, " "))] = table[k]; });
   const aoa = [];
   const ligne1 = [];
   PAYFIT_ENTETES_GROUPES.forEach(([label, n]) => { ligne1.push(label); for (let i = 1; i < n; i++) ligne1.push(""); });
@@ -1031,7 +1244,7 @@ function exporterCongesPayFit(lignesAbsences, nomFichier, mapping) {
   lignesAbsences.forEach(({ emp, date, type, choix }) => {
     const row = new Array(33).fill("");
     const id = idSalarie(emp);
-    const pf = table[id] || tableNorm[normTxt(id.replace(/_/g, " "))];
+    const pf = table[id];
     row[0] = pf ? pf[0] : "";
     row[2] = pf ? pf[1] : "";
     row[3] = `${emp.p} ${emp.n}`;
@@ -1096,19 +1309,6 @@ function calculExtra(heures, tauxNet, surHeuresOrigine) {
   return { tauxBrut, primeNet: h * t, primeBrute: h * tauxBrut, primeCoutTotal: tauxBrut * EXTRA_BRUT_VERS_COUT_TOTAL * h };
 }
 
-const Extras = {
-  async load(mois) { return (await Store.get(kExtras(mois))) || []; },
-  async save(mois, liste) { await Store.set(kExtras(mois), liste); },
-  // Charge l'historique complet, tous mois confondus (équivalent de l'ancien Google Sheet
-  // où tout restait visible en permanence sur une seule feuille).
-  async loadAll() {
-    const lignes = await Store.listByPrefix("extras:");
-    const tout = [];
-    lignes.forEach((l) => { if (Array.isArray(l.value)) tout.push(...l.value); });
-    tout.sort((a, b) => b.date.localeCompare(a.date));
-    return tout;
-  },
-};
 // Fiches juridiques connues des établissements du groupe (raison sociale, SIRET, adresse...),
 // fournies par la direction — pré-remplies pour que les managers n'aient jamais à les ressaisir.
 // Une fiche enregistrée manuellement (Store, ex: nouvel établissement) reste prioritaire.
@@ -1130,32 +1330,6 @@ const EtablissementsJuridique = {
   async load() { return { ...ETABLISSEMENTS_JURIDIQUE_DEFAUT, ...((await Store.get(kEtablissementsJuridique)) || {}) }; },
   async save(tous) { await Store.set(kEtablissementsJuridique, tous); },
 };
-
-// Charge l'effectif actuel de plusieurs établissements (fichier + salariés ajoutés dans
-// l'appli, hors salariés partis) : sert au sélecteur "quel salarié fait l'extra ce soir ?",
-// qui doit pouvoir trouver un salarié de N'IMPORTE quel établissement du groupe.
-async function chargerEffectifGlobal(restaurants) {
-  const aujourdHui = new Date().toISOString().slice(0, 10);
-  const rosters = await Promise.all(restaurants.map((r) => Store.get(kRoster(r))));
-  const tous = [];
-  const vus = new Set(); // évite les doublons (ex: salarié présent à la fois dans le fichier et ré-ajouté dans l'appli)
-  restaurants.forEach((r, i) => {
-    const roster = rosters[i] || {};
-    const supprimes = new Set(roster.supprimes || []);
-    const departs = roster.departs || {};
-    const base = EMPLOYEES.filter((e) => e.r === r).concat(roster.ajouts || []);
-    base.forEach((e) => {
-      const id = idSalarie(e);
-      if (vus.has(id)) return;
-      if (supprimes.has(id)) return;
-      const fin = departs[id];
-      if (fin && fin < aujourdHui) return;
-      vus.add(id);
-      tous.push(e);
-    });
-  });
-  return tous;
-}
 
 // Style commun aux documents juridiques imprimés (contrat + avenant).
 const STYLE_CONTRAT = `
@@ -1237,58 +1411,74 @@ function genererDocumentsExtra(extra, etabsJ) {
   return { contratHTML, contratGenereAt: dateGeneration.toISOString() };
 }
 
-// Export du récap mensuel des extras : une feuille "Détail" (une ligne par extra, mêmes
-// colonnes que l'ancien formulaire) + une feuille "Récap par salarié" (totaux du mois),
-// pour reprendre le travail d'intégration des primes en variables PayFit.
-// Colonnes A à J identiques (nom, ordre, format de date) à celles de l'ancien Google Sheet
-// "Réponses au formulaire", pour que les lignes exportées puissent être collées telles
-// quelles dedans. Les colonnes K à N (calculs) reprennent aussi ses noms de colonnes.
-function exporterRecapExtras(liste, mois, nomFichier) {
-  const realises = liste.filter((x) => x.statut === "realisee");
-  const enteteDetail = [
-    "Horodateur", "Adresse e-mail", "Etablissement où est effectué l'extra", "DATE",
-    "NOM  (SI FACTURE INDIQUER LE NOM SOCIETE)", "PRENOM", "Etablissement d'origine de l'extra",
-    "1Nombre d'heures effectuées (mettre 1 si FORFAIT)",
-    "Taux horaire net (utiliser Autre pour FORFAIT et remplir le montant du forfait)",
-    "Extra fait sur ses heures de l'établissement d'origine ? (donc non rémunéré en EXTRA - Mettre oui si facture)",
-    "Taux Horaire Brut", "Prime Net", "Prime Brute", "Prime Cout Total",
-  ];
-  const aoaDetail = [enteteDetail];
-  realises.forEach((x) => {
-    const horodateur = x.valideLe ? new Date(x.valideLe) : new Date(x.creeLe);
-    aoaDetail.push([
-      `${fmtDate(horodateur)} ${horodateur.toLocaleTimeString("fr-FR")}`, "",
-      x.resto, fmtDate(new Date(x.date + "T00:00:00")), x.salarieNom, x.salariePrenom, x.restoOrigine,
-      x.heuresReelles, x.tauxHoraireNet, x.surHeuresOrigine ? "OUI" : "NON",
-      x.tauxBrut, x.primeNet, x.primeBrute, x.primeCoutTotal,
-    ]);
-  });
-  const parSalarie = {};
-  realises.forEach((x) => {
-    const key = x.salarieId || idSalarie({ n: x.salarieNom, p: x.salariePrenom });
-    const pf = PAYFIT_IDS[key] || ["", ""];
-    const cur = parSalarie[key] || { nom: x.salarieNom, prenom: x.salariePrenom, identifiant: pf[0], matricule: pf[1], heures: 0, primeNet: 0, primeBrute: 0, primeCoutTotal: 0 };
-    cur.heures += Number(x.heuresReelles) || 0;
-    cur.primeNet += x.primeNet || 0;
-    cur.primeBrute += x.primeBrute || 0;
-    cur.primeCoutTotal += x.primeCoutTotal || 0;
-    parSalarie[key] = cur;
-  });
-  const aoaRecap = [["Identifiant PayFit", "Matricule", "Nom", "Prénom", "Total heures extra", "Total Prime Net", "Total Prime Brute", "Total Coût employeur", "Mois"]];
-  Object.values(parSalarie).forEach((c) => aoaRecap.push([c.identifiant, c.matricule, c.nom, c.prenom, c.heures, c.primeNet, c.primeBrute, c.primeCoutTotal, mois]));
+// Lieu de signature figurant sur les promesses d'embauche : celui du siège du groupe,
+// indépendant de l'établissement concerné par l'offre (modifiable ici si besoin).
+const LIEU_SIGNATURE_PROMESSE = "Ramatuelle";
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaDetail), "Détail extras");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaRecap), "Récap par salarié");
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = nomFichier;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+// Style dédié à la promesse d'embauche, calqué sur la mise en page exacte du modèle fourni
+// par Océane : logo centré en haut, bloc société aligné à gauche (raison sociale en style
+// manuscrit, comme le "cherry" du modèle), titre centré souligné, date alignée à droite,
+// puis le corps de la lettre. Délibérément distinct de STYLE_CONTRAT (paragraphes justifiés,
+// sections numérotées) qui ne convenait pas à ce format.
+const STYLE_PROMESSE = `
+  h1 { font-size:16px; letter-spacing:.5px; text-decoration:underline; margin:30px 0 26px; }
+  .logo { text-align:center; margin-bottom:30px; }
+  .logo img { max-height:90px; }
+  .raison-sociale { font-family:'Brush Script MT','Segoe Script',cursive; font-style:italic; font-size:22px; margin-bottom:10px; }
+  .entete { text-align:left; font-size:12px; line-height:1.6; margin-bottom:28px; }
+  .entete b { font-weight:700; }
+  .date-lieu { text-align:right; font-size:13px; margin-bottom:18px; }
+  p { font-size:13px; line-height:1.7; text-align:left; margin:0 0 14px; }
+  .manque { color:#B23A2E; font-weight:700; }
+  .signature { margin-top:34px; text-align:right; }
+  .signature img { display:inline-block; max-height:110px; margin-top:6px; }
+`;
+
+// Construit le corps HTML d'une promesse d'embauche, sur le modèle du document fourni par
+// Océane (PROMESSE_EMBAUCHE___CHERRY_PARIS.docx) : logo, en-tête société, civilité + identité
+// du salarié, poste/établissement/date de début/type de contrat, rémunération, formule de
+// politesse, puis la signature/tampon de l'établissement (si renseignées dans sa fiche
+// juridique). Les champs manquants sont signalés en rouge plutôt que laissés silencieusement
+// vides, comme pour le contrat de prêt de main-d'œuvre.
+function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
+  const dateFr = fmtDate(new Date());
+  const dateDebutFr = salarie.date_debut ? fmtDate(new Date(salarie.date_debut + "T00:00:00")) : '<span class="manque">[date de début à compléter]</span>';
+  const typeContrat = (salarie.type_contrat || "").trim();
+  const typeContratTxt = typeContrat
+    ? (/^cdi$/i.test(typeContrat) ? "contrat à durée indéterminée" : /^cdd$/i.test(typeContrat) ? "contrat à durée déterminée" : typeContrat)
+    : '<span class="manque">[type de contrat à compléter]</span>';
+  const civilite = (salarie.civilite || "").trim();
+  const salaire = (salarie.salaire_net !== null && salarie.salaire_net !== undefined && salarie.salaire_net !== "")
+    ? `${esc(String(salarie.salaire_net))} € net par mois` : '<span class="manque">[salaire à compléter]</span>';
+  const siren = etabJ && etabJ.siret ? etabJ.siret.replace(/\s+/g, "").slice(0, 9) : "";
+  return `
+    ${etabJ && etabJ.logo ? `<div class="logo"><img src="${etabJ.logo}" alt="Logo" /></div>` : ""}
+    <div class="entete">
+      <div class="raison-sociale">${valEtab(etabJ,'raisonSociale')}</div>
+      ${valEtab(etabJ,'adresse')}<br>
+      ${valEtab(etabJ,'cp')} ${valEtab(etabJ,'ville')}<br>
+      Au capital de ${valEtab(etabJ,'capital')}<br>
+      RCS ${valEtab(etabJ,'rcs')}<br>
+      SIREN : ${siren ? esc(siren) : '<span class="manque">[SIREN à compléter]</span>'}<br>
+      Code NAF : ${valEtab(etabJ,'ape')}
+    </div>
+    <h1 style="text-align:center">PROMESSE D'EMBAUCHE</h1>
+    <div class="date-lieu">À ${esc(LIEU_SIGNATURE_PROMESSE)}, le ${dateFr}</div>
+    <p>${civilite ? esc(civilite) + " " : ""}${esc((salarie.nom || "").toUpperCase())} ${esc(salarie.prenom || "")}</p>
+    <p>Nous avons le plaisir de vous confirmer par la présente notre volonté de vous intégrer au sein de notre équipe en qualité de <b>${esc(salarie.poste || "")}</b> de <b>${esc(salarie.resto || "")}</b>, à compter du <b>${dateDebutFr}</b> en ${typeContratTxt}.</p>
+    <p>La rémunération mensuelle associée à ce poste sera de <b>${salaire}</b>.</p>
+    <p>Dans l'attente de vous accueillir officiellement au sein de notre structure, nous vous prions d'agréer, ${civilite || "Madame, Monsieur"}, l'expression de nos salutations distinguées.</p>
+    <div class="signature">
+      Signature de l'entreprise
+      ${etabJ && etabJ.tampon ? `<br><img src="${etabJ.tampon}" alt="Signature" />` : '<div class="manque" style="margin-top:8px">[aucune signature/tampon enregistrée pour cet établissement]</div>'}
+    </div>
+  `;
 }
 
+// ---------- Import d'un planning existant depuis Excel ----------
+// Lit un classeur au format "PLANNING N / PLANNING CUISINE N" (une feuille par petit
+// groupe de salariés, tous pour la même semaine en général) : ligne 1 = semaine (dates),
+// puis par salarié 2 lignes (NOM, PRENOM) x 7 jours de 3 colonnes (début / "h" / pause-ou-OFF).
 // N'utilise XLSX.read() QUE sur un fichier que le superviseur choisit lui-même dans son
 // propre navigateur — jamais sur un contenu externe non fiable.
 function feuilleEnGrille(ws) {
@@ -1360,13 +1550,7 @@ async function analyserMappingPayFit(files, resto, ajouts) {
         if (!collaborateur) continue;
         const emp = matcherCollaborateurPayFit(String(collaborateur), resto, ajouts);
         if (!emp) { nonReconnus.add(String(collaborateur)); continue; }
-        const idVal = colId >= 0 ? String(ligne[colId] || "").trim() : "";
-        const matVal = colMat >= 0 ? String(ligne[colMat] || "").trim() : "";
-        // Une ligne sans identifiant n'apporte rien : on l'ignore plutôt que d'écraser une
-        // correspondance déjà enregistrée (sinon un export PayFit avec une ligne vide pour
-        // quelqu'un efface silencieusement son identifiant déjà connu).
-        if (!idVal) continue;
-        trouves[idSalarie(emp)] = [idVal, matVal];
+        trouves[idSalarie(emp)] = [colId >= 0 ? String(ligne[colId] || "") : "", colMat >= 0 ? String(ligne[colMat] || "") : ""];
       }
     }
   }
@@ -1423,7 +1607,7 @@ function EmargementSheet({ resto, semDate, planning, pointages, team, onToggleSi
       .hrs { font-weight:700; } .pz { font-size:9px; color:#555; }
       .sig { color:#aaa; font-size:8px; font-style:italic; }
       .sig.signed { color:#2E7D86; font-weight:700; font-style:normal; }`;
-    const ok = imprimerDocument(`Emargement ${resto}`, corps, styles, `Emargement_${slugKey(resto)}_${lundi.toISOString().slice(0,10)}`);
+    const ok = imprimerDocument(`Emargement ${resto}`, corps, styles, `Emargement_${slugKey(resto)}_${dateISOLocale(lundi)}`);
     if (ok === false) setPdfEtat("Impossible de générer le document. Réessayez.");
     else if (ok === "download") setPdfEtat("Le fichier a été téléchargé. Ouvrez-le, puis choisissez « Enregistrer au format PDF » à l'impression.");
     else setPdfEtat("");
@@ -1532,6 +1716,7 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
   const [mPoste, setMPoste] = useState(emp.po);
   const [mUnite, setMUnite] = useState(emp.u);
   const [mHeures, setMHeures] = useState(emp.h);
+  const [mDebut, setMDebut] = useState(emp._debut || "");
   const [mErr, setMErr] = useState(false);
   const lundi = lundiDeLaSemaine(semDate);
 
@@ -1621,6 +1806,11 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
                 </select>
               </div>
             </div>
+            <div className="ig-field">
+              <label>Date de début de contrat (optionnel)</label>
+              <input type="date" value={mDebut} onChange={(e)=>setMDebut(e.target.value)} />
+              <div className="ig-muted" style={{fontSize:12,marginTop:4}}>Si renseignée, le salarié n'apparaît sur le planning qu'à partir de cette semaine.</div>
+            </div>
             {(mNom.trim().toUpperCase() !== emp.n || mPrenom.trim() !== emp.p) && (
               <div className="ig-status-line" style={{marginTop:10,fontSize:13}}>Le nom/prénom change : ses semaines déjà passées resteront enregistrées sous "{emp.p} {emp.n}" (historique), et le nouveau nom s'appliquera à partir de maintenant.</div>
             )}
@@ -1629,7 +1819,7 @@ function GestionModal({ emp, semDate, depart, peutSupprimerDef, onMarquer, onSup
               <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={()=>setMode(null)}>Retour</button>
               <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={()=>{
                 if (!mPrenom.trim() || !mNom.trim()) { setMErr(true); return; }
-                onModifier({ prenom: mPrenom, nom: mNom, poste: mPoste, unite: mUnite, heures: Number(mHeures) });
+                onModifier({ prenom: mPrenom, nom: mNom, poste: mPoste, unite: mUnite, heures: Number(mHeures), dateDebut: mDebut || null });
               }}>Enregistrer</button>
             </div>
           </div>
@@ -1670,11 +1860,12 @@ function AjoutModal({ resto, onAjouter, onClose }) {
   const [poste, setPoste] = useState("");
   const [unite, setUnite] = useState("SALLE");
   const [heures, setHeures] = useState(35);
+  const [dateDebut, setDateDebut] = useState("");
   const [err, setErr] = useState(false);
 
   function valider() {
     if (!prenom.trim() || !nom.trim()) { setErr(true); return; }
-    onAjouter({ prenom, nom, poste, unite, heures: Number(heures) });
+    onAjouter({ prenom, nom, poste, unite, heures: Number(heures), dateDebut: dateDebut || null });
   }
 
   return (
@@ -1715,6 +1906,11 @@ function AjoutModal({ resto, onAjouter, onClose }) {
             </select>
           </div>
         </div>
+        <div className="ig-field">
+          <label>Date de début de contrat (optionnel)</label>
+          <input type="date" value={dateDebut} onChange={(e)=>setDateDebut(e.target.value)} />
+          <div className="ig-muted" style={{fontSize:12,marginTop:4}}>Si renseignée, le salarié n'apparaîtra sur le planning qu'à partir de cette semaine.</div>
+        </div>
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>Prénom et nom sont obligatoires.</div>}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
@@ -1727,18 +1923,24 @@ function AjoutModal({ resto, onAjouter, onClose }) {
 
 // ---------- Modal Fiche juridique d'un établissement (requis pour générer les contrats) ----------
 function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
-  const [f, setF] = useState({ raisonSociale: "", adresse: "", cp: "", ville: "", capital: "", rcs: "", siret: "", ape: "", ...(valeurs || {}) });
+  const [f, setF] = useState({ raisonSociale: "", adresse: "", cp: "", ville: "", capital: "", rcs: "", siret: "", ape: "", tampon: "", logo: "", ...(valeurs || {}) });
   const champ = (label, key, placeholder) => (
     <div className="ig-field">
       <label>{label}</label>
       <input value={f[key]} onChange={(e)=>setF({ ...f, [key]: e.target.value })} placeholder={placeholder} />
     </div>
   );
+  function choisirImage(cle, file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setF((cur) => ({ ...cur, [cle]: reader.result }));
+    reader.readAsDataURL(file);
+  }
   return (
     <div className="ig-overlay" onClick={onClose}>
       <div className="ig-modal" onClick={(e)=>e.stopPropagation()}>
         <h3>Fiche juridique — {resto}</h3>
-        <div className="ig-muted" style={{marginBottom:10}}>Ces informations apparaissent sur les contrats de prêt de main-d'œuvre générés pour cet établissement (comme société prêteuse ou utilisatrice).</div>
+        <div className="ig-muted" style={{marginBottom:10}}>Ces informations apparaissent sur les contrats de prêt de main-d'œuvre et les promesses d'embauche générés pour cet établissement.</div>
         {champ("Raison sociale", "raisonSociale", "Ex : SAS INDIE BEACH")}
         {champ("Adresse", "adresse", "Ex : Plage de Pampelonne")}
         <div className="ig-times">
@@ -1751,6 +1953,24 @@ function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
           {champ("SIRET", "siret", "Ex : 45120187500023")}
           {champ("APE", "ape", "Ex : 5610A")}
         </div>
+        <div className="ig-field">
+          <label>Logo (image)</label>
+          <div className="ig-muted" style={{fontSize:12,marginBottom:6}}>Affiché en haut des promesses d'embauche générées pour cet établissement.</div>
+          {f.logo && <img src={f.logo} alt="Logo" style={{maxHeight:70,display:'block',marginBottom:8,border:'1px solid var(--line)',borderRadius:8,padding:4}} />}
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input type="file" accept="image/*" onChange={(e)=>choisirImage('logo', e.target.files[0])} />
+            {f.logo && <button type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setF((cur)=>({ ...cur, logo: "" }))}>Retirer</button>}
+          </div>
+        </div>
+        <div className="ig-field">
+          <label>Signature / tampon (image)</label>
+          <div className="ig-muted" style={{fontSize:12,marginBottom:6}}>Utilisée sur les promesses d'embauche générées pour cet établissement.</div>
+          {f.tampon && <img src={f.tampon} alt="Tampon" style={{maxHeight:70,display:'block',marginBottom:8,border:'1px solid var(--line)',borderRadius:8,padding:4}} />}
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input type="file" accept="image/*" onChange={(e)=>choisirImage('tampon', e.target.files[0])} />
+            {f.tampon && <button type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setF((cur)=>({ ...cur, tampon: "" }))}>Retirer</button>}
+          </div>
+        </div>
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
           <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={()=>onSave(f)}>Enregistrer</button>
@@ -1760,315 +1980,9 @@ function FicheJuridiqueModal({ resto, valeurs, onSave, onClose }) {
   );
 }
 
-// ---------- Modal Ajout d'un extra (choix du salarié + génération immédiate du contrat) ----------
-function AjoutExtraModal({ resto, effectif, onValider, onClose }) {
-  const [recherche, setRecherche] = useState("");
-  const [selection, setSelection] = useState(null);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [err, setErr] = useState("");
-
-  const candidats = useMemo(() => {
-    const q = normTxt(recherche);
-    if (!q) return [];
-    return effectif.filter((e) => normTxt(e.n).includes(q) || normTxt(e.p).includes(q) || normTxt(`${e.p} ${e.n}`).includes(q)).slice(0, 8);
-  }, [recherche, effectif]);
-
-  function choisir(e) {
-    setSelection(e);
-    setRecherche(`${e.p} ${e.n}`);
-  }
-
-  function valider() {
-    if (!selection) { setErr("Choisissez un salarié dans la liste."); return; }
-    if (!date) { setErr("Indiquez la date de la soirée."); return; }
-    onValider({ salarieId: idSalarie(selection), salarie: selection, poste: selection.po || "", date });
-  }
-
-  return (
-    <div className="ig-overlay" onClick={onClose}>
-      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:480}}>
-        <h3>Ajouter un extra</h3>
-        <div className="ig-muted" style={{marginBottom:10}}>Choisissez le salarié (de cet établissement ou d'un autre) et la date de la soirée. Les heures et le taux horaire se renseignent après, tant que ce n'est pas validé.</div>
-
-        <div className="ig-field" style={{position:'relative'}}>
-          <label>Salarié</label>
-          <input value={recherche} onChange={(e)=>{ setRecherche(e.target.value); setSelection(null); setErr(""); }} placeholder="Tapez un nom…" />
-          {recherche && !selection && candidats.length > 0 && (
-            <div className="ig-card" style={{position:'absolute',zIndex:5,left:0,right:0,marginTop:4,padding:6,maxHeight:220,overflowY:'auto'}}>
-              {candidats.map((e) => (
-                <div key={idSalarie(e)} style={{padding:'8px 10px',cursor:'pointer',borderRadius:8}}
-                  onClick={()=>choisir(e)}
-                  onMouseDown={(ev)=>ev.preventDefault()}>
-                  <b>{e.p} {e.n}</b> <span className="ig-muted">· {e.po} · {e.r}{e.r === resto ? " (cet établissement)" : ""}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {recherche && !selection && candidats.length === 0 && (
-            <div className="ig-muted" style={{marginTop:6,fontSize:13}}>Aucun salarié ne correspond.</div>
-          )}
-        </div>
-
-        {selection && (
-          <div className="ig-field">
-            <label>Date de la soirée</label>
-            <input type="date" value={date} onChange={(e)=>setDate(e.target.value)} />
-          </div>
-        )}
-
-        {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-        <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
-          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Ajouter l'extra</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------- Onglet Extra (prêt de main-d'œuvre) ----------
-function ExtraTab({ resto, superviseur }) {
-  const [restaurants, setRestaurants] = useState([...RESTAURANTS]);
-  const [effectif, setEffectif] = useState([]);
-  const [etabsJ, setEtabsJ] = useState({});
-  const [moisDate, setMoisDate] = useState(new Date());
-  const [liste, setListe] = useState(null);
-  const [ajout, setAjout] = useState(false);
-  const [fiche, setFiche] = useState(false);
-  const [flash, setFlash] = useState("");
-  const [recherche, setRecherche] = useState("");
-
-  const mois = cleMois(moisDate);
-
-  useEffect(() => {
-    let on = true;
-    Store.get(kEtablissements).then((v) => { if (on && Array.isArray(v) && v.length) setRestaurants(Array.from(new Set([...RESTAURANTS, ...v]))); });
-    return () => { on = false; };
-  }, []);
-
-  useEffect(() => {
-    let on = true;
-    Promise.all([chargerEffectifGlobal(restaurants), EtablissementsJuridique.load(), Extras.load(mois)]).then(([eff, ej, ex]) => {
-      if (!on) return;
-      setEffectif(eff); setEtabsJ(ej); setListe(ex);
-    });
-    return () => { on = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restaurants.length, mois]);
-
-  function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 6000); }
-
-  async function persisterDans(moisCible, nouvelleListe) {
-    if (moisCible === mois) setListe(nouvelleListe);
-    await Extras.save(moisCible, nouvelleListe);
-  }
-
-  async function creerExtra({ salarieId, salarie, poste, date }) {
-    const nouveau = {
-      id: (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`),
-      resto, restoOrigine: salarie.r, salarieId, salarieNom: salarie.n, salariePrenom: salarie.p,
-      poste, date, heuresEstimees: null, tauxHoraireNet: null, surHeuresOrigine: false,
-      statut: "a_valider", heuresReelles: null, payfitStatut: "a_faire", creeLe: new Date().toISOString(),
-    };
-    Object.assign(nouveau, genererDocumentsExtra(nouveau, etabsJ));
-    const moisExtra = cleMois(new Date(date + "T00:00:00"));
-    const base = moisExtra === mois ? (liste || []) : await Extras.load(moisExtra);
-    await persisterDans(moisExtra, [...base, nouveau]);
-    setAjout(false);
-    montrerFlash(`Extra créé pour ${salarie.p} ${salarie.n} (${salarie.r} → ${resto}) le ${fmtDate(new Date(date + "T00:00:00"))}.${nouveau.contratHTML ? " Le contrat de prêt est prêt." : ""} Reste à renseigner les heures et le taux avant de valider.`);
-  }
-
-  // Édition libre des heures/taux/case tant que l'extra n'est pas validé : mise à jour
-  // immédiate en mémoire, persistée à la perte de focus (ou aussitôt pour la case à cocher).
-  function modifierChamp(id, champ, valeur) {
-    const next = (liste || []).map((x) => (x.id === id ? { ...x, [champ]: valeur } : x));
-    setListe(next);
-    return next;
-  }
-  async function sauverChamps(id, champ, valeur) {
-    const next = modifierChamp(id, champ, valeur);
-    await Extras.save(mois, next);
-  }
-
-  async function validerExtra(id) {
-    const x = (liste || []).find((it) => it.id === id);
-    if (!x) return;
-    if (!x.heuresEstimees || Number(x.heuresEstimees) <= 0) { montrerFlash("Indiquez le nombre d'heures avant de valider."); return; }
-    if (!x.surHeuresOrigine && (!x.tauxHoraireNet || Number(x.tauxHoraireNet) <= 0)) { montrerFlash("Indiquez le taux horaire net avant de valider (ou cochez « sur ses heures d'origine »)."); return; }
-    const calc = calculExtra(x.heuresEstimees, x.tauxHoraireNet, x.surHeuresOrigine);
-    const next = (liste || []).map((it) => (it.id === id ? { ...it, heuresReelles: Number(it.heuresEstimees), statut: "realisee", valideLe: new Date().toISOString(), ...calc } : it));
-    await persisterDans(mois, next);
-    montrerFlash("Heures validées.");
-  }
-
-  function voirContrat(x) {
-    if (!x.contratHTML) return;
-    imprimerDocument(`Contrat de prêt — ${x.salariePrenom} ${x.salarieNom}`, x.contratHTML, STYLE_CONTRAT, `contrat_pret_${slugKey(x.salariePrenom + "_" + x.salarieNom)}_${x.date}`);
-  }
-
-  async function enregistrerFiche(data) {
-    const next = { ...etabsJ, [resto]: data };
-    setEtabsJ(next);
-    await EtablissementsJuridique.save(next);
-    setFiche(false);
-    montrerFlash("Fiche juridique enregistrée.");
-  }
-
-  if (liste === null) return <div className="ig-muted">Chargement…</div>;
-
-  const q = normTxt(recherche);
-  const mesDemandes = liste
-    .filter((x) => x.resto === resto)
-    .filter((x) => !q || normTxt(`${x.salariePrenom} ${x.salarieNom}`).includes(q))
-    .sort((a, b) => b.date.localeCompare(a.date));
-  const ficheOk = etabsJ[resto] && etabsJ[resto].siret && etabsJ[resto].raisonSociale;
-
-  return (
-    <div>
-      <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
-        <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Ajouter un extra</button>
-        <a className="ig-btn ig-btn-ghost" href="https://forms.gle/pNFPqnH2eAX3C7gs7" target="_blank" rel="noopener noreferrer">+ Ajouter un extra extérieur</a>
-        {superviseur && <button className="ig-btn ig-btn-ghost" onClick={()=>setFiche(true)}>Fiche juridique de {resto}</button>}
-        {superviseur && !ficheOk && <span style={{color:'var(--coral-d)',fontSize:13,fontWeight:600}}>⚠ à compléter avant de générer des contrats valides</span>}
-      </div>
-
-      {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
-
-      <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}>
-        <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
-          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMoisDate(new Date(moisDate.getFullYear(), moisDate.getMonth()-1, 1))}><Icon.Back width={14} height={14}/></button>
-          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600}}>Extras chez {resto} — {MOIS_NOMS[moisDate.getMonth()]} {moisDate.getFullYear()}</div>
-          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMoisDate(new Date(moisDate.getFullYear(), moisDate.getMonth()+1, 1))}><Icon.Chevron width={14} height={14}/></button>
-          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{marginLeft:'auto',flex:'1 1 200px',minWidth:0}} />
-        </div>
-        {mesDemandes.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun extra ce mois-ci."}</div> : (
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {mesDemandes.map((x) => (
-              <div key={x.id} className="ig-extra-row">
-                <div className="ig-extra-head">
-                  <div style={{minWidth:180}}><b>{x.salariePrenom} {x.salarieNom}</b><br /><span className="ig-muted" style={{fontSize:12}}>{x.restoOrigine === resto ? "cet établissement" : x.restoOrigine} · {x.poste} · {fmtDate(new Date(x.date+"T00:00:00"))}</span></div>
-                  <span className="ig-pill" style={{background: x.statut==='realisee' ? '#EAF3F3' : '#FCE5D6'}}>{x.statut === 'realisee' ? '✓ heures validées' : 'à valider'}</span>
-                  {x.contratHTML && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>voirContrat(x)}>Contrat de prêt</button>}
-                  {x.statut === 'realisee' && <span className="ig-muted" style={{fontSize:13,fontWeight:600}}>{x.heuresReelles}h · {fmtEuro(x.primeNet)} net</span>}
-                </div>
-                {x.statut !== 'realisee' && (
-                  <div className="ig-extra-saisie">
-                    <div className="ig-extra-champ">
-                      <label>Heures</label>
-                      <input type="number" min="0" step="0.25" inputMode="decimal" placeholder="0" value={x.heuresEstimees ?? ""} onChange={(e)=>modifierChamp(x.id,'heuresEstimees', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamps(x.id,'heuresEstimees', x.heuresEstimees)} />
-                    </div>
-                    <div className="ig-extra-champ">
-                      <label>Taux net €</label>
-                      <input type="number" min="0" step="0.5" inputMode="decimal" placeholder="0" disabled={x.surHeuresOrigine} value={x.tauxHoraireNet ?? ""} onChange={(e)=>modifierChamp(x.id,'tauxHoraireNet', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamps(x.id,'tauxHoraireNet', x.tauxHoraireNet)} />
-                    </div>
-                    <label className="ig-extra-check">
-                      <input type="checkbox" checked={!!x.surHeuresOrigine} onChange={(e)=>sauverChamps(x.id,'surHeuresOrigine', e.target.checked)} />
-                      sur heures d'origine
-                    </label>
-                    <button className="ig-btn ig-btn-primary" style={{marginLeft:'auto'}} onClick={()=>validerExtra(x.id)}>✓ Valider</button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-
-      {superviseur && <VueGlobaleExtras />}
-
-      {ajout && <AjoutExtraModal resto={resto} effectif={effectif} onValider={creerExtra} onClose={()=>setAjout(false)} />}
-      {fiche && <FicheJuridiqueModal resto={resto} valeurs={etabsJ[resto]} onSave={enregistrerFiche} onClose={()=>setFiche(false)} />}
-    </div>
-  );
-}
-// ---------- Vue globale des extras (superviseur) : équivalent permanent du Google Sheet ----------
-// Charge tout l'historique (tous mois confondus) et le garde consultable en direct dans l'appli,
-// avec recherche/filtre, plutôt que de n'exposer qu'un export ponctuel du mois en cours.
-function VueGlobaleExtras() {
-  const [tout, setTout] = useState(null);
-  const [recherche, setRecherche] = useState("");
-  const [filtreEtab, setFiltreEtab] = useState("");
-  const [filtreMois, setFiltreMois] = useState("");
-
-  useEffect(() => {
-    let on = true;
-    Extras.loadAll().then((l) => { if (on) setTout(l); });
-    return () => { on = false; };
-  }, []);
-
-  if (tout === null) return <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}><div className="ig-muted">Chargement de l'historique complet…</div></div>;
-
-  const etabs = Array.from(new Set(tout.map((x) => x.resto))).sort();
-  const moisDisponibles = Array.from(new Set(tout.map((x) => cleMois(new Date(x.date + "T00:00:00"))))).sort().reverse();
-
-  const q = normTxt(recherche);
-  const filtres = tout.filter((x) => {
-    if (filtreEtab && x.resto !== filtreEtab) return false;
-    if (filtreMois && cleMois(new Date(x.date + "T00:00:00")) !== filtreMois) return false;
-    if (q && !normTxt(`${x.salariePrenom} ${x.salarieNom} ${x.poste}`).includes(q)) return false;
-    return true;
-  });
-
-  const totaux = filtres.reduce((acc, x) => {
-    if (x.statut === "realisee") {
-      acc.heures += Number(x.heuresReelles) || 0;
-      acc.primeNet += x.primeNet || 0; acc.primeBrute += x.primeBrute || 0; acc.primeCoutTotal += x.primeCoutTotal || 0;
-    }
-    return acc;
-  }, { heures: 0, primeNet: 0, primeBrute: 0, primeCoutTotal: 0 });
-
-  return (
-    <div className="ig-card" style={{padding:'16px 20px',marginBottom:18,borderColor:'var(--ink)'}}>
-      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600,marginBottom:10}}>Historique complet des extras — tous établissements, tous mois</div>
-      <div className="ig-noprint" style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
-        <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié / poste…" style={{minWidth:200}} />
-        <select value={filtreEtab} onChange={(e)=>setFiltreEtab(e.target.value)}>
-          <option value="">Tous les établissements</option>
-          {etabs.map((r) => (<option key={r} value={r}>{r}</option>))}
-        </select>
-        <select value={filtreMois} onChange={(e)=>setFiltreMois(e.target.value)}>
-          <option value="">Tous les mois</option>
-          {moisDisponibles.map((m) => (<option key={m} value={m}>{m}</option>))}
-        </select>
-        <button className="ig-btn ig-btn-ghost" onClick={()=>exporterRecapExtras(filtres, filtreMois || "historique-complet", `Extras_${filtreMois || "historique-complet"}.xlsx`)}>⬇ Export (xlsx)</button>
-      </div>
-      <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>
-        {filtres.length} extra{filtres.length>1?'s':''} · {totaux.heures}h validées · {fmtEuro(totaux.primeNet)} net · {fmtEuro(totaux.primeBrute)} brut · {fmtEuro(totaux.primeCoutTotal)} coût total
-      </div>
-      {filtres.length === 0 ? <div className="ig-muted">Aucun extra ne correspond.</div> : (
-        <div style={{overflowX:'auto',maxHeight:480,overflowY:'auto'}}>
-          <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
-            <thead style={{position:'sticky',top:0,background:'var(--sand)'}}>
-              <tr style={{textAlign:'left'}}>
-                <th style={{padding:'6px 8px'}}>Date</th><th>Salarié</th><th>Poste</th><th>Origine</th><th>Destination</th><th>Statut</th><th>Heures</th><th>Prime Net</th><th>Prime Brute</th><th>Coût total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtres.map((x) => (
-                <tr key={x.id} style={{borderTop:'1px solid var(--sand-2)'}}>
-                  <td style={{padding:'6px 8px'}}>{fmtDate(new Date(x.date+"T00:00:00"))}</td>
-                  <td>{x.salariePrenom} {x.salarieNom}</td>
-                  <td>{x.poste}</td>
-                  <td>{x.restoOrigine}</td>
-                  <td>{x.resto}</td>
-                  <td>{x.statut === 'realisee' ? '✓ validé' : 'à valider'}</td>
-                  <td>{x.statut === 'realisee' ? x.heuresReelles : (x.heuresEstimees ?? '—')}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.primeNet) : '—'}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.primeBrute) : '—'}</td>
-                  <td>{x.statut === 'realisee' ? fmtEuro(x.primeCoutTotal) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ---------- Vue Manager ----------
-function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
+function ManagerView({ resto, onBack, superviseur }) {
   const [semDate, setSemDate] = useState(new Date());
   const [planning, setPlanning] = useState({}); // { idSalarie: { 0..6 } }
   const [pointages, setPointages] = useState({});
@@ -2077,6 +1991,8 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
   const [loading, setLoading] = useState(true);
   const [roster, setRoster] = useState({ ajouts: [], departs: {} });
   const [modele, setModele] = useState(null); // planning modèle enregistré pour le resto
+  const [shifts, setShifts] = useState([]); // shifts prêts à l'emploi de l'établissement
+  const [gererShifts, setGererShifts] = useState(false); // modale de gestion des shifts ouverte
   const [gestion, setGestion] = useState(null); // salarié en cours de gestion
   const [ajout, setAjout] = useState(false);    // formulaire d'ajout ouvert
   const [flash, setFlash] = useState("");        // message de confirmation éphémère
@@ -2093,8 +2009,6 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
   const [mappingPayfit, setMappingPayfit] = useState({}); // correspondance PayFit de CET établissement (Store), fusionnée avec PAYFIT_IDS
   const [majMappingEnCours, setMajMappingEnCours] = useState(false);
   const fileMappingRef = useRef(null);
-  const [shifts, setShifts] = useState([]); // shifts prêts à l'emploi de CET établissement
-  const [gererShifts, setGererShifts] = useState(false); // modal "Shifts prêts à l'emploi" ouverte
   const sem = cleSemaine(semDate);
 
   // Correspondance PayFit : propre à l'établissement affiché — rechargée si on change de resto.
@@ -2103,24 +2017,6 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
     Store.get(kPayfitMapping(resto)).then((m) => { if (on) setMappingPayfit(m || {}); });
     return () => { on = false; };
   }, [resto]);
-
-  // Shifts prêts à l'emploi : propres à l'établissement affiché.
-  useEffect(() => {
-    let on = true;
-    Store.get(kShifts(resto)).then((s) => { if (on) setShifts(Array.isArray(s) ? s : []); });
-    return () => { on = false; };
-  }, [resto]);
-  function ajouterShift(data) {
-    const nouveau = { id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, ...data };
-    const next = [...shifts, nouveau];
-    setShifts(next);
-    Store.set(kShifts(resto), next);
-  }
-  function supprimerShift(id) {
-    const next = shifts.filter((s) => s.id !== id);
-    setShifts(next);
-    Store.set(kShifts(resto), next);
-  }
   async function majMappingPayFit(files) {
     setMajMappingEnCours(true);
     try {
@@ -2141,23 +2037,71 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
     }
   }
 
-  // Équipe effective : salariés du fichier + ajouts, moins ceux dont le contrat est terminé.
+  // Salariés RH (saison en cours de cet établissement) : intégrés automatiquement au
+  // planning, bornés par leur date de début/fin de contrat — sans ressaisie manuelle.
+  const [rhTeam, setRhTeam] = useState([]);
+  useEffect(() => {
+    let on = true;
+    RhSalaries.list(resto).then((lignes) => {
+      if (!on) return;
+      if (lignes.length === 0) { setRhTeam([]); return; }
+      // La saison synchronisée dans le planning doit être l'année en cours (contrats actifs),
+      // jamais "Archives" : "Archives" trie après les années dans l'ordre alphabétique
+      // ("A" > "2"), donc prendre "la dernière valeur triée" pouvait synchroniser les fiches
+      // archivées au lieu des salariés réellement sous contrat cette année — plus aucun
+      // nouveau salarié (ni ses heures de contrat) ne remontait alors dans le planning.
+      const anneeCourante = String(new Date().getFullYear());
+      const saisonsDispo = [...new Set(lignes.map((l) => l.saison))].sort();
+      const saisonsAnnees = saisonsDispo.filter((s) => /^\d{4}$/.test(s));
+      const derniere = saisonsDispo.includes(anneeCourante)
+        ? anneeCourante
+        : (saisonsAnnees.length ? saisonsAnnees[saisonsAnnees.length - 1] : anneeCourante);
+      setRhTeam(
+        lignes.filter((l) => l.saison === derniere).map((l) => ({
+          n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—", u: l.unite,
+          h: l.heures_contrat || l.heures_semaine || 35,
+          _rhDebut: l.date_debut, _rhFin: l.date_fin,
+        }))
+      );
+    });
+    return () => { on = false; };
+  }, [resto]);
+
+  // Équipe effective : salariés du fichier + ajouts manuels + salariés RH (bornés par leur
+  // contrat), moins ceux dont le contrat est terminé.
   const team = useMemo(() => {
     const base = EMPLOYEES.filter((e) => e.r === resto);
     const ajouts = roster.ajouts || [];
-    const ajoutIds = new Set(ajouts.map((a) => idSalarie(a)));
-    // Une fiche "ajoutée" a priorité sur la fiche du fichier de même identifiant
+    // Comparaison de la même personne entre ajout manuel / fiche RH / fichier tolérante à la
+    // casse, aux accents (normTxt) ET à la ponctuation (tiret, apostrophe...) : "nicolas
+    // BRAULT" / "Nicolas BRAULT", ou "Jean-Baptiste POLO" / "Jean Baptiste POLO", doivent être
+    // reconnus comme LA MÊME personne, sinon les deux survivent et se retrouvent en double dans
+    // le planning. On ne touche qu'à cette comparaison — jamais à idSalarie() lui-même, qui sert
+    // aussi de clé de stockage pour les horaires déjà saisis.
+    const idNorm = (e) => normTxt(idSalarie(e)).replace(/[^a-z0-9]+/g, " ").trim();
+    const ajoutIds = new Set(ajouts.map((a) => idNorm(a)));
+    // Un ajout manuel a priorité sur la fiche RH de même identifiant (permet de corriger
+    // ses heures/poste dans Planning sans attendre une mise à jour de la fiche RH).
+    const rhActifs = rhTeam.filter((e) => {
+      if (ajoutIds.has(idNorm(e))) return false;
+      if (e._rhDebut && sem < e._rhDebut) return false; // contrat pas encore commencé cette semaine
+      if (e._rhFin && sem > e._rhFin) return false; // contrat terminé avant cette semaine
+      return true;
+    });
+    const rhIds = new Set(rhActifs.map((e) => idNorm(e)));
+    // Une fiche "ajoutée" ou RH a priorité sur la fiche du fichier de même identifiant
     // (permet de corriger ses heures / son poste sans créer de doublon).
-    const tous = base.filter((e) => !ajoutIds.has(idSalarie(e))).concat(ajouts);
+    const tous = base.filter((e) => !ajoutIds.has(idNorm(e)) && !rhIds.has(idNorm(e))).concat(ajouts).concat(rhActifs);
     const supprimes = new Set(roster.supprimes || []);
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
+      if (e._debut && sem < e._debut) return false; // ajout manuel : contrat pas encore commencé cette semaine
       const fin = (roster.departs || {})[idSalarie(e)];
       // fin = date de fin de contrat (AAAA-MM-JJ). Visible tant que le lundi de la
       // semaine affichée est <= date de fin ; masqué pour les semaines entièrement après.
       return !fin || sem <= fin;
     });
-  }, [resto, roster, sem]);
+  }, [resto, roster, sem, rhTeam]);
 
   // Équipe filtrée par la recherche (nom/prénom) et le filtre d'unité (salle/cuisine).
   const teamFiltre = useMemo(() => {
@@ -2182,44 +2126,29 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
       if (!on) return;
       setPlanning(pl || {});
       setPointages(pt || {});
-      // Nettoyage automatique (le lendemain de la fin de contrat ou après) :
-      // - salariés AJOUTÉS : retirés de la liste des ajouts ;
-      // - salariés du FICHIER : ajoutés à la liste des supprimés (le fichier n'est pas touché).
-      // Dans les deux cas, l'historique des semaines passées est conservé.
-      // Ce nettoyage reste LOCAL à cet affichage (jamais réécrit en base) : l'écrire ici en
-      // arrière-plan pouvait entrer en course avec une modification manuelle plus récente du
-      // même salarié et l'effacer silencieusement. Le filtrage par date de fin (plus bas)
-      // fonctionne de toute façon directement sur "departs", sans avoir besoin de cette
-      // conversion en base — elle est donc recalculée à chaque chargement, sans être persistée.
-      let rosterUtilise = rs || { ajouts: [], departs: {} };
-      const aujourdHui = new Date().toISOString().slice(0, 10);
-      const ajoutsR = rosterUtilise.ajouts || [];
-      const departsR = rosterUtilise.departs || {};
-      const supprimesR = rosterUtilise.supprimes || [];
-      const idsAjoutes = new Set(ajoutsR.map((a) => idSalarie(a)));
-
-      const finsPassees = Object.keys(departsR).filter((id) => aujourdHui > departsR[id]);
-      if (finsPassees.length > 0) {
-        const nouvDeparts = { ...departsR };
-        const nouvSupprimes = [...supprimesR];
-        let nouvAjouts = ajoutsR;
-        finsPassees.forEach((id) => {
-          delete nouvDeparts[id];
-          if (idsAjoutes.has(id)) {
-            nouvAjouts = nouvAjouts.filter((a) => idSalarie(a) !== id);
-          } else if (!nouvSupprimes.includes(id)) {
-            nouvSupprimes.push(id); // salarié du fichier : marqué supprimé
-          }
-        });
-        rosterUtilise = { ...rosterUtilise, ajouts: nouvAjouts, departs: nouvDeparts, supprimes: nouvSupprimes };
-      }
-      setRoster(rosterUtilise);
+      // Le filtrage par date de fin (dans "team", plus bas) se fait par rapport à la SEMAINE
+      // affichée ("sem"), pas par rapport à la date du jour : un salarié parti reste donc
+      // visible sur les semaines passées où il a réellement travaillé, et disparaît seulement
+      // des semaines suivant sa fin de contrat. Il ne faut surtout pas, en plus de ça, le
+      // basculer automatiquement dans "supprimes" dès que sa date de fin est dépassée
+      // aujourd'hui : "supprimes" masque TOUTES les semaines sans exception (y compris les
+      // passées), ce qui faisait disparaître le salarié même de l'historique. La suppression
+      // définitive reste un choix explicite (bouton "Supprimer définitivement").
+      setRoster(rs || { ajouts: [], departs: {} });
       setModele(md || null);
       setValide(!!vd);
       setLoading(false);
     });
     return () => { on = false; };
   }, [resto, sem]);
+
+  // Shifts prêts à l'emploi : propres à l'établissement, pas à la semaine (pas besoin de
+  // recharger à chaque changement de semaine).
+  useEffect(() => {
+    let on = true;
+    Store.get(kShifts(resto)).then((s) => { if (on) setShifts(s || []); });
+    return () => { on = false; };
+  }, [resto]);
 
   // Alerte : salariés prévus en travail HIER mais qui n'ont pas confirmé leur présence.
   // Basée sur la vraie date d'hier, indépendamment de la semaine affichée.
@@ -2356,73 +2285,6 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
     }
   }
 
-  // Émargement du mois entier en UN SEUL PDF (une page par semaine), pour archivage/contrôle.
-  const [emargementMoisEnCours, setEmargementMoisEnCours] = useState(false);
-  async function telechargerEmargementMois(annee, mois) {
-    setEmargementMoisEnCours(true);
-    try {
-      const premierJour = new Date(annee, mois - 1, 1);
-      const dernierJour = new Date(annee, mois, 0);
-      const semaines = [];
-      for (let l = lundiDeLaSemaine(premierJour); l <= lundiDeLaSemaine(dernierJour); l = ajouterJours(l, 7)) {
-        semaines.push(l);
-      }
-      const donnees = await Promise.all(semaines.map(async (lundi) => {
-        const s = cleSemaine(lundi);
-        const [pl, pt] = await Promise.all([Store.get(kPlanning(resto, s)), Pointages.load(resto, s)]);
-        return { lundi, planning: pl || {}, pointages: pt || {} };
-      }));
-      const blocs = donnees.map(({ lundi, planning: pl, pointages: pt }, idx) => {
-        const dimanche = ajouterJours(lundi, 6);
-        const withPlanning = team.filter((e) => pl[idSalarie(e)]);
-        const list = withPlanning.length ? withPlanning : team;
-        const entetes = JOURS.map((j, i) => `<th>${j}<br><span style="font-weight:400">${fmtJour(ajouterJours(lundi, i))}</span></th>`).join("");
-        const lignes = list.map((e) => {
-          const plE = pl[idSalarie(e)];
-          const tot = plE ? totalHebdo(plE) : 0;
-          const jours = JOURS.map((j, i) => {
-            const p = plE ? plE[i] : null;
-            const ptE = pt[idSalarie(e)];
-            const ptJour = ptE ? ptE[i] : null;
-            const signe = p && (p.statut === STATUTS.TRAVAIL || p.statut === STATUTS.DEMI_CP)
-              ? !!(ptJour && ptJour.confirme) : undefined;
-            return `<td class="daycell">${celluleHTML(p, { signe })}</td>`;
-          }).join("");
-          const ptAll = pt[idSalarie(e)];
-          const signee = ptAll && ptAll.semaine && ptAll.semaine.signee;
-          const totCell = `${plE ? fmtHeures(tot) : "—"}${signee ? '<div class="sig signed">✓ semaine validée</div>' : '<div class="sig">signature ____</div>'}`;
-          return `<tr><td class="who"><b>${esc(e.n)}</b><br>${esc(e.p)}</td>${jours}<td class="daycell" style="text-align:center;font-weight:700">${totCell}</td></tr>`;
-        }).join("");
-        return `
-          <div${idx > 0 ? ' style="page-break-before:always;"' : ''}>
-            <h1>ÉMARGEMENT — ${esc(resto)}</h1>
-            <div class="sub">Semaine du ${fmtDate(lundi)} au ${fmtDate(dimanche)}</div>
-            <table>
-              <thead><tr><th class="who">Nom / Prénom</th>${entetes}<th>Total hebdo</th></tr></thead>
-              <tbody>${lignes}</tbody>
-            </table>
-          </div>`;
-      });
-      const corps = blocs.join("");
-      const styles = `
-        table { width:100%; border-collapse:collapse; font-size:10px; }
-        th,td { border:1px solid #15303B; padding:4px 5px; text-align:center; vertical-align:top; }
-        th { background:#E8DDC9; font-size:9px; text-transform:uppercase; letter-spacing:.4px; }
-        td.who { text-align:left; min-width:90px; }
-        .daycell { height:50px; }
-        .hrs { font-weight:700; } .pz { font-size:9px; color:#555; }
-        .sig { color:#aaa; font-size:8px; font-style:italic; }
-        .sig.signed { color:#2E7D86; font-weight:700; font-style:normal; }`;
-      const nomFichier = `Emargement_${slugKey(resto)}_${String(mois).padStart(2,"0")}-${annee}`;
-      const ok = imprimerDocument(`Emargement ${resto} — ${MOIS_NOMS[mois-1]} ${annee}`, corps, styles, nomFichier);
-      if (ok === false) montrerFlash("Impossible de générer le document. Réessayez.");
-      else if (ok === "download") montrerFlash("Le fichier a été téléchargé. Ouvrez-le, puis choisissez « Enregistrer au format PDF » à l'impression (une page par semaine).");
-      else montrerFlash(`Émargement de ${MOIS_NOMS[mois-1]} ${annee} prêt : ${semaines.length} semaine${semaines.length>1?'s':''}. Choisissez « Enregistrer au format PDF » dans la fenêtre d'impression.`);
-    } finally {
-      setEmargementMoisEnCours(false);
-    }
-  }
-
   function imprimerPlanning() {
     const lundi = lundiDeLaSemaine(semDate);
     const entetes = JOURS.map((j, i) => `<th>${JOURS_COURT[i]}<br><span style="font-weight:400">${fmtJour(ajouterJours(lundi, i))}</span></th>`).join("");
@@ -2447,7 +2309,7 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
       .po { font-size:10px; color:#3C5763; }
       .hrs { font-weight:600; } .pz { font-size:9px; color:#555; }
       .tot { font-weight:700; }`;
-    const ok = imprimerDocument(`Planning ${resto}`, corps, styles, `Planning_${slugKey(resto)}_${lundi.toISOString().slice(0,10)}`);
+    const ok = imprimerDocument(`Planning ${resto}`, corps, styles, `Planning_${slugKey(resto)}_${dateISOLocale(lundi)}`);
     if (ok === false) montrerFlash("Impossible de générer le document. Réessayez.");
     else if (ok === "download") montrerFlash("Le fichier a été téléchargé. Ouvrez-le, puis choisissez « Enregistrer au format PDF » à l'impression.");
   }
@@ -2557,7 +2419,7 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
   // on l'en enlève — sinon le filtre d'effectif le masquerait aussitôt. Et si c'est une
   // fiche du fichier de base, on la réactive au lieu de créer un doublon.
   function ajouterSalarie(data) {
-    const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true };
+    const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true, _debut: data.dateDebut || null };
     const id = idSalarie(nouveau);
     const supprimes = (roster.supprimes || []).filter((x) => x !== id);
     const departs = { ...(roster.departs || {}) };
@@ -2575,7 +2437,7 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
   // et on masque l'ancienne fiche du fichier de base pour éviter un doublon. Les semaines
   // déjà passées restent enregistrées sous l'ancien nom (historique RH intact).
   function modifierSalarie(ancienEmp, data) {
-    const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true };
+    const nouveau = { n: data.nom.trim().toUpperCase(), p: data.prenom.trim(), r: resto, po: data.poste.trim() || "—", u: data.unite, h: data.heures, _ajout: true, _debut: data.dateDebut || null };
     const ancienId = idSalarie(ancienEmp);
     const nouvelId = idSalarie(nouveau);
     const ajouts = [...(roster.ajouts || []).filter((a) => idSalarie(a) !== ancienId && idSalarie(a) !== nouvelId), nouveau];
@@ -2636,7 +2498,7 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:14,marginBottom:6}}>
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> {onBackLabel || "Restaurants"}</button>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> Restaurants</button>
         <div>
           <div className="ig-eyebrow" style={{margin:0}}>Espace manager{superviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{resto}</h2>
@@ -2644,7 +2506,6 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           <button className={"ig-btn ig-btn-sm "+(vue==='planning'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('planning')}><Icon.Calendar width={16} height={16}/> Planning</button>
           <button className={"ig-btn ig-btn-sm "+(vue==='emargement'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('emargement')}><Icon.Check/> Émargement</button>
-          <button className={"ig-btn ig-btn-sm "+(vue==='extra'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('extra')}><Icon.User width={16} height={16}/> Extra</button>
         </div>
       </div>
 
@@ -2660,7 +2521,7 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
         <>
           <div className="ig-noprint" style={{display:'flex',gap:10,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
             <button className="ig-btn ig-btn-ghost" onClick={()=>setAjout(true)}>+ Ajouter un salarié</button>
-            <button className="ig-btn ig-btn-ghost" onClick={()=>setGererShifts(true)} title="Préparer des créneaux type (ex : Matin, Soir) à appliquer d'un clic dans le planning">⚡ Gérer les shifts</button>
+            <button className="ig-btn ig-btn-ghost" onClick={()=>setGererShifts(true)} title="Créer des horaires-types réutilisables (ex : « matin » 09:00-17:00), proposés en raccourci quand on édite le créneau d'un jour">⚡ Gérer les shifts</button>
             <button className="ig-btn ig-btn-ghost" onClick={()=>{ setModeSelect((v)=>!v); setSelection(new Set()); setConfirmLot(false); }} style={modeSelect?{borderColor:'var(--coral-d)',color:'var(--coral-d)'}:undefined}>🧹 {modeSelect?"Terminer le nettoyage":"Nettoyer l'effectif"}</button>
             <button className="ig-btn ig-btn-ghost" onClick={enregistrerModele} disabled={Object.keys(planning).length===0} title="Mémoriser les horaires de cette semaine comme modèle">★ Enregistrer comme modèle</button>
             {superviseur && (
@@ -2798,23 +2659,8 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
       )}
 
       {vue === "emargement" && (
-        <>
-          {superviseur && (
-            <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
-              <select value={moisExport.mois} onChange={(e)=>setMoisExport((m)=>({...m, mois:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-                {MOIS_NOMS.map((nom,i)=>(<option key={i} value={i+1}>{nom}</option>))}
-              </select>
-              <select value={moisExport.annee} onChange={(e)=>setMoisExport((m)=>({...m, annee:Number(e.target.value)}))} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-                {[moisExport.annee-1, moisExport.annee, moisExport.annee+1].filter((a,i,arr)=>arr.indexOf(a)===i).sort((a,b)=>a-b).map((a)=>(<option key={a} value={a}>{a}</option>))}
-              </select>
-              <button className="ig-btn ig-btn-ink" onClick={()=>telechargerEmargementMois(moisExport.annee, moisExport.mois)} disabled={emargementMoisEnCours} title="Un seul PDF avec toutes les semaines du mois choisi, une page par semaine — pour classer en cas de contrôle"><Icon.Print/> {emargementMoisEnCours ? "Génération…" : "Télécharger l'émargement du mois"}</button>
-            </div>
-          )}
-          <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
-        </>
+        <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
       )}
-
-      {vue === "extra" && <ExtraTab resto={resto} superviseur={superviseur} />}
 
       {edit && (
         <EditModal
@@ -2828,13 +2674,9 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
         />
       )}
 
-      {gererShifts && (
-        <ShiftsModal resto={resto} shifts={shifts} onAjouter={ajouterShift} onSupprimer={supprimerShift} onClose={()=>setGererShifts(false)} />
-      )}
-
       {gestion && (() => {
         const finGestion = (roster.departs || {})[idSalarie(gestion)];
-        const aujourdHui = new Date().toISOString().slice(0, 10);
+        const aujourdHui = dateISOLocale(new Date());
         const peutSupprimerDef = !!gestion._ajout && !!finGestion && aujourdHui > finGestion;
         return (
         <GestionModal
@@ -2857,6 +2699,13 @@ function ManagerView({ resto, onBack, superviseur, onBackLabel }) {
       )}
       {histo && (
         <HistoriqueModal titre={histo.titre} cle={histo.cle} onRestaurer={histo.onRestaurer} onClose={()=>setHisto(null)} />
+      )}
+      {gererShifts && (
+        <GestionShiftsModal
+          shifts={shifts}
+          onSave={(next)=>{ setShifts(next); Store.set(kShifts(resto), next); }}
+          onClose={()=>setGererShifts(false)}
+        />
       )}
     </div>
   );
@@ -2905,6 +2754,75 @@ function HistoriqueModal({ titre, cle, onRestaurer, onClose }) {
         )}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Modal Gestion des shifts prêts à l'emploi (raccourcis d'horaires) ----------
+function GestionShiftsModal({ shifts, onSave, onClose }) {
+  const [liste, setListe] = useState(shifts);
+  const [nom, setNom] = useState("");
+  const [debut, setDebut] = useState("09:00");
+  const [fin, setFin] = useState("17:00");
+  const [pause, setPause] = useState(1);
+  const [erreur, setErreur] = useState("");
+
+  function ajouter() {
+    if (!nom.trim()) { setErreur("Donnez un nom au shift (ex : matin)."); return; }
+    setErreur("");
+    const next = [...liste, { id: Date.now(), nom: nom.trim(), debut, fin, pause }];
+    setListe(next);
+    onSave(next);
+    setNom(""); setDebut("09:00"); setFin("17:00"); setPause(1);
+  }
+  function supprimer(id) {
+    const next = liste.filter((s) => s.id !== id);
+    setListe(next);
+    onSave(next);
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:480}}>
+        <h3>Gérer les shifts</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>Créez des horaires-types réutilisables (ex : « matin » 09:00-17:00), proposés en raccourci quand vous éditez le créneau d'un jour dans le planning.</div>
+        {liste.length === 0 ? (
+          <div className="ig-muted" style={{marginBottom:14}}>Aucun shift pour le moment.</div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16}}>
+            {liste.map((s) => (
+              <div key={s.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',border:'1px solid var(--line)',borderRadius:10}}>
+                <b style={{minWidth:80}}>{s.nom}</b>
+                <span className="ig-muted" style={{fontSize:13}}>{s.debut}–{s.fin} · {s.pause}h pause</span>
+                <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto',color:'var(--coral-d)'}} onClick={()=>supprimer(s.id)}>Supprimer</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="ig-field">
+          <label>Nom du shift</label>
+          <input value={nom} onChange={(e)=>setNom(e.target.value)} placeholder="Ex : matin" />
+        </div>
+        <div className="ig-times">
+          <div>
+            <input type="time" value={debut} onChange={(e)=>setDebut(e.target.value)} />
+            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Début</div>
+          </div>
+          <div>
+            <input type="time" value={fin} onChange={(e)=>setFin(e.target.value)} />
+            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Fin</div>
+          </div>
+          <div>
+            <input type="number" min="0" max="4" step="0.5" value={pause} onChange={(e)=>setPause(parseFloat(e.target.value)||0)} />
+            <div className="ig-muted" style={{fontSize:11,marginTop:4,textAlign:'center'}}>Pause (h)</div>
+          </div>
+        </div>
+        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:8,fontWeight:600}}>{erreur}</div>}
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={ajouter}>+ Ajouter ce shift</button>
         </div>
       </div>
     </div>
@@ -3180,14 +3098,16 @@ function EmployeeView({ resto, emp, onBack }) {
 }
 
 // ---------- Sélecteur de restaurant ----------
-function RestoPicker({ restaurants, onPick, onAdd, superviseur }) {
+// compteurs : optionnel — quand fourni (ex: depuis l'Espace RH), remplace le calcul
+// interne (basé sur le roster Planning) par des effectifs fournis par l'appelant.
+function RestoPicker({ restaurants, onPick, onAdd, compteurs }) {
   const [form, setForm] = useState(false);
   const [nom, setNom] = useState("");
   const [err, setErr] = useState("");
-  const [counts, setCounts] = useState({}); // effectif RÉEL par restaurant (fiches + ajouts − retirés)
-  const [gererCodes, setGererCodes] = useState(false); // modal "Gérer les codes d'accès" (superviseur)
+  const [countsInternes, setCountsInternes] = useState({}); // effectif Planning (fiches + ajouts − retirés)
 
   useEffect(() => {
+    if (compteurs) return; // effectifs déjà fournis par le parent
     let on = true;
     Promise.all(restaurants.map((r) => Store.get(kRoster(r)).then((rs) => [r, rs]))).then((paires) => {
       if (!on) return;
@@ -3201,10 +3121,11 @@ function RestoPicker({ restaurants, onPick, onAdd, superviseur }) {
         const tous = base.filter((e) => !ajoutIds.has(idSalarie(e))).concat(ajouts);
         res[r] = tous.filter((e) => !supprimes.has(idSalarie(e))).length;
       });
-      setCounts(res);
+      setCountsInternes(res);
     });
     return () => { on = false; };
-  }, [restaurants]);
+  }, [restaurants, compteurs]);
+  const counts = compteurs || countsInternes;
 
   function valider() {
     const propre = nom.trim();
@@ -3213,34 +3134,28 @@ function RestoPicker({ restaurants, onPick, onAdd, superviseur }) {
     onAdd(propre);
     setNom(""); setErr(""); setForm(false);
   }
-
   return (
     <div>
       <div className="ig-eyebrow">Étape 1</div>
       <h2 className="ig-section-title">Choisissez votre restaurant</h2>
       <p className="ig-muted">{restaurants.length} établissements du groupe.</p>
       <div className="ig-resto-grid">
-        {restaurants.map((r) => (
-          <button key={r} className="ig-resto" onClick={() => onPick(r)}>
-            <div>
-              <div className="nm">{r}</div>
-              <div className="ct">{counts[r] != null ? counts[r] : EMPLOYEES.filter((e)=>e.r===r).length} salariés</div>
-            </div>
-            <Icon.Chevron />
-          </button>
-        ))}
+        {restaurants.map((r) => {
+          const ct = <div className="ct">{counts[r] != null ? counts[r] : (compteurs ? 0 : EMPLOYEES.filter((e)=>e.r===r).length)} salariés</div>;
+          return (
+            <button key={r} className="ig-resto" onClick={() => onPick(r)}>
+              <div>
+                <div className="nm">{r}</div>
+                {ct}
+              </div>
+              <Icon.Chevron />
+            </button>
+          );
+        })}
         <button className="ig-resto" style={{borderStyle:'dashed',color:'var(--coral-d)',justifyContent:'center'}} onClick={()=>{ setForm(true); setErr(""); }}>
           <div className="nm">+ Nouvel établissement</div>
         </button>
       </div>
-
-      {superviseur && (
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginTop:16}} onClick={()=>setGererCodes(true)}>
-          <Icon.Shield width={15} height={15}/> Gérer les codes d'accès par établissement
-        </button>
-      )}
-
-      {gererCodes && <CodesEtablissementsModal restaurants={restaurants} onClose={()=>setGererCodes(false)} />}
 
       {form && (
         <div className="ig-overlay" onClick={()=>setForm(false)}>
@@ -3263,83 +3178,6 @@ function RestoPicker({ restaurants, onPick, onAdd, superviseur }) {
   );
 }
 
-// ---------- Modal superviseur : un code d'accès par établissement ----------
-// Un directeur qui saisit ce code sur l'écran manager arrive directement (et uniquement)
-// sur son établissement, sans jamais voir le sélecteur ni les autres restos.
-function CodesEtablissementsModal({ restaurants, onClose }) {
-  const [codes, setCodes] = useState(null); // null tant que non chargé
-  const [valeurs, setValeurs] = useState({});
-  const [enregistre, setEnregistre] = useState(""); // nom du resto qui vient d'être enregistré (feedback)
-  const [erreur, setErreur] = useState("");
-
-  useEffect(() => {
-    let on = true;
-    Store.get(kCodesEtablissements).then((v) => {
-      if (!on) return;
-      const init = v || {};
-      setCodes(init);
-      setValeurs(init);
-    });
-    return () => { on = false; };
-  }, []);
-
-  async function enregistrerUn(resto) {
-    const val = (valeurs[resto] || "").trim();
-    if (val && (val === CODE_MANAGER || val === CODE_SUPERVISEUR)) {
-      setErreur(`Ce code est déjà utilisé (code manager ou superviseur). Choisissez-en un autre pour ${resto}.`);
-      return;
-    }
-    const dejaPris = val && Object.keys(codes || {}).find((r) => r !== resto && codes[r] === val);
-    if (dejaPris) {
-      setErreur(`Ce code est déjà attribué à ${dejaPris}. Choisissez-en un autre pour ${resto}.`);
-      return;
-    }
-    const next = { ...(codes || {}) };
-    if (val) next[resto] = val; else delete next[resto];
-    setCodes(next);
-    setErreur("");
-    await Store.set(kCodesEtablissements, next);
-    setEnregistre(resto);
-    setTimeout(() => setEnregistre((r) => (r === resto ? "" : r)), 1500);
-  }
-
-  return (
-    <div className="ig-overlay" onClick={onClose}>
-      <div className="ig-modal" style={{maxWidth:480}} onClick={(e)=>e.stopPropagation()}>
-        <h3>Codes d'accès par établissement</h3>
-        <div className="ig-muted" style={{marginBottom:14}}>
-          Un directeur qui saisit ce code arrive directement sur cet établissement uniquement — pas de sélecteur, pas de visibilité sur les autres restos. Laissez vide pour ne pas attribuer de code (le resto reste accessible seulement via le code manager général).
-        </div>
-        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
-        {codes === null ? (
-          <div className="ig-muted">Chargement…</div>
-        ) : (
-          <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'50vh',overflowY:'auto'}}>
-            {restaurants.map((r) => (
-              <div key={r} style={{display:'flex',alignItems:'center',gap:8}}>
-                <div style={{flex:1,fontSize:14,fontWeight:600}}>{r}</div>
-                <input
-                  value={valeurs[r] || ""}
-                  onChange={(e)=>setValeurs({ ...valeurs, [r]: e.target.value })}
-                  onKeyDown={(e)=>{ if (e.key === 'Enter') enregistrerUn(r); }}
-                  placeholder="Aucun code"
-                  style={{width:120,fontSize:14,textAlign:'center',letterSpacing:'2px'}}
-                />
-                <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>enregistrerUn(r)}>
-                  {enregistre === r ? "✓ Enregistré" : "Enregistrer"}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={onClose}>Fermer</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ---------- Écran "Qui suis-je ?" (identification salarié sans liste de noms) ----------
 function EmployeeIdentify({ restaurants, onFound, onBack }) {
   const [prenom, setPrenom] = useState("");
@@ -3358,7 +3196,7 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
     Store.get(kRoster(resto)).then((rs) => {
       if (!on) return;
       const r = rs || { ajouts: [], departs: {} };
-      const aujourdHui = new Date().toISOString().slice(0, 10);
+      const aujourdHui = dateISOLocale(new Date());
       const departs = r.departs || {};
       const actifs = (r.ajouts || []).filter((a) => {
         const fin = departs[idSalarie(a)];
@@ -3446,9 +3284,6 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
 // ---------- Écran de saisie du code manager ----------
 // Le manager tape un code court. En coulisses, l'app se connecte au compte Supabase
 // partagé (MANAGER_EMAIL / MANAGER_SECRET) : la base reste verrouillée en écriture.
-// Un code d'établissement (choisi par le superviseur, propre à un resto) fonctionne aussi :
-// il donne accès au manager mais uniquement sur cet établissement précis (onOk reçoit alors
-// le nom du resto imposé en 2ᵉ argument).
 function CodeGate({ onOk, onCancel }) {
   const [code, setCode] = useState("");
   const [erreur, setErreur] = useState("");
@@ -3456,31 +3291,14 @@ function CodeGate({ onOk, onCancel }) {
 
   async function valider() {
     if (busy) return;
-    const saisie = code.trim();
-    const estSuperviseur = saisie === CODE_SUPERVISEUR;
-    const estManagerGlobal = saisie === CODE_MANAGER;
+    const estSuperviseur = code === CODE_SUPERVISEUR;
+    if (!estSuperviseur && code !== CODE_MANAGER) { setErreur("Code incorrect. Réessayez."); setCode(""); return; }
     setErreur("");
     setBusy(true);
-    // On se connecte d'abord au compte manager partagé : les codes par établissement sont
-    // stockés dans la base et protégés en lecture, il faut être authentifié pour les lire.
     const { error } = await supabase.auth.signInWithPassword({ email: MANAGER_EMAIL, password: MANAGER_SECRET });
-    if (error) { setBusy(false); setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
-    let restoImpose = null;
-    if (!estSuperviseur && !estManagerGlobal) {
-      // Ni le code superviseur ni le code manager global : on regarde si c'est un code
-      // d'établissement (attribué par le superviseur à un resto précis).
-      const codes = (await Store.get(kCodesEtablissements)) || {};
-      restoImpose = Object.keys(codes).find((r) => codes[r] && String(codes[r]).trim() === saisie) || null;
-      if (!restoImpose) {
-        await supabase.auth.signOut();
-        setBusy(false);
-        setErreur("Code incorrect. Réessayez.");
-        setCode("");
-        return;
-      }
-    }
     setBusy(false);
-    onOk(estSuperviseur, restoImpose);
+    if (error) { setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
+    onOk(estSuperviseur);
   }
   function onKey(e) { if (e.key === "Enter") valider(); }
 
@@ -3557,7 +3375,6 @@ function RHLoginForm({ onOk, onCancel }) {
 // Champs "de base" éditables par un directeur/chef ; les autres (sensibles) sont réservés
 // au superviseur — et de toute façon verrouillés en base par rh_salaries_guard côté serveur.
 const RH_CHAMPS_BASE = [
-  { cle: "staff_party", label: "Staff Party", type: "bool" },
   { cle: "heures_contrat", label: "Heure CT", type: "number" },
   { cle: "nom", label: "Nom" },
   { cle: "prenom", label: "Prénom" },
@@ -3568,9 +3385,11 @@ const RH_CHAMPS_BASE = [
   { cle: "salaire_net", label: "Salaire net", type: "number" },
   { cle: "date_fin", label: "Date de fin de contrat", type: "date" },
   { cle: "date_prolongation_fin", label: "Date de prolongation de fin de contrat", type: "date" },
-  { cle: "loge", label: "Logé", type: "bool" },
+  { cle: "loge", label: "Logement" },
+  { cle: "vehicule", label: "Véhicule" },
 ];
 const RH_CHAMPS_SENSIBLES = [
+  { cle: "staff_party", label: "Staff Party", type: "bool" },
   { cle: "civilite", label: "Civilité" },
   { cle: "date_naissance", label: "Date de naissance", type: "date" },
   { cle: "lieu_naissance", label: "Lieu de naissance" },
@@ -3580,195 +3399,25 @@ const RH_CHAMPS_SENSIBLES = [
   { cle: "ville", label: "Ville" },
   { cle: "secu", label: "Numéro de sécurité sociale" },
   { cle: "mutuelle", label: "Mutuelle de l'établissement", type: "bool" },
-  { cle: "affiliation_mutuelle", label: "Affiliation mutuelle" },
-  { cle: "iban", label: "IBAN" },
-  { cle: "bic", label: "BIC" },
-  { cle: "salaire_brut", label: "Salaire brut de base", type: "number" },
-  { cle: "vehicule", label: "Véhicule" },
-  { cle: "promesse_embauche", label: "Promesse d'embauche" },
-  { cle: "periode_essai_jours", label: "Période d'essai (jours)", type: "number" },
-  { cle: "date_fin_periode_essai", label: "Fin de période d'essai", type: "date" },
-  { cle: "type_contrat", label: "Type de contrat" },
-  { cle: "heures_semaine", label: "Heures / semaine", type: "number" },
-  { cle: "heures_sup", label: "Heures sup", type: "number" },
-  { cle: "niveau", label: "Niveau" },
-  { cle: "echelon", label: "Échelon" },
-  { cle: "code_pcs", label: "Code PCS" },
-  { cle: "due", label: "DUE" },
-  { cle: "statut_payfit", label: "Statut PayFit" },
+];
+// Champs importants au quotidien pour un directeur/chef, visibles par tout le monde dans la
+// FICHE (contrairement au reste de RH_CHAMPS_SENSIBLES, réservé au superviseur) — mais pas
+// ajoutés au tableau du Registre embauche, pour ne pas l'alourdir davantage.
+const RH_CHAMPS_MODAL_SUPP = [
+  { cle: "type_contrat", label: "Type de contrat (CDI, CDD...)" },
   { cle: "contact_urgence", label: "Contact d'urgence (nom et n°)" },
 ];
-
-// ---------- Formulaire d'onboarding public (sans connexion, lien envoyé au salarié) ----------
-const ONBOARDING_POSTES = [
-  "Directeur", "Manager", "Chef Hotesse", "Hotesse", "Agent Entretien", "Standardiste",
-  "Barman", "Chef de Bar", "Commis de Bar", "Officier", "Plongeur", "Chef de Cuisine",
-  "Chef de Partie", "Commis de Cuisine", "Cuisinier", "Patissier", "Second de Cuisine",
-  "Chef Plagiste", "Plagiste", "Chef de Rang", "Commis de Salle", "Limonadier", "Runner",
-  "Sommelier", "Caissière", "Pizzaiolo", "Autres",
-];
-
-// Mêmes questions, dans le même ordre, que le Google Form d'onboarding existant.
-const ONBOARDING_CHAMPS = [
-  { cle: "civilite", label: "Civilité", type: "select", options: ["Monsieur", "Madame"] },
-  { cle: "nom", label: "Nom" },
-  { cle: "prenom", label: "Prénom" },
-  { cle: "date_naissance", label: "Date de naissance", type: "date" },
-  { cle: "lieu_naissance", label: "Lieux de naissance (ville)" },
-  { cle: "nationalite", label: "Nationalité" },
-  { cle: "adresse", label: "Adresse postale" },
-  { cle: "ville", label: "Ville" },
-  { cle: "code_postal", label: "Code postal" },
-  { cle: "secu", label: "Numéro de sécurité sociale (mettre 0 si pas encore de numéro de sécurité sociale)" },
-  { cle: "telephone", label: "Numéro de téléphone (sans espace)" },
-  { cle: "email", label: "Adresse mail" },
-  { cle: "unite", label: "Unité de travail", type: "select", options: ["SALLE", "CUISINE"] },
-  { cle: "poste", label: "Nom du poste", type: "select", options: ONBOARDING_POSTES },
-  { cle: "iban", label: "IBAN (RIB)" },
-  { cle: "bic", label: "BIC (RIB)" },
-  { cle: "mutuelle", label: "Je veux la mutuelle de l'établissement", type: "select", options: ["Oui", "Non (j'ai ma propre mutuelle)"] },
-  { cle: "resto", label: "Établissement dans lequel je vais travailler", type: "select" },
-  { cle: "contact_urgence", label: "Nom et n° de la personne à contacter d'urgence" },
-];
-
-function OnboardingForm({ restaurants }) {
-  const [f, setF] = useState(() => {
-    const base = {};
-    ONBOARDING_CHAMPS.forEach((c) => { base[c.cle] = ""; });
-    return base;
-  });
-  const [err, setErr] = useState("");
-  const [envoiEnCours, setEnvoiEnCours] = useState(false);
-  const [envoye, setEnvoye] = useState(false);
-
-  function champ(c) {
-    const valeur = f[c.cle];
-    if (c.type === "select") {
-      const options = c.cle === "resto" ? restaurants : c.options;
-      return (
-        <div className="ig-field" key={c.cle}>
-          <label>{c.label}</label>
-          <select value={valeur} onChange={(e)=>{ setF({ ...f, [c.cle]: e.target.value }); setErr(""); }}>
-            <option value="">—</option>
-            {options.map((o) => (<option key={o} value={o}>{o}</option>))}
-          </select>
-        </div>
-      );
-    }
-    return (
-      <div className="ig-field" key={c.cle}>
-        <label>{c.label}</label>
-        <input type={c.type === "date" ? "date" : "text"} value={valeur} onChange={(e)=>setF({ ...f, [c.cle]: e.target.value })} />
-      </div>
-    );
-  }
-
-  async function envoyer() {
-    if (!f.resto) { setErr("Choisissez l'établissement dans lequel vous allez travailler."); return; }
-    if (!f.unite) { setErr("Choisissez votre unité de travail."); return; }
-    if (!f.nom.trim() || !f.prenom.trim()) { setErr("Nom et prénom sont obligatoires."); return; }
-    setErr("");
-    setEnvoiEnCours(true);
-    const salarieId = idSalarie({ n: f.nom, p: f.prenom });
-    const patch = { ...f, salarie_id: salarieId, mutuelle: f.mutuelle === "Oui" };
-    Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
-    const ok = await RhSalaries.onboarder(patch);
-    setEnvoiEnCours(false);
-    if (ok === true) setEnvoye(true);
-    else if (ok === "existe_deja") setErr("Une fiche existe déjà pour ce nom dans cet établissement. Contactez votre responsable pour la compléter.");
-    else setErr("Une erreur est survenue lors de l'envoi. Réessayez, ou contactez votre établissement.");
-  }
-
-  if (envoye) {
-    return (
-      <div className="ig-hero" style={{maxWidth:480,textAlign:'center'}}>
-        <div className="ig-ic" style={{background:'var(--sea)',color:'#fff',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}><Icon.Check/></div>
-        <h1 className="ig-display" style={{fontSize:28,marginBottom:8}}>Merci !</h1>
-        <p>Vos informations ont bien été transmises. Votre établissement complètera votre dossier avant votre arrivée.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="ig-hero" style={{maxWidth:520}}>
-      <h1 className="ig-display" style={{fontSize:28,marginBottom:8}}>Bienvenue chez Indie Group</h1>
-      <p style={{marginBottom:20}}>Remplissez ce formulaire pour préparer votre arrivée. Ces informations restent confidentielles et ne sont visibles que par votre établissement et l'équipe RH.</p>
-      {ONBOARDING_CHAMPS.map(champ)}
-      {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-      <button className="ig-btn ig-btn-primary" onClick={envoyer} disabled={envoiEnCours} style={{marginTop:14,width:'100%',justifyContent:'center'}}>{envoiEnCours ? "Envoi…" : "Envoyer mes informations"}</button>
-    </div>
-  );
-}
+// Champs de RH_CHAMPS_BASE à ne pas répéter dans la fiche pour un directeur/chef (trop
+// administratifs pour son usage courant) — n'affecte QUE la fiche modale ci-dessous, jamais
+// les colonnes du tableau (RH_CHAMPS_BASE reste inchangé, le tableau continue de les afficher).
+const RH_CHAMPS_BASE_MASQUES_DIRECTEUR = new Set(["loge", "vehicule", "date_prolongation_fin"]);
 
 // ---------- Modal fiche salarié RH (création / édition) ----------
-// ---------- Documents du salarié (dossier archivé par année) ----------
-function DocumentsSalarie({ resto, unite, salarieId }) {
-  const anneesDisponibles = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i);
-  const [annee, setAnnee] = useState(anneesDisponibles[0]);
-  const [fichiers, setFichiers] = useState(null);
-  const [enCours, setEnCours] = useState(false);
-  const fileRef = useRef(null);
-
-  useEffect(() => {
-    let on = true;
-    setFichiers(null);
-    RhDocuments.lister(resto, unite, annee, salarieId).then((f) => { if (on) setFichiers(f); });
-    return () => { on = false; };
-  }, [resto, unite, annee, salarieId]);
-
-  async function ajouterFichier(e) {
-    const fichier = e.target.files[0];
-    if (!fichier) return;
-    setEnCours(true);
-    await RhDocuments.uploader(resto, unite, annee, salarieId, fichier);
-    const f = await RhDocuments.lister(resto, unite, annee, salarieId);
-    setFichiers(f);
-    setEnCours(false);
-    if (fileRef.current) fileRef.current.value = "";
-  }
-
-  async function ouvrir(nom) {
-    const url = await RhDocuments.lienTelechargement(resto, unite, annee, salarieId, nom);
-    if (url) window.open(url, "_blank");
-  }
-
-  async function supprimer(nom) {
-    const ok = await RhDocuments.supprimer(resto, unite, annee, salarieId, nom);
-    if (ok) setFichiers(fichiers.filter((f) => f.name !== nom));
-  }
-
-  return (
-    <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid var(--sand-2)'}}>
-      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-        <div style={{fontWeight:600,fontSize:13}}>Documents</div>
-        <select value={annee} onChange={(e)=>setAnnee(Number(e.target.value))} style={{padding:'5px 8px',borderRadius:8,border:'1.5px solid var(--line)',fontSize:13}}>
-          {anneesDisponibles.map((a) => (<option key={a} value={a}>{a}</option>))}
-        </select>
-      </div>
-      {fichiers === null ? (
-        <div className="ig-muted" style={{fontSize:13}}>Chargement…</div>
-      ) : fichiers.length === 0 ? (
-        <div className="ig-muted" style={{fontSize:13,marginBottom:8}}>Aucun document pour {annee}.</div>
-      ) : (
-        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
-          {fichiers.map((f) => (
-            <div key={f.name} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
-              <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>ouvrir(f.name)}>Ouvrir</button>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={()=>supprimer(f.name)}>Suppr.</button>
-            </div>
-          ))}
-        </div>
-      )}
-      <input ref={fileRef} type="file" onChange={ajouterFichier} disabled={enCours} style={{fontSize:13}} />
-    </div>
-  );
-}
-
 function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose }) {
   const [f, setF] = useState(() => {
     const base = {};
     RH_CHAMPS_BASE.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
+    RH_CHAMPS_MODAL_SUPP.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
     if (superviseur) RH_CHAMPS_SENSIBLES.forEach((c) => { base[c.cle] = salarie ? salarie[c.cle] : (c.type === "bool" ? false : ""); });
     return base;
   });
@@ -3804,7 +3453,8 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
       <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:520}}>
         <h3>{salarie ? "Modifier la fiche" : "Nouveau salarié"}</h3>
         <div className="ig-muted" style={{marginBottom:10}}>{resto} · {unite === "SALLE" ? "Salle" : "Cuisine"}</div>
-        {RH_CHAMPS_BASE.map(champ)}
+        {(superviseur ? RH_CHAMPS_BASE : RH_CHAMPS_BASE.filter((c) => !RH_CHAMPS_BASE_MASQUES_DIRECTEUR.has(c.cle))).map(champ)}
+        {RH_CHAMPS_MODAL_SUPP.map(champ)}
         {superviseur && (
           <>
             <div style={{fontWeight:600,fontSize:13,marginTop:16,marginBottom:4}}>Informations complémentaires (superviseur)</div>
@@ -3812,10 +3462,210 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
           </>
         )}
         {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
-        {salarie && <DocumentsSalarie resto={resto} unite={unite} salarieId={salarie.salarie_id} />}
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
           <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Filtre par colonne façon tableur (menu déroulant : tri + case à cocher par valeur) ----------
+const RH_DATE_CHAMPS = new Set(["date_debut", "date_fin", "date_prolongation_fin"]);
+function rhValeurBrute(s, cle) {
+  if (cle === "staff_party") return s.staff_party ? "Oui" : "Non";
+  const v = s[cle];
+  return (v === null || v === undefined || v === "") ? "" : String(v);
+}
+function rhValeurLabel(cle, brute) {
+  if (brute === "") return "(Vides)";
+  if (RH_DATE_CHAMPS.has(cle)) return fmtDate(new Date(brute + "T00:00:00"));
+  return brute;
+}
+
+// ---------- Couleur de ligne (façon remplissage de cellule Excel) ----------
+const RH_PALETTE_COULEURS = [
+  { valeur: "", label: "Aucune couleur" },
+  { valeur: "#FBE2DC", label: "Rouge clair" },
+  { valeur: "#FCE9C6", label: "Jaune clair" },
+  { valeur: "#D9F0DC", label: "Vert clair" },
+  { valeur: "#DCEAF5", label: "Bleu clair" },
+  { valeur: "#EAE0F3", label: "Violet clair" },
+  { valeur: "#E8DDC9", label: "Beige" },
+];
+function PastilleCouleur({ valeur, taille = 20, onClick, titre }) {
+  return (
+    <button onClick={onClick} title={titre} type="button"
+      style={{width:taille,height:taille,borderRadius:6,border: valeur ? '1.5px solid var(--line)' : '1.5px dashed var(--line)', background: valeur || '#fff', cursor:'pointer', padding:0, flex:'none'}} />
+  );
+}
+function SelecteurCouleurLigne({ valeur, onChoisir }) {
+  const [ouvert, setOuvert] = useState(false);
+  const [pos, setPos] = useState(null);
+  const ancre = useRef(null);
+  // Le tableau des salariés défile dans un conteneur à hauteur limitée (overflow:auto) :
+  // un menu positionné en "absolute" y serait rogné dès que la ligne n'est pas tout en
+  // haut. On le sort donc du tableau (portal) et on le positionne en "fixed" par rapport
+  // à l'écran, calculé depuis la position réelle du bouton au moment du clic.
+  function ouvrir() {
+    if (ancre.current) {
+      const r = ancre.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 128) });
+    }
+    setOuvert(true);
+  }
+  return (
+    <span style={{position:'relative',display:'inline-block'}} ref={ancre}>
+      <PastilleCouleur valeur={valeur} titre="Couleur de la ligne" onClick={ouvrir} />
+      {ouvert && pos && createPortal(
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:200}} onClick={()=>setOuvert(false)} />
+          <div className="ig-card" style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:8,display:'flex',gap:6,flexWrap:'wrap',width:120,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+            {RH_PALETTE_COULEURS.map((p) => (
+              <PastilleCouleur key={p.valeur || 'aucune'} valeur={p.valeur} titre={p.label} taille={22}
+                onClick={()=>{ onChoisir(p.valeur || null); setOuvert(false); }} />
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
+    </span>
+  );
+}
+
+function MenuFiltreColonne({ options, selection, onValider, onTrier, onFermer }) {
+  const [brouillon, setBrouillon] = useState(() => new Set(selection || options.map((o) => o.brute)));
+  const [recherche, setRecherche] = useState("");
+  const visibles = options.filter((o) => normTxt(o.label).includes(normTxt(recherche)));
+
+  function toggle(brute) {
+    const next = new Set(brouillon);
+    if (next.has(brute)) next.delete(brute); else next.add(brute);
+    setBrouillon(next);
+  }
+
+  return (
+    <>
+      <div style={{position:'fixed',inset:0,zIndex:40}} onClick={onFermer} />
+      <div className="ig-card" style={{position:'absolute',top:'100%',left:0,marginTop:4,zIndex:41,width:235,padding:10,fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:13,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{width:'100%',justifyContent:'flex-start',marginBottom:4}} onClick={()=>{ onTrier('asc'); onFermer(); }}>↑ Trier de A à Z</button>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{width:'100%',justifyContent:'flex-start',marginBottom:8}} onClick={()=>{ onTrier('desc'); onFermer(); }}>↓ Trier de Z à A</button>
+        <div style={{borderTop:'1px solid var(--sand-2)',paddingTop:8,marginBottom:8}}>
+          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher…" style={{width:'100%',padding:'5px 8px',fontSize:12,borderRadius:7,border:'1.5px solid var(--line)',marginBottom:6}} />
+          <div style={{fontSize:11,marginBottom:6}}>
+            <a href="#" onClick={(e)=>{ e.preventDefault(); setBrouillon(new Set(options.map((o)=>o.brute))); }} style={{color:'var(--sea)',fontWeight:600}}>Tout sélectionner</a>
+            {" – "}
+            <a href="#" onClick={(e)=>{ e.preventDefault(); setBrouillon(new Set()); }} style={{color:'var(--sea)',fontWeight:600}}>Effacer</a>
+          </div>
+          <div style={{maxHeight:200,overflowY:'auto',display:'flex',flexDirection:'column',gap:3}}>
+            {visibles.map((o) => (
+              <label key={o.brute} style={{display:'flex',alignItems:'center',gap:7,fontSize:12.5,cursor:'pointer'}}>
+                <input type="checkbox" checked={brouillon.has(o.brute)} onChange={()=>toggle(o.brute)} />
+                {o.label}
+              </label>
+            ))}
+            {visibles.length === 0 && <div className="ig-muted" style={{fontSize:12}}>Aucune valeur.</div>}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{flex:1}} onClick={onFermer}>Annuler</button>
+          <button className="ig-btn ig-btn-primary ig-btn-sm" style={{flex:1}} onClick={()=>{ onValider(brouillon.size === options.length ? null : brouillon); onFermer(); }}>OK</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------- Menu déroulant "Couleur" (même look que MenuFiltreColonne) : trier par
+// couleur (celle choisie remonte en premier) + filtrer les couleurs affichées. ----------
+function MenuCouleur({ filtreCouleurs, triCouleur, toutesLesCouleurs, onFiltrer, onTrier, onFermer }) {
+  const [brouillon, setBrouillon] = useState(() => new Set(filtreCouleurs || toutesLesCouleurs));
+
+  function toggle(v) {
+    const next = new Set(brouillon);
+    if (next.has(v)) next.delete(v); else next.add(v);
+    setBrouillon(next);
+  }
+
+  return (
+    <>
+      <div style={{position:'fixed',inset:0,zIndex:40}} onClick={onFermer} />
+      <div className="ig-card" style={{position:'absolute',top:'100%',right:0,marginTop:4,zIndex:41,width:220,padding:10,fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:13,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+        <div className="ig-muted" style={{fontSize:11,marginBottom:6}}>Trier : cette couleur en premier</div>
+        <div style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+          {RH_PALETTE_COULEURS.filter((p) => p.valeur).map((p) => (
+            <span key={p.valeur} style={{opacity: triCouleur === p.valeur ? 1 : .4, outline: triCouleur === p.valeur ? '2px solid var(--ink)' : 'none', borderRadius:6}}>
+              <PastilleCouleur valeur={p.valeur} titre={p.label} taille={20} onClick={() => onTrier(triCouleur === p.valeur ? null : p.valeur)} />
+            </span>
+          ))}
+          {triCouleur && <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{padding:'2px 8px'}} onClick={()=>onTrier(null)}>✕</button>}
+        </div>
+        <div style={{borderTop:'1px solid var(--sand-2)',paddingTop:8,marginBottom:8}}>
+          <div style={{fontSize:11,marginBottom:6}}>
+            <a href="#" onClick={(e)=>{ e.preventDefault(); setBrouillon(new Set(toutesLesCouleurs)); }} style={{color:'var(--sea)',fontWeight:600}}>Tout sélectionner</a>
+            {" – "}
+            <a href="#" onClick={(e)=>{ e.preventDefault(); setBrouillon(new Set()); }} style={{color:'var(--sea)',fontWeight:600}}>Effacer</a>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:5}}>
+            {RH_PALETTE_COULEURS.map((p) => (
+              <label key={p.valeur || 'aucune'} style={{display:'flex',alignItems:'center',gap:7,fontSize:12.5,cursor:'pointer'}}>
+                <input type="checkbox" checked={brouillon.has(p.valeur)} onChange={()=>toggle(p.valeur)} />
+                <PastilleCouleur valeur={p.valeur} taille={14} />
+                {p.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{flex:1}} onClick={onFermer}>Annuler</button>
+          <button className="ig-btn ig-btn-primary ig-btn-sm" style={{flex:1}} onClick={()=>{ onFiltrer(brouillon.size >= toutesLesCouleurs.length ? null : brouillon); onFermer(); }}>OK</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------- Modal : archiver vers un dossier (saison) existant ou tout nouveau ----------
+function ArchiverVersModal({ saisons, onValider, onClose }) {
+  const [mode, setMode] = useState(saisons.length > 0 ? "existant" : "nouveau"); // 'existant' | 'nouveau'
+  const [choix, setChoix] = useState(saisons[0] || "");
+  const [nouveauNom, setNouveauNom] = useState("");
+  const [erreur, setErreur] = useState("");
+
+  function valider() {
+    const cible = mode === "existant" ? choix : nouveauNom.trim();
+    if (!cible) { setErreur(mode === "existant" ? "Choisissez un dossier." : "Donnez un nom au nouveau dossier."); return; }
+    onValider(cible);
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:420}}>
+        <h3>Archiver vers…</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>Choisissez un dossier (saison) déjà existant, ou créez-en un nouveau.</div>
+        {saisons.length > 0 && (
+          <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,cursor:'pointer'}}>
+            <input type="radio" checked={mode === "existant"} onChange={()=>{ setMode("existant"); setErreur(""); }} />
+            Dossier existant
+          </label>
+        )}
+        {mode === "existant" && saisons.length > 0 && (
+          <select value={choix} onChange={(e)=>setChoix(e.target.value)} style={{marginBottom:14}}>
+            {saisons.map((s) => (<option key={s} value={s}>{s}</option>))}
+          </select>
+        )}
+        <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,cursor:'pointer'}}>
+          <input type="radio" checked={mode === "nouveau"} onChange={()=>{ setMode("nouveau"); setErreur(""); }} />
+          Nouveau dossier
+        </label>
+        {mode === "nouveau" && (
+          <input value={nouveauNom} onChange={(e)=>{ setNouveauNom(e.target.value); setErreur(""); }} placeholder="Ex : 2025" style={{marginBottom:14}} autoFocus />
+        )}
+        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
+        <div style={{display:'flex',gap:10,marginTop:6}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Archiver</button>
         </div>
       </div>
     </div>
@@ -3829,29 +3679,151 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
   const [edition, setEdition] = useState(null);
   const [flash, setFlash] = useState("");
   const [erreur, setErreur] = useState("");
-  const [recherche, setRecherche] = useState("");
-  const [tri, setTri] = useState("alpha"); // alpha | date_debut
+  const [filtresValeurs, setFiltresValeurs] = useState({}); // { [cle]: Set des valeurs cochées } — absent = tout affiché
+  const [menuOuvert, setMenuOuvert] = useState(null); // clé de la colonne dont le menu est ouvert
+  const [triColonne, setTriColonne] = useState(null);
+  const [triSens, setTriSens] = useState('asc');
+  const [filtreCouleurs, setFiltreCouleurs] = useState(null); // Set des couleurs affichées, null = toutes
+  const [triCouleur, setTriCouleur] = useState(null); // couleur à faire remonter en premier dans la liste
+  const [menuCouleurOuvert, setMenuCouleurOuvert] = useState(false);
+  const [saisonActive, setSaisonActive] = useState(null);
+  const [selection, setSelection] = useState(new Set());
+  const [archiverModal, setArchiverModal] = useState(false);
+  const [promesseBusy, setPromesseBusy] = useState(null); // id de la fiche en cours de génération
+  const [emailBusy, setEmailBusy] = useState(null); // id de la fiche dont la promesse est en cours d'envoi par email
+  // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
+  // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
+  // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
+  // empêchait de finir de saisir/ajuster la date tranquillement. La ligne ne bouge donc
+  // maintenant qu'au prochain chargement de la liste, jamais pendant qu'on la modifie.
+  const ordreDateFin = useRef(new Map());
 
   useEffect(() => {
     let on = true;
     setListe(null);
-    RhSalaries.list(resto, unite).then((l) => { if (on) setListe(l); });
+    setSelection(new Set());
+    RhSalaries.list(resto, unite).then((l) => {
+      if (!on) return;
+      setListe(l);
+      ordreDateFin.current = new Map(l.map((s) => [s.id, !!s.date_fin]));
+      // La saison ouverte par défaut doit être l'année en cours (contrats actifs), jamais
+      // "Archives" : "Archives" trie APRÈS les années dans l'ordre alphabétique ("A" > "2"),
+      // donc prendre "la dernière valeur triée" ouvrait Archives par défaut — un fourre-tout
+      // de contrats terminés de plusieurs années mélangées, illisible pour le travail courant.
+      const anneeCourante = String(new Date().getFullYear());
+      const saisons = Array.from(new Set(l.map((s) => s.saison))).sort();
+      const saisonsAnnees = saisons.filter((s) => /^\d{4}$/.test(s));
+      const defaut = saisons.includes(anneeCourante)
+        ? anneeCourante
+        : (saisonsAnnees.length ? saisonsAnnees[saisonsAnnees.length - 1] : anneeCourante);
+      setSaisonActive(defaut);
+    });
     return () => { on = false; };
   }, [resto, unite]);
 
   function montrerFlash(msg) { setFlash(msg); setErreur(""); setTimeout(() => setFlash(""), 5000); }
   function montrerErreur(msg) { setErreur(msg); setTimeout(() => setErreur(""), 8000); }
+  function nouvelleSaison() {
+    const saisie = prompt("Libellé de la nouvelle saison (ex : 2027) :");
+    if (saisie && saisie.trim()) setSaisonActive(saisie.trim());
+  }
 
   async function creer(patch) {
-    const salarieId = idSalarie({ n: patch.nom, p: patch.prenom });
-    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, ...patch });
-    if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté."); }
+    const nomMaj = (patch.nom || "").toUpperCase();
+    const salarieId = idSalarie({ n: nomMaj, p: patch.prenom });
+    // provisoire=true : cette fiche est créée à l'avance par le directeur/chef (salaire,
+    // dates, tél déjà connus). Quand la personne remplira le vrai Google Form, l'app la
+    // reconnaîtra (nom approchant + même établissement) et complétera cette même fiche —
+    // au lieu d'en créer une nouvelle — en corrigeant nom/prénom avec ceux du Form.
+    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, saison: saisonActive, provisoire: true, ...patch, nom: nomMaj });
+    if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté (marqué « à confirmer » jusqu'à son onboarding réel)."); }
     else montrerErreur("Impossible d'ajouter ce salarié (peut-être une fiche existe déjà pour ce nom). Vérifiez et réessayez.");
   }
   async function modifier(patch) {
-    const maj = await RhSalaries.maj(edition.id, patch);
+    const majPatch = patch.nom != null ? { ...patch, nom: patch.nom.toUpperCase() } : patch;
+    const maj = await RhSalaries.maj(edition.id, majPatch);
     if (maj) { setListe(liste.map((s) => (s.id === maj.id ? maj : s))); setEdition(null); montrerFlash("Fiche mise à jour."); }
     else montrerErreur("La sauvegarde a échoué. Réessayez, ou contactez le support si ça persiste.");
+  }
+  async function supprimer(s) {
+    if (!confirm(`Supprimer définitivement la fiche de ${s.prenom || ""} ${s.nom || ""} ? Cette action est irréversible.`)) return;
+    const ok = await RhSalaries.supprimer(s.id);
+    if (ok) { setListe(liste.filter((x) => x.id !== s.id)); setSelection((sel) => { const n = new Set(sel); n.delete(s.id); return n; }); montrerFlash("Fiche supprimée."); }
+    else montrerErreur("La suppression a échoué. Réessayez.");
+  }
+  async function genererPromesse(s) {
+    if (promesseBusy) return;
+    setPromesseBusy(s.id);
+    try {
+      const etabsJ = await EtablissementsJuridique.load();
+      const etabJ = etabsJ[resto] || null;
+      if (!etabJ || !etabJ.tampon) {
+        montrerErreur(`Aucune signature/tampon enregistrée pour ${resto}. Ajoutez-la d'abord dans "Fiche juridique de ${resto}" (Extras).`);
+        return;
+      }
+      const html = construirePromesseEmbaucheHTML({ etabJ, salarie: s });
+      const ok = imprimerDocument(`Promesse d'embauche ${s.prenom || ""} ${s.nom || ""}`, html, STYLE_PROMESSE, `Promesse_embauche_${slugKey(resto)}_${slugKey((s.nom||"")+"_"+(s.prenom||""))}`);
+      if (ok === false) montrerErreur("Impossible de générer le document. Réessayez.");
+    } finally {
+      setPromesseBusy(null);
+    }
+  }
+  // Envoie la promesse d'embauche par email au salarié, à l'adresse renseignée dans le
+  // Registre Embauche — génère le même document (contenu + mise en page) que le bouton
+  // "Promesse d'embauche" en un vrai PDF, joint directement à l'email (via la fonction
+  // Supabase "rh-admin"), sans étape manuelle d'impression/enregistrement.
+  async function envoyerPromesseParEmail(s) {
+    if (emailBusy) return;
+    const email = (s.email || "").trim();
+    if (!email) { montrerErreur(`Aucune adresse email enregistrée pour ${s.prenom || ""} ${s.nom || ""}. Complétez-la dans le Registre Embauche.`); return; }
+    if (!confirm(`Envoyer la promesse d'embauche de ${s.prenom || ""} ${s.nom || ""} à ${email} ?`)) return;
+    setEmailBusy(s.id);
+    try {
+      const etabsJ = await EtablissementsJuridique.load();
+      const etabJ = etabsJ[resto] || null;
+      if (!etabJ || !etabJ.tampon) {
+        montrerErreur(`Aucune signature/tampon enregistrée pour ${resto}. Ajoutez-la d'abord dans "Fiche juridique de ${resto}" (Extras).`);
+        return;
+      }
+      const corps = construirePromesseEmbaucheHTML({ etabJ, salarie: s });
+      const pdfBase64 = await genererPDFBase64(corps, STYLE_PROMESSE);
+      const nomFichier = `Promesse_embauche_${slugKey(resto)}_${slugKey((s.nom||"")+"_"+(s.prenom||""))}.pdf`;
+      const texte = `Bonjour,\n\nVeuillez trouver ci-joint votre promesse d'embauche pour le poste de ${s.poste || ""} au sein de ${resto}.\n\nCordialement,\n${resto}`;
+      const r = await RhAdmin.envoyerEmail({ to: email, sujet: `Promesse d'embauche — ${resto}`, texte, pdfBase64, nomFichier });
+      if (r.ok) montrerFlash(`Promesse d'embauche envoyée à ${email} (PDF en pièce jointe).`);
+      else montrerErreur(`Échec de l'envoi : ${r.erreur || "erreur inconnue"}`);
+    } finally {
+      setEmailBusy(null);
+    }
+  }
+  async function supprimerSelection() {
+    if (selection.size === 0) return;
+    if (!confirm(`Supprimer définitivement ${selection.size} fiche${selection.size>1?'s':''} sélectionnée${selection.size>1?'s':''} ? Cette action est irréversible.`)) return;
+    const ids = Array.from(selection);
+    const ok = await RhSalaries.supprimerPlusieurs(ids);
+    if (ok) { setListe(liste.filter((s) => !selection.has(s.id))); setSelection(new Set()); montrerFlash(`${ids.length} fiche${ids.length>1?'s':''} supprimée${ids.length>1?'s':''}.`); }
+    else montrerErreur("La suppression a échoué. Réessayez.");
+  }
+  // Archive la sélection vers la saison de son choix — dossier déjà existant ou tout
+  // nouveau dossier créé à la volée (voir ArchiverVersModal) — au lieu de dépendre
+  // uniquement de l'archivage automatique par date de fin dépassée.
+  async function archiverSelectionVers(saisonCible) {
+    if (selection.size === 0 || !saisonCible) return;
+    setArchiverModal(false);
+    const ids = Array.from(selection);
+    const { ok, echecs } = await RhSalaries.archiverPlusieurs(ids, saisonCible);
+    const idsEchecs = new Set(echecs.map((e) => e.id));
+    const idsReussis = ids.filter((id) => !idsEchecs.has(id));
+    if (idsReussis.length > 0) {
+      setListe(liste.map((s) => (idsReussis.includes(s.id) ? { ...s, saison: saisonCible } : s)));
+      setSelection(new Set(idsEchecs));
+    }
+    if (ok) {
+      montrerFlash(`${idsReussis.length} fiche${idsReussis.length>1?'s':''} déplacée${idsReussis.length>1?'s':''} vers la saison "${saisonCible}".`);
+    } else {
+      const noms = echecs.map(({ id }) => { const s = liste.find((x) => x.id === id); return s ? `${s.prenom || ""} ${s.nom || ""}`.trim() : id; });
+      montrerErreur(`${idsReussis.length} fiche${idsReussis.length>1?'s':''} déplacée${idsReussis.length>1?'s':''}, mais ${echecs.length} en échec (probablement déjà présent${echecs.length>1?'s':''} dans "${saisonCible}") : ${noms.join(", ")}. Détail technique : ${echecs[0].erreur}`);
+    }
   }
 
   // Édition directe dans le tableau (comme un tableur) : met à jour l'affichage tout de
@@ -3860,6 +3832,7 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
     setListe(liste.map((s) => (s.id === id ? { ...s, [cle]: valeur } : s)));
   }
   async function sauverCellule(id, cle, valeur) {
+    if (cle === 'nom' && typeof valeur === 'string') valeur = valeur.toUpperCase();
     majCellule(id, cle, valeur);
     const maj = await RhSalaries.maj(id, { [cle]: valeur });
     if (!maj) montrerErreur("La sauvegarde a échoué pour cette case. Réessayez.");
@@ -3867,62 +3840,207 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 
   if (liste === null) return <div className="ig-muted">Chargement…</div>;
 
-  const q = normTxt(recherche);
-  const listeAffichee = liste
-    .filter((s) => !q || normTxt(`${s.prenom} ${s.nom}`).includes(q))
-    .sort((a, b) => {
-      if (tri === "date_debut") return (a.date_debut || "").localeCompare(b.date_debut || "");
-      return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+  const filtresActifs = Object.keys(filtresValeurs).length > 0 || !!filtreCouleurs;
+
+  // Retire les contrats terminés (date de fin passée) de l'onglet de saison courant, sans
+  // rien supprimer : ils basculent dans un onglet "Archives" pour ne plus encombrer la vue
+  // du directeur, tout en restant consultables si besoin.
+  const aujourdHui = dateISOLocale(new Date());
+  const termines = liste.filter((s) => s.saison === saisonActive && s.date_fin && s.date_fin < aujourdHui);
+  async function archiverTermines() {
+    if (termines.length === 0) return;
+    if (!confirm(`Archiver ${termines.length} contrat${termines.length>1?'s':''} terminé${termines.length>1?'s':''} ? Ils ne seront plus visibles ici mais resteront consultables dans l'onglet "Saison Archives".`)) return;
+    const ids = termines.map((s) => s.id);
+    const ok = await RhSalaries.archiverPlusieurs(ids);
+    if (ok) {
+      setListe(liste.map((s) => (ids.includes(s.id) ? { ...s, saison: "Archives" } : s)));
+      setSelection((sel) => { const n = new Set(sel); ids.forEach((id) => n.delete(id)); return n; });
+      montrerFlash(`${ids.length} contrat${ids.length>1?'s':''} archivé${ids.length>1?'s':''}.`);
+    } else montrerErreur("L'archivage a échoué. Réessayez.");
+  }
+
+  // Filtre colonne par colonne, façon tableur : une colonne filtrée ne garde que les
+  // lignes dont la valeur fait partie des cases cochées dans son menu. Le filtre par
+  // couleur (au-dessus du tableau) s'applique en plus, sur la couleur de toute la ligne.
+  function passeFiltres(s) {
+    if (filtreCouleurs && !filtreCouleurs.has(s.couleur || "")) return false;
+    return RH_CHAMPS_BASE.every((c) => {
+      const sel = filtresValeurs[c.cle];
+      if (!sel) return true;
+      return sel.has(rhValeurBrute(s, c.cle));
     });
+  }
+  function comparer(a, b) {
+    if (triCouleur) {
+      const ca = (a.couleur || "") === triCouleur ? 0 : 1;
+      const cb = (b.couleur || "") === triCouleur ? 0 : 1;
+      if (ca !== cb) return ca - cb;
+    }
+    if (!triColonne) return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
+    const cmp = rhValeurBrute(a, triColonne).localeCompare(rhValeurBrute(b, triColonne), "fr", { numeric: true });
+    return triSens === "desc" ? -cmp : cmp;
+  }
+  const saisons = Array.from(new Set(liste.map((s) => s.saison))).sort();
+  if (saisonActive && !saisons.includes(saisonActive)) saisons.push(saisonActive);
+  const listeSaison = liste.filter((s) => s.saison === saisonActive);
+  const filtres_ = listeSaison.filter(passeFiltres);
+  // Les salariés en fin de contrat (date de fin renseignée) passent en fin de liste,
+  // surlignés, pour que l'effectif actif reste visible en premier. Se base sur l'état au
+  // dernier chargement (ordreDateFin), pas sur la valeur en cours de saisie : sinon la ligne
+  // saute de groupe à l'instant même où on tape la date, empêchant de la finir tranquillement.
+  const listeAffichee = [
+    ...filtres_.filter((s) => !ordreDateFin.current.get(s.id)).sort(comparer),
+    ...filtres_.filter((s) => !!ordreDateFin.current.get(s.id)).sort(comparer),
+  ];
+
+  function entete(c, largeur) {
+    const options = Array.from(new Set(listeSaison.map((s) => rhValeurBrute(s, c.cle))))
+      .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+      .map((brute) => ({ brute, label: rhValeurLabel(c.cle, brute) }));
+    const selection = filtresValeurs[c.cle] || null;
+    return (
+      <th key={c.cle} style={{padding:'8px 10px',position:'relative',minWidth:largeur,maxWidth:largeur,whiteSpace:'normal'}}>
+        <button onClick={()=>setMenuOuvert(menuOuvert === c.cle ? null : c.cle)}
+          style={{display:'flex',alignItems:'flex-start',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:12.5,fontWeight:800,padding:0,textAlign:'left',whiteSpace:'normal',lineHeight:1.3,textTransform:'uppercase',letterSpacing:'.4px',color: selection ? 'var(--coral-d)' : 'var(--ink)'}}>
+          <span>{c.label}</span> <span style={{fontSize:10,flexShrink:0}}>▾</span>
+        </button>
+        {menuOuvert === c.cle && (
+          <MenuFiltreColonne
+            options={options}
+            selection={selection}
+            onValider={(nouvelle)=>{
+              const next = { ...filtresValeurs };
+              if (nouvelle === null) delete next[c.cle]; else next[c.cle] = nouvelle;
+              setFiltresValeurs(next);
+            }}
+            onTrier={(sens)=>{ setTriColonne(c.cle); setTriSens(sens); }}
+            onFermer={()=>setMenuOuvert(null)}
+          />
+        )}
+      </th>
+    );
+  }
 
   return (
     <div>
+      {/* Saisons/archives : réservé au superviseur — un directeur/chef ne voit et ne travaille
+          que sur la saison en cours (l'année actuelle), jamais sur les dossiers archivés. */}
+      {superviseur && (
+        <div className="ig-noprint" style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
+          {saisons.map((s) => (
+            <button key={s} className={"ig-btn ig-btn-sm "+(saisonActive===s?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setSaisonActive(s)}>Saison {s}</button>
+          ))}
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={nouvelleSaison}>+ Nouvelle saison</button>
+          {termines.length > 0 && (
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={archiverTermines}>
+              📦 Archiver les {termines.length} contrat{termines.length>1?'s':''} terminé{termines.length>1?'s':''}
+            </button>
+          )}
+        </div>
+      )}
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
-        <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{flex:'1 1 200px',minWidth:0}} />
-        <select value={tri} onChange={(e)=>setTri(e.target.value)} style={{padding:'8px 10px',borderRadius:10,border:'1.5px solid var(--line)'}}>
-          <option value="alpha">Ordre alphabétique</option>
-          <option value="date_debut">Date de début de contrat</option>
-        </select>
+        <span className="ig-muted" style={{fontSize:12}}>Filtre/tri par couleur : cliquez « Couleur ▾ » dans le tableau.</span>
+        {(filtresActifs || triCouleur) && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); setTriCouleur(null); }}>✕ Réinitialiser les filtres</button>}
+        {selection.size > 0 && (
+          <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+            {superviseur && (
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setArchiverModal(true)}>
+                📦 Archiver la sélection vers… ({selection.size})
+              </button>
+            )}
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={supprimerSelection} style={{color:'var(--coral-d)'}}>
+              🗑 Supprimer la sélection ({selection.size})
+            </button>
+          </div>
+        )}
       </div>
+      {archiverModal && (
+        <ArchiverVersModal saisons={saisons.filter((s)=>s!==saisonActive)} onValider={archiverSelectionVers} onClose={()=>setArchiverModal(false)} />
+      )}
       {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
       {erreur && <div className="ig-noprint" style={{background:'#FCE5D6',border:'1.5px solid #E5A06A',color:'#9A4A1B',borderRadius:12,padding:'12px 16px',marginBottom:14,fontSize:14}}>{erreur}</div>}
-      {listeAffichee.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun salarié pour l'instant."}</div> : (
-        <div className="ig-card" style={{padding:'6px 10px',overflowX:'auto'}}>
+      {listeAffichee.length === 0 ? <div className="ig-muted">{filtresActifs ? "Aucun salarié ne correspond aux filtres." : "Aucun salarié pour l'instant."}</div> : (
+        <div className="ig-card" style={{padding:'6px 10px',overflow:'auto',maxHeight:'70vh'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,whiteSpace:'nowrap'}}>
             <thead>
-              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)'}}>
-                <th style={{padding:'8px 10px'}}>Staff Party</th>
-                <th style={{padding:'8px 10px'}}>Heure CT</th>
-                <th style={{padding:'8px 10px'}}>Nom</th>
-                <th style={{padding:'8px 10px'}}>Prénom</th>
-                <th style={{padding:'8px 10px'}}>Tél</th>
-                <th style={{padding:'8px 10px'}}>Mail</th>
-                <th style={{padding:'8px 10px'}}>Poste occupé</th>
-                <th style={{padding:'8px 10px'}}>Date début contrat</th>
-                <th style={{padding:'8px 10px'}}>Salaire net</th>
-                <th style={{padding:'8px 10px'}}>Date de fin de CT</th>
-                <th style={{padding:'8px 10px'}}>Date de prolongation</th>
-                <th style={{padding:'8px 10px'}}>Logement</th>
-                <th style={{padding:'8px 10px'}}></th>
+              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)',verticalAlign:'bottom',background:'var(--sand)',position:'sticky',top:0,zIndex:1}}>
+                <th style={{padding:'8px 6px'}}>
+                  <input type="checkbox"
+                    checked={listeAffichee.length > 0 && listeAffichee.every((s) => selection.has(s.id))}
+                    onChange={(e)=>{
+                      if (e.target.checked) setSelection(new Set(listeAffichee.map((s)=>s.id)));
+                      else setSelection(new Set());
+                    }} />
+                </th>
+                {entete(RH_CHAMPS_BASE[0], 56)}
+                {entete(RH_CHAMPS_BASE[1], 125)}
+                {entete(RH_CHAMPS_BASE[2], 115)}
+                {entete(RH_CHAMPS_BASE[3], 125)}
+                {entete(RH_CHAMPS_BASE[4], 210)}
+                {entete(RH_CHAMPS_BASE[5], 180)}
+                {entete(RH_CHAMPS_BASE[6], 130)}
+                {entete(RH_CHAMPS_BASE[7], 90)}
+                {entete(RH_CHAMPS_BASE[8], 130)}
+                {entete(RH_CHAMPS_BASE[9], 120)}
+                {entete(RH_CHAMPS_BASE[10], 70)}
+                {entete(RH_CHAMPS_BASE[11], 70)}
+                <th style={{padding:'8px 10px',position:'relative'}}>
+                  <button onClick={()=>setMenuCouleurOuvert(!menuCouleurOuvert)}
+                    style={{display:'flex',alignItems:'center',gap:5,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:12.5,fontWeight:800,padding:0,textTransform:'uppercase',letterSpacing:'.4px',color: (filtreCouleurs || triCouleur) ? 'var(--coral-d)' : 'var(--ink)'}}>
+                    Couleur <span style={{fontSize:10}}>▾</span>
+                  </button>
+                  {menuCouleurOuvert && (
+                    <MenuCouleur
+                      filtreCouleurs={filtreCouleurs}
+                      triCouleur={triCouleur}
+                      toutesLesCouleurs={Array.from(new Set(listeSaison.map((x) => x.couleur || "")))}
+                      onFiltrer={setFiltreCouleurs}
+                      onTrier={setTriCouleur}
+                      onFermer={()=>setMenuCouleurOuvert(false)}
+                    />
+                  )}
+                </th>
               </tr>
             </thead>
             <tbody>
               {listeAffichee.map((s) => (
-                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)'}}>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.staff_party} onChange={(e)=>sauverCellule(s.id,'staff_party',e.target.checked)} /></td>
+                <tr key={s.id} style={{borderTop:'1px solid var(--sand-2)',background: s.couleur || undefined}}>
+                  <td style={{padding:'4px 6px'}}>
+                    <input type="checkbox" checked={selection.has(s.id)} onChange={(e)=>{
+                      setSelection((sel) => { const n = new Set(sel); if (e.target.checked) n.add(s.id); else n.delete(s.id); return n; });
+                    }} />
+                  </td>
                   <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.heures_contrat ?? ""} style={{width:56}} onChange={(e)=>majCellule(s.id,'heures_contrat', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'heures_contrat', s.heures_contrat)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.nom || ""} style={{width:110,fontWeight:600}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:100}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:110}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:170}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:130}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:80}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:135}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={!!s.loge} onChange={(e)=>sauverCellule(s.id,'loge',e.target.checked)} /></td>
-                  <td style={{padding:'4px 6px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEdition(s)}>Fiche complète</button></td>
+                  <td style={{padding:'4px 6px'}}>
+                    <input className="ig-cell" value={s.nom || ""} style={{width:125,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'nom', e.target.value)} onBlur={()=>sauverCellule(s.id,'nom', s.nom)} />
+                    {s.provisoire && <span title="Créée par le directeur, en attente de l'onboarding réel via le Form" style={{display:'inline-block',marginTop:2,padding:'1px 5px',borderRadius:20,background:'var(--sand-2)',color:'var(--ink-2)',fontSize:9,fontWeight:700,letterSpacing:'.3px'}}>PAS ONBOARDING</span>}
+                  </td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.prenom || ""} style={{width:115,fontSize:15.5,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'prenom', e.target.value)} onBlur={()=>sauverCellule(s.id,'prenom', s.prenom)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.telephone || ""} style={{width:125}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.email || ""} style={{width:210}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.poste || ""} style={{width:180}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_debut', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:90,fontSize:15,fontWeight:800,color:'var(--ink)'}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:130,fontSize:14.5,fontWeight:700,color:'var(--ink)'}} onChange={(e)=>sauverCellule(s.id,'date_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:120}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.loge || ""} style={{width:70}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
+                  <td style={{padding:'4px 6px'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:70}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
+                  <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
+                    <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
+                    <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
+                    {superviseur && (
+                      <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>genererPromesse(s)} disabled={promesseBusy===s.id} title="Promesse d'embauche">
+                        {promesseBusy===s.id ? "…" : "📄"}
+                      </button>
+                    )}
+                    {superviseur && (
+                      <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>envoyerPromesseParEmail(s)} disabled={emailBusy===s.id} title={s.email ? `Envoyer par email à ${s.email}` : "Envoyer par email (aucun email enregistré)"}>
+                        {emailBusy===s.id ? "…" : "📧"}
+                      </button>
+                    )}
+                    <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>supprimer(s)} style={{color:'var(--coral-d)'}} title="Supprimer">🗑️</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -3936,42 +4054,874 @@ function ListeSalariesRH({ resto, unite, superviseur }) {
 }
 
 // ---------- Espace RH : point d'entrée après connexion individuelle ----------
-function EspaceRH({ acces, restaurants, onBack, onDeconnexion }) {
+// ---------- Modal Gestion des accès RH (superviseur uniquement) ----------
+// Permet de créer un compte directeur/chef (ou de lui ajouter un établissement) et de
+// retirer un accès existant, sans jamais avoir besoin d'ouvrir Supabase.
+function AccesRHModal({ restaurants, onClose }) {
+  const [liste, setListe] = useState(null);
+  const [erreur, setErreur] = useState("");
+  const [flash, setFlash] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [email, setEmail] = useState("");
+  const [motDePasse, setMotDePasse] = useState("");
+  const [resto, setResto] = useState(restaurants[0] || "");
+  const [unite, setUnite] = useState("SALLE");
+  const [editionMdp, setEditionMdp] = useState(null); // user_id du compte en cours d'édition, ou null
+  const [nouveauMdp, setNouveauMdp] = useState("");
+
+  function charger() {
+    setListe(null);
+    RhAdmin.lister().then((r) => { if (r.ok) setListe(r.acces); else setErreur(r.erreur || "Chargement impossible."); });
+  }
+  useEffect(() => { charger(); }, []);
+
+  async function creer() {
+    if (busy) return;
+    if (!email.trim()) { setErreur("Renseignez l'email."); return; }
+    setBusy(true); setErreur(""); setFlash("");
+    const r = await RhAdmin.creer({ email: email.trim(), motDePasse, resto, unite });
+    setBusy(false);
+    if (!r.ok) { setErreur(r.erreur || "Échec de la création."); return; }
+    setFlash(`Accès créé pour ${email.trim()} (${resto} · ${unite === "SALLE" ? "Salle" : "Cuisine"}).`);
+    setEmail(""); setMotDePasse("");
+    charger();
+  }
+
+  async function supprimer(a) {
+    if (!confirm(`Retirer l'accès de ${a.email} à ${a.resto} (${a.unite === "SALLE" ? "Salle" : "Cuisine"}) ?`)) return;
+    const r = await RhAdmin.supprimer(a.id);
+    if (!r.ok) { setErreur(r.erreur || "Suppression impossible."); return; }
+    charger();
+  }
+
+  async function validerMdp(a) {
+    if (busy) return;
+    if (!nouveauMdp || nouveauMdp.length < 6) { setErreur("Le mot de passe doit faire au moins 6 caractères."); return; }
+    setBusy(true); setErreur(""); setFlash("");
+    const r = await RhAdmin.changerMotDePasse({ user_id: a.user_id, motDePasse: nouveauMdp });
+    setBusy(false);
+    if (!r.ok) { setErreur(r.erreur || "Échec du changement de mot de passe."); return; }
+    setFlash(`Mot de passe mis à jour pour ${a.email}.`);
+    setEditionMdp(null); setNouveauMdp("");
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:560}}>
+        <h3>Accès RH</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>Un compte par directeur/chef, cloisonné par établissement et par unité (Salle/Cuisine).</div>
+
+        <div style={{maxHeight:220,overflowY:'auto',border:'1px solid var(--line)',borderRadius:10,marginBottom:16}}>
+          {liste === null ? (
+            <div style={{padding:14}} className="ig-muted">Chargement…</div>
+          ) : liste.length === 0 ? (
+            <div style={{padding:14}} className="ig-muted">Aucun accès créé pour le moment.</div>
+          ) : (
+            <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
+              <tbody>
+                {liste.map((a) => (
+                  <React.Fragment key={a.id}>
+                    <tr style={{borderBottom: editionMdp===a.user_id ? 'none' : '1px solid var(--line)'}}>
+                      <td style={{padding:'8px 10px'}}>{a.email}{a.superviseur && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:9,letterSpacing:'.4px'}}>SUPERVISEUR</span>}</td>
+                      <td style={{padding:'8px 10px'}}>{a.resto}</td>
+                      <td style={{padding:'8px 10px'}}>{a.unite === "SALLE" ? "Salle" : a.unite === "CUISINE" ? "Cuisine" : "Tous"}</td>
+                      <td style={{padding:'8px 10px',textAlign:'right',whiteSpace:'nowrap'}}>
+                        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setEditionMdp(editionMdp===a.user_id ? null : a.user_id); setNouveauMdp(""); setErreur(""); }}>Mot de passe</button>
+                        {!a.superviseur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(a)} style={{marginLeft:6}}>Retirer</button>}
+                      </td>
+                    </tr>
+                    {editionMdp === a.user_id && (
+                      <tr style={{borderBottom:'1px solid var(--line)'}}>
+                        <td colSpan={4} style={{padding:'0 10px 10px'}}>
+                          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                            <input type="password" value={nouveauMdp} autoFocus onChange={(e)=>setNouveauMdp(e.target.value)} placeholder="Nouveau mot de passe (6 caractères min.)" style={{flex:1}} />
+                            <button className="ig-btn ig-btn-primary ig-btn-sm" onClick={()=>validerMdp(a)} disabled={busy}>{busy ? "…" : "Valider"}</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="ig-muted" style={{fontWeight:600,marginBottom:8}}>Ajouter un accès</div>
+        <div className="ig-field">
+          <label>Email</label>
+          <input type="email" value={email} onChange={(e)=>{ setEmail(e.target.value); setErreur(""); }} placeholder="prenom@indiegroup.fr" />
+        </div>
+        <div className="ig-field">
+          <label>Mot de passe (uniquement si le compte n'existe pas encore)</label>
+          <input type="password" value={motDePasse} onChange={(e)=>setMotDePasse(e.target.value)} placeholder="Au moins 6 caractères" />
+        </div>
+        <div className="ig-times">
+          <div className="ig-field" style={{margin:0}}>
+            <label>Établissement</label>
+            <select value={resto} onChange={(e)=>setResto(e.target.value)}>
+              {restaurants.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div className="ig-field" style={{margin:0}}>
+            <label>Unité</label>
+            <select value={unite} onChange={(e)=>setUnite(e.target.value)}>
+              <option value="SALLE">Salle</option>
+              <option value="CUISINE">Cuisine</option>
+            </select>
+          </div>
+        </div>
+        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:8,fontWeight:600}}>{erreur}</div>}
+        {flash && <div style={{color:'var(--sea)',fontSize:13,marginTop:8,fontWeight:600}}>{flash}</div>}
+        <div style={{display:'flex',gap:10,marginTop:16}}>
+          <button className="ig-btn ig-btn-ghost" onClick={onClose}>Fermer</button>
+          <button className="ig-btn ig-btn-primary" onClick={creer} disabled={busy}>{busy ? "Création…" : "Créer / ajouter cet accès"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Repos hebdomadaire non pris : suivi mensuel + montant à payer ----------
+function ReposHebdoRH({ resto, unite, superviseur }) {
+  const auj = new Date();
+  const [annee, setAnnee] = useState(auj.getFullYear());
+  const [moisNum, setMoisNum] = useState(auj.getMonth() + 1); // 1..12
+  const mois = `${annee}-${String(moisNum).padStart(2, "0")}`;
+  const [liste, setListe] = useState(null);
+  const [genBusy, setGenBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [erreur, setErreur] = useState("");
+  const [flash, setFlash] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    setListe(null);
+    RhReposHebdo.list(resto, unite, mois).then((l) => { if (on) setListe(l); });
+    return () => { on = false; };
+  }, [resto, unite, mois]);
+
+  function montrerErreur(msg) { setErreur(msg); setTimeout(() => setErreur(""), 6000); }
+  function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 6000); }
+
+  async function generer() {
+    if (genBusy) return;
+    setGenBusy(true); setErreur("");
+    const ok = await RhReposHebdo.genererMois(resto, unite, mois);
+    if (ok) {
+      const l = await RhReposHebdo.list(resto, unite, mois);
+      setListe(l);
+      montrerFlash("Liste mise à jour avec les salariés actuellement sous contrat pour ce mois.");
+    } else montrerErreur("Échec de la génération. Réessayez.");
+    setGenBusy(false);
+  }
+
+  async function exporter() {
+    if (exportBusy) return;
+    setExportBusy(true); setErreur("");
+    const r = await RhSheetSync.exporterReposHebdo(resto, unite, mois);
+    setExportBusy(false);
+    if (!r.ok) { montrerErreur(`Échec de l'export : ${r.erreur || "erreur inconnue"}`); return; }
+    montrerFlash(r.exportes > 0
+      ? `${r.exportes} ligne${r.exportes>1?'s':''} "RH NON PRIS ${MOIS_NOMS[moisNum-1].toUpperCase()}" ajoutée${r.exportes>1?'s':''} dans le Sheet Extra.`
+      : "Aucun salarié avec un repos non pris > 0 ce mois-ci : rien à exporter.");
+  }
+
+  async function majRepos(l, valeur) {
+    const n = valeur === "" ? 0 : Number(valeur);
+    setListe(liste.map((x) => (x.id === l.id ? { ...x, repos_non_pris: n } : x)));
+    const maj = await RhReposHebdo.maj(l.id, { repos_non_pris: n });
+    if (!maj) montrerErreur("La sauvegarde a échoué pour cette case. Réessayez.");
+  }
+
+  async function retirer(l) {
+    if (!confirm(`Retirer ${l.prenom || ""} ${l.nom} de ce mois ?`)) return;
+    const ok = await RhReposHebdo.supprimer(l.id);
+    if (ok) setListe(liste.filter((x) => x.id !== l.id));
+    else montrerErreur("La suppression a échoué. Réessayez.");
+  }
+
+  if (liste === null) return <div className="ig-muted">Chargement…</div>;
+
+  // Taux journalier = salaire net ÷ 30 (convention standard), à ajuster si besoin depuis la fiche.
+  const netJour = (l) => (l.salaire_net != null ? l.salaire_net / 30 : null);
+  const montant = (l) => (netJour(l) != null ? netJour(l) * (l.repos_non_pris || 0) : null);
+  const totalRepos = liste.reduce((s, l) => s + (Number(l.repos_non_pris) || 0), 0);
+  const totalAPayer = liste.reduce((s, l) => s + (montant(l) || 0), 0);
+  const fmtEuro = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+
+  return (
+    <div>
+      <div className="ig-noprint" style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee - 1)}>◀</button>
+        <span style={{fontWeight:700,minWidth:44,textAlign:'center'}}>{annee}</span>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee + 1)}>▶</button>
+        <div style={{display:'flex',gap:4,flexWrap:'wrap',marginLeft:10}}>
+          {MOIS_NOMS.map((n, i) => (
+            <button key={i} className={"ig-btn ig-btn-sm "+(moisNum===i+1?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setMoisNum(i + 1)}>{n.slice(0,3)}</button>
+          ))}
+        </div>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          {superviseur && (
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={exporter} disabled={exportBusy || liste.length === 0}>
+              {exportBusy ? "Export…" : "↓ Exporter vers le Sheet Extra"}
+            </button>
+          )}
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={generer} disabled={genBusy}>
+            {genBusy ? "Génération…" : "↻ Générer la liste du mois"}
+          </button>
+        </div>
+      </div>
+      {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:10,fontWeight:600}}>{erreur}</div>}
+      {flash && <div style={{color:'var(--sea)',fontSize:13,marginBottom:10,fontWeight:600}}>{flash}</div>}
+      <div className="ig-card" style={{padding:'12px 16px',marginBottom:14,display:'flex',gap:24,flexWrap:'wrap'}}>
+        <div><div className="ig-muted" style={{fontSize:12}}>Salariés</div><div style={{fontWeight:800,fontSize:18}}>{liste.length}</div></div>
+        <div><div className="ig-muted" style={{fontSize:12}}>Total repos non pris</div><div style={{fontWeight:800,fontSize:18}}>{totalRepos}</div></div>
+        <div><div className="ig-muted" style={{fontSize:12}}>Total à payer</div><div style={{fontWeight:800,fontSize:18,color:'var(--coral-d)'}}>{fmtEuro(totalAPayer)}</div></div>
+      </div>
+      {liste.length === 0 ? (
+        <div className="ig-muted">Aucun salarié pour {MOIS_NOMS[moisNum-1]} {annee}. Clique sur "↻ Générer la liste du mois" pour la remplir depuis les fiches sous contrat.</div>
+      ) : (
+        <div className="ig-card" style={{padding:'6px 10px',overflow:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead>
+              <tr style={{textAlign:'left',borderBottom:'2px solid var(--sand-2)'}}>
+                <th style={{padding:'8px 10px'}}>Unité</th>
+                <th style={{padding:'8px 10px'}}>Nom</th>
+                <th style={{padding:'8px 10px'}}>Prénom</th>
+                <th style={{padding:'8px 10px'}}>Salaire net</th>
+                <th style={{padding:'8px 10px'}}>Net / jour</th>
+                <th style={{padding:'8px 10px'}}>Repos non pris</th>
+                <th style={{padding:'8px 10px'}}>Montant à payer</th>
+                <th style={{padding:'8px 10px'}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {liste.map((l) => (
+                <tr key={l.id} style={{borderTop:'1px solid var(--sand-2)'}}>
+                  <td style={{padding:'6px 10px'}}>{unite === "SALLE" ? "Salle" : "Cuisine"}</td>
+                  <td style={{padding:'6px 10px',fontWeight:800}}>{l.nom}</td>
+                  <td style={{padding:'6px 10px'}}>{l.prenom}</td>
+                  <td style={{padding:'6px 10px'}}>{l.salaire_net != null ? `${l.salaire_net} €` : <span className="ig-muted">—</span>}</td>
+                  <td style={{padding:'6px 10px'}}>{netJour(l) != null ? fmtEuro(netJour(l)) : <span className="ig-muted">—</span>}</td>
+                  <td style={{padding:'6px 10px'}}>
+                    <input type="number" min="0" className="ig-cell" style={{width:70}} value={l.repos_non_pris}
+                      onChange={(e)=>majRepos(l, e.target.value)} />
+                  </td>
+                  <td style={{padding:'6px 10px',fontWeight:700}}>{montant(l) != null ? fmtEuro(montant(l)) : <span className="ig-muted">—</span>}</td>
+                  <td style={{padding:'6px 10px'}}><button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>retirer(l)} style={{color:'var(--coral-d)'}}>Retirer</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Recherche de salarié tous établissements (pour "+ Ajouter un extra") ----------
+function ChoixSalarieExtraModal({ resto, unite, onValider, onClose }) {
+  const [recherche, setRecherche] = useState("");
+  const [resultats, setResultats] = useState([]);
+  const [selection, setSelection] = useState(null);
+  const [date, setDate] = useState(dateISOLocale(new Date()));
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const q = recherche.trim();
+    if (selection || q.length < 2) { setResultats([]); return; }
+    let on = true;
+    setBusy(true);
+    const t = setTimeout(() => {
+      RhAdmin.rechercherSalaries(q).then((r) => { if (on) { setResultats(r); setBusy(false); } });
+    }, 300);
+    return () => { on = false; clearTimeout(t); };
+  }, [recherche, selection]);
+
+  function choisir(c) {
+    setSelection(c);
+    setRecherche(`${c.prenom || ""} ${c.nom}`.trim());
+  }
+
+  function valider() {
+    if (!selection) { setErr("Choisissez un salarié dans la liste."); return; }
+    if (!date) { setErr("Indiquez la date de la soirée."); return; }
+    onValider({
+      salarieNom: selection.nom, salariePrenom: selection.prenom || "",
+      restoOrigine: selection.resto, poste: selection.poste || "", date,
+    });
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:480}}>
+        <h3>Ajouter un extra</h3>
+        <div className="ig-muted" style={{marginBottom:10}}>Cherchez le salarié (de {resto} ou d'un autre établissement) et indiquez la date de la soirée. Les heures et le taux se renseignent après, tant que ce n'est pas validé.</div>
+
+        <div className="ig-field" style={{position:'relative'}}>
+          <label>Salarié</label>
+          <input value={recherche} onChange={(e)=>{ setRecherche(e.target.value); setSelection(null); setErr(""); }} placeholder="Tapez un nom (2 lettres minimum)…" />
+          {recherche && !selection && (busy || resultats.length > 0) && (
+            <div className="ig-card" style={{position:'absolute',zIndex:5,left:0,right:0,marginTop:4,padding:6,maxHeight:220,overflowY:'auto'}}>
+              {busy && <div className="ig-muted" style={{padding:8,fontSize:13}}>Recherche…</div>}
+              {!busy && resultats.map((c) => (
+                <div key={c.id} style={{padding:'8px 10px',cursor:'pointer',borderRadius:8}}
+                  onClick={()=>choisir(c)}
+                  onMouseDown={(ev)=>ev.preventDefault()}>
+                  <b>{c.prenom} {c.nom}</b> <span className="ig-muted">· {c.poste || "—"} · {c.resto}{c.resto === resto ? " (cet établissement)" : ""}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {recherche && !selection && !busy && recherche.trim().length >= 2 && resultats.length === 0 && (
+            <div className="ig-muted" style={{marginTop:6,fontSize:13}}>Aucun salarié ne correspond.</div>
+          )}
+        </div>
+
+        {selection && (
+          <div className="ig-field">
+            <label>Date de la soirée</label>
+            <input type="date" value={date} onChange={(e)=>setDate(e.target.value)} />
+          </div>
+        )}
+
+        {err && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:10,fontWeight:600}}>{err}</div>}
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Ajouter l'extra</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Export xlsx du récap d'extras (même format que l'ancien Google Sheet, pour intégration
+// PayFit), adapté aux noms de colonnes snake_case de rh_extras.
+function exporterRecapExtrasRH(liste, mois, nomFichier) {
+  const realises = liste.filter((x) => x.statut === "realisee");
+  const enteteDetail = [
+    "Horodateur", "Adresse e-mail", "Etablissement où est effectué l'extra", "DATE",
+    "NOM  (SI FACTURE INDIQUER LE NOM SOCIETE)", "PRENOM", "Etablissement d'origine de l'extra",
+    "1Nombre d'heures effectuées (mettre 1 si FORFAIT)",
+    "Taux horaire net (utiliser Autre pour FORFAIT et remplir le montant du forfait)",
+    "Extra fait sur ses heures de l'établissement d'origine ? (donc non rémunéré en EXTRA - Mettre oui si facture)",
+    "Taux Horaire Brut", "Prime Net", "Prime Brute", "Prime Cout Total",
+  ];
+  const aoaDetail = [enteteDetail];
+  realises.forEach((x) => {
+    const horodateur = x.valide_le ? new Date(x.valide_le) : new Date(x.cree_le);
+    aoaDetail.push([
+      `${fmtDate(horodateur)} ${horodateur.toLocaleTimeString("fr-FR")}`, "",
+      x.resto, fmtDate(new Date(x.date + "T00:00:00")), x.salarie_nom, x.salarie_prenom, x.resto_origine,
+      x.heures_reelles, x.taux_horaire_net, x.sur_heures_origine ? "OUI" : "NON",
+      x.taux_brut, x.prime_net, x.prime_brute, x.prime_cout_total,
+    ]);
+  });
+  const parSalarie = {};
+  realises.forEach((x) => {
+    const key = idSalarie({ n: x.salarie_nom, p: x.salarie_prenom });
+    const pf = PAYFIT_IDS[key] || ["", ""];
+    const cur = parSalarie[key] || { nom: x.salarie_nom, prenom: x.salarie_prenom, identifiant: pf[0], matricule: pf[1], heures: 0, primeNet: 0, primeBrute: 0, primeCoutTotal: 0 };
+    cur.heures += Number(x.heures_reelles) || 0;
+    cur.primeNet += x.prime_net || 0;
+    cur.primeBrute += x.prime_brute || 0;
+    cur.primeCoutTotal += x.prime_cout_total || 0;
+    parSalarie[key] = cur;
+  });
+  const aoaRecap = [["Identifiant PayFit", "Matricule", "Nom", "Prénom", "Total heures extra", "Total Prime Net", "Total Prime Brute", "Total Coût employeur", "Mois"]];
+  Object.values(parSalarie).forEach((c) => aoaRecap.push([c.identifiant, c.matricule, c.nom, c.prenom, c.heures, c.primeNet, c.primeBrute, c.primeCoutTotal, mois]));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaDetail), "Détail extras");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoaRecap), "Récap par salarié");
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomFichier;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// ---------- Extras (prêt de main-d'œuvre) : module RH, par établissement + unité ----------
+function ExtrasRH({ resto, unite, superviseur }) {
+  const auj = new Date();
+  const [annee, setAnnee] = useState(auj.getFullYear());
+  const [moisNum, setMoisNum] = useState(auj.getMonth() + 1);
+  const mois = `${annee}-${String(moisNum).padStart(2, "0")}`;
+  const [liste, setListe] = useState(null);
+  const [etabsJ, setEtabsJ] = useState({});
+  const [ajout, setAjout] = useState(false);
+  const [fiche, setFiche] = useState(false);
+  const [flash, setFlash] = useState("");
+  const [recherche, setRecherche] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    setListe(null);
+    Promise.all([RhExtras.list(resto, unite, mois), EtablissementsJuridique.load()]).then(([l, ej]) => {
+      if (!on) return;
+      setListe(l); setEtabsJ(ej);
+    });
+    return () => { on = false; };
+  }, [resto, unite, mois]);
+
+  function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 6000); }
+
+  async function creerExtra({ salarieNom, salariePrenom, restoOrigine, poste, date }) {
+    const nomMaj = salarieNom.toUpperCase();
+    const prenomMaj = (salariePrenom || "").toUpperCase();
+    const docs = genererDocumentsExtra({ resto, restoOrigine, salarieNom: nomMaj, salariePrenom: prenomMaj, poste, date }, etabsJ);
+    const cree = await RhExtras.creer({
+      resto, unite, resto_origine: restoOrigine, salarie_nom: nomMaj, salarie_prenom: prenomMaj,
+      poste, date, statut: "a_valider", payfit_statut: "a_faire",
+      contrat_html: docs.contratHTML || null, contrat_genere_at: docs.contratGenereAt || null,
+    });
+    if (!cree) { montrerFlash("Échec de la création de l'extra. Réessayez."); return; }
+    setAjout(false);
+    if (cleMois(new Date(date + "T00:00:00")) === mois) setListe([cree, ...(liste || [])]);
+    montrerFlash(`Extra créé pour ${prenomMaj} ${nomMaj} (${restoOrigine} → ${resto}) le ${fmtDate(new Date(date + "T00:00:00"))}.${docs.contratHTML ? " Le contrat de prêt est prêt." : ""} Reste à renseigner les heures et le taux avant de valider.`);
+    // Synchro Sheet "Extra" : crée tout de suite une NOUVELLE ligne (jamais de recherche/
+    // fusion avec une ligne existante, même pour la même personne à la même date) ; le numéro
+    // de ligne renvoyé est aussitôt mémorisé sur la fiche (sheet_ligne) pour que les prochaines
+    // synchros (heures/taux, validation) écrivent directement dessus, sans ambiguïté.
+    RhSheetSync.upsertExtra({ resto, unite, restoOrigine, salarieNom: nomMaj, salariePrenom: prenomMaj, date, champs: { surHeuresOrigine: false } })
+      .then((r) => {
+        if (!r.ok) { montrerFlash(`⚠ Extra enregistré, mais la synchro vers le Sheet Extra a échoué : ${r.erreur}`); return; }
+        RhExtras.maj(cree.id, { sheet_ligne: r.ligne }).then((maj) => {
+          if (maj) setListe((l) => (l || []).map((it) => (it.id === cree.id ? maj : it)));
+        });
+      });
+  }
+
+  function modifierChamp(id, champ, valeur) {
+    const next = (liste || []).map((x) => (x.id === id ? { ...x, [champ]: valeur } : x));
+    setListe(next);
+  }
+  async function sauverChamp(id, champ, valeur) {
+    const maj = await RhExtras.maj(id, { [champ]: valeur });
+    if (!maj) { montrerFlash("La sauvegarde a échoué. Réessayez."); return; }
+    const champSheet = champ === "heures_estimees" ? "heuresEstimees" : champ === "taux_horaire_net" ? "tauxHoraireNet" : champ === "sur_heures_origine" ? "surHeuresOrigine" : null;
+    if (champSheet && maj.sheet_ligne) {
+      RhSheetSync.upsertExtra({
+        resto, unite, restoOrigine: maj.resto_origine, salarieNom: maj.salarie_nom, salariePrenom: maj.salarie_prenom, date: maj.date,
+        champs: { [champSheet]: valeur }, ligneCible: maj.sheet_ligne,
+      }).then((r) => { if (!r.ok) montrerFlash(`⚠ Sauvegardé, mais la synchro vers le Sheet Extra a échoué : ${r.erreur}`); });
+    }
+  }
+
+  async function validerExtra(id) {
+    const x = (liste || []).find((it) => it.id === id);
+    if (!x) return;
+    if (!x.heures_estimees || Number(x.heures_estimees) <= 0) { montrerFlash("Indiquez le nombre d'heures avant de valider."); return; }
+    if (!x.sur_heures_origine && (!x.taux_horaire_net || Number(x.taux_horaire_net) <= 0)) { montrerFlash("Indiquez le taux horaire net avant de valider (ou cochez « sur ses heures d'origine »)."); return; }
+    const calc = calculExtra(x.heures_estimees, x.taux_horaire_net, x.sur_heures_origine);
+    const patch = {
+      heures_reelles: Number(x.heures_estimees), statut: "realisee", valide_le: new Date().toISOString(),
+      taux_brut: calc.tauxBrut, prime_net: calc.primeNet, prime_brute: calc.primeBrute, prime_cout_total: calc.primeCoutTotal,
+    };
+    const maj = await RhExtras.maj(id, patch);
+    if (!maj) { montrerFlash("Échec de la validation. Réessayez."); return; }
+    setListe((liste || []).map((it) => (it.id === id ? maj : it)));
+    montrerFlash("Heures validées.");
+    if (maj.sheet_ligne) {
+      RhSheetSync.upsertExtra({
+        resto, unite, restoOrigine: maj.resto_origine, salarieNom: maj.salarie_nom, salariePrenom: maj.salarie_prenom, date: maj.date,
+        champs: {
+          heuresEstimees: maj.heures_reelles, tauxHoraireNet: maj.taux_horaire_net, surHeuresOrigine: maj.sur_heures_origine,
+          tauxBrut: maj.taux_brut, primeNet: maj.prime_net, primeBrute: maj.prime_brute, primeCoutTotal: maj.prime_cout_total,
+        },
+        ligneCible: maj.sheet_ligne,
+      }).then((r) => { if (!r.ok) montrerFlash(`⚠ Heures validées, mais la synchro vers le Sheet Extra a échoué : ${r.erreur}`); });
+    }
+  }
+
+  async function supprimerExtra(x) {
+    if (!confirm(`Supprimer cet extra de ${x.salarie_prenom} ${x.salarie_nom} ?`)) return;
+    const ok = await RhExtras.supprimer(x.id);
+    if (ok) setListe((liste || []).filter((it) => it.id !== x.id));
+    else montrerFlash("La suppression a échoué. Réessayez.");
+  }
+
+  function voirContrat(x) {
+    if (!x.contrat_html) return;
+    imprimerDocument(`Contrat de prêt — ${x.salarie_prenom} ${x.salarie_nom}`, x.contrat_html, STYLE_CONTRAT, `contrat_pret_${slugKey(x.salarie_prenom + "_" + x.salarie_nom)}_${x.date}`);
+  }
+
+  async function enregistrerFiche(data) {
+    const next = { ...etabsJ, [resto]: data };
+    setEtabsJ(next);
+    await EtablissementsJuridique.save(next);
+    setFiche(false);
+    montrerFlash("Fiche juridique enregistrée.");
+  }
+
+  if (liste === null) return <div className="ig-muted">Chargement…</div>;
+
+  const q = normTxt(recherche);
+  const filtres = liste.filter((x) => !q || normTxt(`${x.salarie_prenom} ${x.salarie_nom}`).includes(q));
+  const ficheOk = etabsJ[resto] && etabsJ[resto].siret && etabsJ[resto].raisonSociale;
+
+  return (
+    <div>
+      <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
+        <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Ajouter un extra</button>
+        <a className="ig-btn ig-btn-ghost" href="https://forms.gle/pNFPqnH2eAX3C7gs7" target="_blank" rel="noopener noreferrer">+ Ajouter un extra extérieur</a>
+        {superviseur && <button className="ig-btn ig-btn-ghost" onClick={()=>setFiche(true)}>Fiche juridique de {resto}</button>}
+        {superviseur && !ficheOk && <span style={{color:'var(--coral-d)',fontSize:13,fontWeight:600}}>⚠ à compléter avant de générer des contrats valides</span>}
+      </div>
+
+      {flash && <div className="ig-status-line ig-noprint" style={{background:'#EAF3F3',marginBottom:14}}>{flash}</div>}
+
+      <div className="ig-card ig-noprint" style={{padding:'14px 18px',marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+          <span style={{fontSize:20}}>💡</span>
+          <span style={{fontWeight:800,fontSize:13,textTransform:'uppercase',letterSpacing:'.4px',color:'var(--ink)'}}>Repères pour saisir un extra</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:10,background:'#FBF3E4',border:'1.5px solid #E9D2A0',borderRadius:10,padding:'8px 14px',marginBottom:12,fontSize:13}}>
+          <span style={{fontSize:18,flexShrink:0}}>🧾</span>
+          <span><b>Forfait ?</b> Mettez <b>1</b> dans « Heures » et le montant du forfait dans « Taux net € ».</span>
+        </div>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          {[
+            { taux: "15 €", postes: "Commis, Runner, Plongeur, Officier, Hôtesse", couleur: "var(--sea)" },
+            { taux: "15 €", postes: "CDR, CDP, Limonadier, Barman", couleur: "var(--coral)" },
+            { taux: "18 €", postes: "Directeur, Chef, Chef Barman, Manager/Chef hôtesse", couleur: "var(--ink)" },
+          ].map((r, i) => (
+            <div key={i} style={{flex:'1 1 220px',display:'flex',alignItems:'center',gap:12,background:'var(--sand)',borderRadius:12,padding:'10px 14px'}}>
+              <div style={{width:46,height:46,borderRadius:'50%',background:r.couleur,color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:13,flexShrink:0}}>{r.taux}</div>
+              <div style={{fontSize:12.5,color:'var(--ink-soft)',lineHeight:1.4}}>{r.postes}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}>
+        <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee - 1)}>◀</button>
+          <span style={{fontWeight:700,minWidth:44,textAlign:'center'}}>{annee}</span>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setAnnee(annee + 1)}>▶</button>
+          <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+            {MOIS_NOMS.map((n, i) => (
+              <button key={i} className={"ig-btn ig-btn-sm "+(moisNum===i+1?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setMoisNum(i + 1)}>{n.slice(0,3)}</button>
+            ))}
+          </div>
+          <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié…" style={{marginLeft:'auto',flex:'1 1 200px',minWidth:0}} />
+        </div>
+        {filtres.length === 0 ? <div className="ig-muted">{recherche ? "Aucun salarié ne correspond." : "Aucun extra ce mois-ci."}</div> : (
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {filtres.map((x) => (
+              <div key={x.id} className="ig-extra-row">
+                <div className="ig-extra-head">
+                  <div style={{minWidth:180}}><b>{x.salarie_prenom} {x.salarie_nom}</b><br /><span className="ig-muted" style={{fontSize:12}}>{x.resto_origine === resto ? "cet établissement" : x.resto_origine} · {x.poste} · {fmtDate(new Date(x.date+"T00:00:00"))}</span></div>
+                  <span className="ig-pill" style={{background: x.statut==='realisee' ? '#EAF3F3' : '#FCE5D6'}}>{x.statut === 'realisee' ? '✓ heures validées' : 'à valider'}</span>
+                  {x.contrat_html && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>voirContrat(x)}>Contrat de prêt</button>}
+                  {x.statut === 'realisee' && <span className="ig-muted" style={{fontSize:13,fontWeight:600}}>{x.heures_reelles}h · {fmtEuro(x.prime_net)} net</span>}
+                  <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimerExtra(x)} style={{color:'var(--coral-d)'}}>Supprimer</button>
+                </div>
+                {x.statut !== 'realisee' && (
+                  <div className="ig-extra-saisie">
+                    <div className="ig-extra-champ">
+                      <label>Heures</label>
+                      <input type="number" min="0" step="0.25" inputMode="decimal" placeholder="0" value={x.heures_estimees ?? ""} onChange={(e)=>modifierChamp(x.id,'heures_estimees', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamp(x.id,'heures_estimees', x.heures_estimees)} />
+                    </div>
+                    <div className="ig-extra-champ">
+                      <label>Taux net €</label>
+                      <input type="number" min="0" step="0.5" inputMode="decimal" placeholder="0" disabled={x.sur_heures_origine} value={x.taux_horaire_net ?? ""} onChange={(e)=>modifierChamp(x.id,'taux_horaire_net', e.target.value === "" ? null : Number(e.target.value))} onBlur={()=>sauverChamp(x.id,'taux_horaire_net', x.taux_horaire_net)} />
+                    </div>
+                    <label className="ig-extra-check">
+                      <input type="checkbox" checked={!!x.sur_heures_origine} onChange={(e)=>{ modifierChamp(x.id,'sur_heures_origine', e.target.checked); sauverChamp(x.id,'sur_heures_origine', e.target.checked); }} />
+                      sur heures d'origine
+                    </label>
+                    <button className="ig-btn ig-btn-primary" style={{marginLeft:'auto'}} onClick={()=>validerExtra(x.id)}>✓ Valider</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {superviseur && <VueGlobaleExtrasRH resto={resto} unite={unite} />}
+
+      {ajout && <ChoixSalarieExtraModal resto={resto} unite={unite} onValider={creerExtra} onClose={()=>setAjout(false)} />}
+      {fiche && <FicheJuridiqueModal resto={resto} valeurs={etabsJ[resto]} onSave={enregistrerFiche} onClose={()=>setFiche(false)} />}
+    </div>
+  );
+}
+
+// Colonnes de l'historique des extras : "valeur" = valeur brute triable/filtrable,
+// "aff" = ce qui s'affiche dans la cellule (si absent, identique à "valeur").
+const EXTRAS_HISTORIQUE_COLONNES = [
+  { cle: "date", label: "Date", valeur: (x) => x.date, aff: (x) => fmtDate(new Date(x.date + "T00:00:00")) },
+  { cle: "salarie", label: "Salarié", valeur: (x) => `${x.salarie_prenom || ""} ${x.salarie_nom || ""}`.trim() },
+  { cle: "poste", label: "Poste", valeur: (x) => x.poste || "" },
+  { cle: "origine", label: "Origine", valeur: (x) => x.resto_origine || "" },
+  { cle: "statut", label: "Statut", valeur: (x) => (x.statut === "realisee" ? "✓ validé" : "à valider") },
+  { cle: "heures", label: "Heures", valeur: (x) => String(x.statut === "realisee" ? (x.heures_reelles ?? "") : (x.heures_estimees ?? "")) },
+  { cle: "taux", label: "Taux horaire", valeur: (x) => String(x.taux_horaire_net ?? ""), aff: (x) => (x.taux_horaire_net != null ? fmtEuro(x.taux_horaire_net) : "—") },
+  { cle: "primeNet", label: "Prime Net", valeur: (x) => String(x.statut === "realisee" ? (x.prime_net ?? "") : ""), aff: (x) => (x.statut === "realisee" ? fmtEuro(x.prime_net) : "—") },
+];
+
+// ---------- Historique des extras d'UN établissement + une unité (superviseur), tous mois
+// confondus — jamais mélangé avec un autre établissement, ni entre Salle et Cuisine d'un
+// même établissement : chacun son récap. Filtres par colonne (façon tableur, comme le
+// registre embauche) en plus de la recherche libre et du filtre par mois. ----------
+function VueGlobaleExtrasRH({ resto, unite }) {
+  const [tout, setTout] = useState(null);
+  const [recherche, setRecherche] = useState("");
+  const [filtreMois, setFiltreMois] = useState("");
+  const [filtresValeurs, setFiltresValeurs] = useState({});
+  const [menuOuvert, setMenuOuvert] = useState(null);
+  const [triColonne, setTriColonne] = useState(null);
+  const [triSens, setTriSens] = useState("asc");
+
+  useEffect(() => {
+    let on = true;
+    setTout(null);
+    setFiltresValeurs({}); setTriColonne(null);
+    RhExtras.listParEtablissement(resto, unite).then((l) => { if (on) setTout(l); });
+    return () => { on = false; };
+  }, [resto, unite]);
+
+  if (tout === null) return <div className="ig-card" style={{padding:'16px 20px',marginBottom:18}}><div className="ig-muted">Chargement de l'historique…</div></div>;
+
+  const moisDisponibles = Array.from(new Set(tout.map((x) => cleMois(new Date(x.date + "T00:00:00"))))).sort().reverse();
+  const filtresActifs = Object.keys(filtresValeurs).length > 0;
+
+  const q = normTxt(recherche);
+  const filtres = tout
+    .filter((x) => {
+      if (filtreMois && cleMois(new Date(x.date + "T00:00:00")) !== filtreMois) return false;
+      if (q && !normTxt(`${x.salarie_prenom} ${x.salarie_nom} ${x.poste}`).includes(q)) return false;
+      return EXTRAS_HISTORIQUE_COLONNES.every((c) => {
+        const sel = filtresValeurs[c.cle];
+        if (!sel) return true;
+        return sel.has(c.valeur(x));
+      });
+    })
+    .sort((a, b) => {
+      if (!triColonne) return b.date.localeCompare(a.date);
+      const col = EXTRAS_HISTORIQUE_COLONNES.find((c) => c.cle === triColonne);
+      const cmp = col.valeur(a).localeCompare(col.valeur(b), "fr", { numeric: true });
+      return triSens === "desc" ? -cmp : cmp;
+    });
+
+  const totaux = filtres.reduce((acc, x) => {
+    if (x.statut === "realisee") {
+      acc.heures += Number(x.heures_reelles) || 0;
+      acc.primeNet += x.prime_net || 0;
+    }
+    return acc;
+  }, { heures: 0, primeNet: 0 });
+
+  function entete(c) {
+    const options = Array.from(new Set(tout.map((x) => c.valeur(x))))
+      .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+      .map((brute) => ({ brute, label: brute || "(vide)" }));
+    const selection = filtresValeurs[c.cle] || null;
+    return (
+      <th key={c.cle} style={{padding:'6px 8px',position:'relative'}}>
+        <button onClick={()=>setMenuOuvert(menuOuvert === c.cle ? null : c.cle)}
+          style={{display:'flex',alignItems:'center',gap:4,background:'none',border:'none',cursor:'pointer',font:'inherit',fontSize:12.5,fontWeight:700,padding:0,color: selection ? 'var(--coral-d)' : 'var(--ink)'}}>
+          <span>{c.label}</span> <span style={{fontSize:9}}>▾</span>
+        </button>
+        {menuOuvert === c.cle && (
+          <MenuFiltreColonne
+            options={options}
+            selection={selection}
+            onValider={(nouvelle)=>{
+              const next = { ...filtresValeurs };
+              if (nouvelle === null) delete next[c.cle]; else next[c.cle] = nouvelle;
+              setFiltresValeurs(next);
+            }}
+            onTrier={(sens)=>{ setTriColonne(c.cle); setTriSens(sens); }}
+            onFermer={()=>setMenuOuvert(null)}
+          />
+        )}
+      </th>
+    );
+  }
+
+  return (
+    <div className="ig-card" style={{padding:'16px 20px',marginBottom:18,borderColor:'var(--ink)'}}>
+      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:16,fontWeight:600,marginBottom:10}}>Historique des extras — {resto} ({unite}), tous mois</div>
+      <div className="ig-noprint" style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
+        <input value={recherche} onChange={(e)=>setRecherche(e.target.value)} placeholder="Rechercher un salarié / poste…" style={{minWidth:200}} />
+        <select value={filtreMois} onChange={(e)=>setFiltreMois(e.target.value)}>
+          <option value="">Tous les mois</option>
+          {moisDisponibles.map((m) => (<option key={m} value={m}>{m}</option>))}
+        </select>
+        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setFiltresValeurs({})}>✕ Réinitialiser les filtres</button>}
+        <button className="ig-btn ig-btn-ghost" onClick={()=>exporterRecapExtrasRH(filtres, filtreMois || `${resto}-${unite}`, `Extras_${resto}_${unite}_${filtreMois || "historique"}.xlsx`)}>⬇ Export (xlsx)</button>
+      </div>
+      <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>
+        {filtres.length} extra{filtres.length>1?'s':''} · {totaux.heures}h validées · {fmtEuro(totaux.primeNet)} net
+      </div>
+      {filtres.length === 0 ? <div className="ig-muted">Aucun extra ne correspond.</div> : (
+        <div style={{overflowX:'auto',maxHeight:480,overflowY:'auto'}}>
+          <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
+            <thead style={{position:'sticky',top:0,background:'var(--sand)'}}>
+              <tr style={{textAlign:'left'}}>
+                {EXTRAS_HISTORIQUE_COLONNES.map((c) => entete(c))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtres.map((x) => (
+                <tr key={x.id} style={{borderTop:'1px solid var(--sand-2)'}}>
+                  {EXTRAS_HISTORIQUE_COLONNES.map((c) => (
+                    <td key={c.cle} style={{padding:'6px 8px'}}>{(c.aff || c.valeur)(x)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
-  const [restoActif, setRestoActif] = useState(estSuperviseur ? null : scopes[0].resto);
-  const [uniteActive, setUniteActive] = useState(estSuperviseur ? null : scopes[0].unite);
+  // Un compte directeur/chef peut avoir accès à plusieurs établissements (ex : Pablo Saint
+  // Barth ET Pablo) : dans ce cas il choisit lequel ouvrir, au lieu de toujours atterrir sur
+  // le premier de la liste (bug corrigé ici — avant, "scopes[0]" était pris sans condition).
+  const plusieursScopes = scopes.length > 1;
+  const [restoActif, setRestoActif] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].resto);
+  const [uniteActive, setUniteActive] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].unite);
+  const [gestionAcces, setGestionAcces] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [compteursRH, setCompteursRH] = useState({}); // effectif réel par établissement (rh_salaries)
+  // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
+  // est la première ; d'autres sections viendront s'ajouter à côté par la suite.
+  const [sousSection, setSousSection] = useState(null);
+  const SOUS_SECTIONS_RH = [
+    { cle: "registre", label: "Registre embauche" },
+    { cle: "repos_hebdo", label: "Repos hebdo non pris" },
+    { cle: "extras", label: "Extras" },
+    { cle: "planning", label: "Planning" },
+  ];
+
+  useEffect(() => {
+    let on = true;
+    RhSalaries.compterParResto().then((c) => { if (on) setCompteursRH(c); });
+    return () => { on = false; };
+  }, [refreshKey]);
+
+  // Rattrapage en un clic : va chercher dans le Google Sheet les salariés déjà onboardés
+  // mais jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique),
+  // et les crée en base. Ne touche jamais aux fiches déjà existantes. Scopé sur l'établissement
+  // actif quand on en a choisi un (évite d'importer les autres établissements en même temps).
+  async function importerDepuisSheet() {
+    if (importBusy) return;
+    setImportBusy(true); setImportMsg("");
+    const r = await RhSheetSync.importerTout(restoActif || undefined);
+    setImportBusy(false);
+    if (!r.ok) { setImportMsg(`Échec de l'import : ${r.erreur || "erreur inconnue"}`); return; }
+    const morceaux = [];
+    if (r.importes > 0) morceaux.push(`${r.importes} nouvelle${r.importes>1?'s':''} fiche${r.importes>1?'s':''}`);
+    if (r.completes > 0) morceaux.push(`${r.completes} fiche${r.completes>1?'s':''} complétée${r.completes>1?'s':''} (dates/heures manquantes)`);
+    setImportMsg(morceaux.length > 0 ? `Import terminé : ${morceaux.join(", ")}.` : "Rien à importer : tout est déjà à jour.");
+    setRefreshKey((k) => k + 1);
+  }
 
   if (estSuperviseur && !restoActif) {
-    return <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={()=>{}} />;
+    return (
+      <>
+        <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:10,alignItems:'center'}}>
+          {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
+        </div>
+        <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} />
+        {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
+      </>
+    );
+  }
+
+  // Directeur/chef avec accès à plusieurs établissements : écran de choix (même esprit que
+  // le RestoPicker du superviseur), limité aux seuls établissements/unités accordés.
+  if (!estSuperviseur && plusieursScopes && !restoActif) {
+    return (
+      <div>
+        <div className="ig-eyebrow">Espace RH</div>
+        <h2 className="ig-section-title">Choisissez un établissement</h2>
+        <p className="ig-muted">Vous avez accès à {scopes.length} établissements.</p>
+        <div className="ig-resto-grid">
+          {scopes.map((s, i) => (
+            <button key={i} className="ig-resto" onClick={()=>{ setRestoActif(s.resto); setUniteActive(s.unite); }}>
+              <div><div className="nm">{s.resto}</div><div className="ig-muted" style={{fontSize:12}}>{s.unite}</div></div>
+              <Icon.Chevron />
+            </button>
+          ))}
+        </div>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion} style={{marginTop:14}}>Déconnexion</button>
+      </div>
+    );
   }
 
   return (
     <div>
       <div className="ig-noprint" style={{display:'flex',alignItems:'center',gap:14,marginBottom:14,flexWrap:'wrap'}}>
-        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={estSuperviseur ? ()=>setRestoActif(null) : onBack}><Icon.Back/> {estSuperviseur ? "Établissements" : "Retour"}</button>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{
+          if (sousSection) { setSousSection(null); return; }
+          if (estSuperviseur || plusieursScopes) setRestoActif(null); else onBack();
+        }}><Icon.Back/> {sousSection ? "Sections" : ((estSuperviseur || plusieursScopes) ? "Établissements" : "Retour")}</button>
         <div>
           <div className="ig-eyebrow" style={{margin:0}}>Espace RH{estSuperviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{restoActif}</h2>
         </div>
-        {estSuperviseur && (
-          <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+        {estSuperviseur && sousSection && sousSection !== "planning" && (
+          <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
+            {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
             <button className={"ig-btn ig-btn-sm "+(uniteActive==='SALLE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('SALLE')}>Salle</button>
             <button className={"ig-btn ig-btn-sm "+(uniteActive==='CUISINE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('CUISINE')}>Cuisine</button>
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
           </div>
         )}
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onDeconnexion}>Déconnexion</button>
       </div>
-      <ListeSalariesRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      {!sousSection ? (
+        <div>
+          <div className="ig-eyebrow">Étape 2</div>
+          <h2 className="ig-section-title">Choisissez une section</h2>
+          <p className="ig-muted">{SOUS_SECTIONS_RH.length} section{SOUS_SECTIONS_RH.length>1?'s':''} pour {restoActif}.</p>
+          <div className="ig-resto-grid">
+            {SOUS_SECTIONS_RH.map((s) => (
+              <button key={s.cle} className="ig-resto" onClick={()=>setSousSection(s.cle)}>
+                <div><div className="nm">{s.label}</div></div>
+                <Icon.Chevron />
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : sousSection === "registre" ? (
+        <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      ) : sousSection === "repos_hebdo" ? (
+        <ReposHebdoRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      ) : sousSection === "extras" ? (
+        <ExtrasRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      ) : sousSection === "planning" && (
+        // Réutilise ManagerView telle quelle (mêmes données kv/kv_history que l'Espace
+        // manager par code partagé) : rien n'est dupliqué ni migré, donc tout l'historique
+        // déjà accompli reste intact, et les directeurs peuvent continuer à travailler sur
+        // l'Espace manager en parallèle tant que ce nouvel onglet n'est pas définitif.
+        <ManagerView resto={restoActif} superviseur={estSuperviseur} onBack={()=>setSousSection(null)} />
+      )}
+      {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
     </div>
   );
 }
 
 // ---------- Application principale ----------
 export default function App() {
-  // Lien d'onboarding public (envoyé aux nouveaux salariés) : ?onboarding=1
-  // contourne tout le reste de l'appli, aucune connexion nécessaire.
-  const [modeOnboarding] = useState(() => new URLSearchParams(window.location.search).get("onboarding") === "1");
   const [role, setRole] = useState(null);     // 'manager' | 'salarie' | 'rh'
   const [askCode, setAskCode] = useState(false);
   const [askRH, setAskRH] = useState(false);
@@ -3983,9 +4933,6 @@ export default function App() {
   // Accès étendu (export PayFit, validations à la place du salarié, forcer le modèle...),
   // réservé à Océane. Mémorisé sur cet appareil pour ne pas retaper le code à chaque visite.
   const [superviseur, setSuperviseur] = useState(() => localStorage.getItem("ig_superviseur") === "1");
-  // Établissement imposé par un code d'accès resto-spécifique (le directeur ne voit que
-  // celui-ci, jamais le sélecteur). Mémorisé sur cet appareil comme le code superviseur.
-  const [restoImpose, setRestoImpose] = useState(() => localStorage.getItem("ig_resto_impose") || null);
 
   useEffect(() => {
     let on = true;
@@ -4016,14 +4963,11 @@ export default function App() {
     setEtabsAjoutes(next);
     Store.set(kEtablissements, next);
   }
-
   function reset() { setRole(null); setAskCode(false); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); }
   async function deconnexion() {
     await supabase.auth.signOut();
     localStorage.removeItem("ig_superviseur");
-    localStorage.removeItem("ig_resto_impose");
     setSuperviseur(false);
-    setRestoImpose(null);
     reset();
   }
   async function deconnexionRH() {
@@ -4032,17 +4976,13 @@ export default function App() {
   }
 
   let content;
-  if (modeOnboarding) {
-    content = <OnboardingForm restaurants={restaurants} />;
-  } else if (askCode) {
-    content = <CodeGate onOk={(estSuperviseur, restoCode)=>{
+  if (askCode) {
+    content = <CodeGate onOk={(estSuperviseur)=>{
       setAskCode(false);
       setRole('manager');
       setSuperviseur(estSuperviseur);
       if (estSuperviseur) localStorage.setItem("ig_superviseur", "1");
       else localStorage.removeItem("ig_superviseur");
-      if (restoCode) { setResto(restoCode); setRestoImpose(restoCode); localStorage.setItem("ig_resto_impose", restoCode); }
-      else { setRestoImpose(null); localStorage.removeItem("ig_resto_impose"); }
     }} onCancel={()=>setAskCode(false)} />;
   } else if (askRH) {
     content = <RHLoginForm onOk={(acces)=>{ setAskRH(false); setRole('rh'); setRhAcces(acces); }} onCancel={()=>setAskRH(false)} />;
@@ -4050,14 +4990,14 @@ export default function App() {
     content = (
       <div className="ig-hero ig-hero-bg ig-fullbleed" style={{textAlign:'center',padding:'40px 20px',backgroundImage:`url(${fondAccueil})`}}>
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14,marginBottom:36}}>
-          <svg width="84" height="84" viewBox="0 0 64 64" aria-label="Indie Group">
-            <rect width="64" height="64" rx="14" fill="#111111"/>
-            <text x="32" y="33" textAnchor="middle" dominantBaseline="central" fontFamily="'Inter',system-ui,sans-serif" fontWeight="800" fontSize="31" letterSpacing="-1.5" fill="#ffffff">IG</text>
-          </svg>
-          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:700,fontSize:30,letterSpacing:'-.5px',color:'#fff'}}>Indie Group RH</div>
+          <img src="/logo-ig-rond.png" alt="Indie Group" width={84} height={84} style={{borderRadius:18}} />
+          <div style={{background:'#fff',borderRadius:12,padding:'10px 20px',display:'inline-flex'}}>
+            <img src="/logo-indie-group.png" alt="Indie Group" style={{height:28,display:'block'}} />
+          </div>
+          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:600,fontSize:16,letterSpacing:'.5px',color:'rgba(255,255,255,.85)'}}>RH</div>
         </div>
         <div className="ig-roles" style={{width:'100%',maxWidth:720,margin:0}}>
-          <button className="ig-role" onClick={()=> { if (session) { setRole('manager'); if (restoImpose) setResto(restoImpose); } else setAskCode(true); }} style={{textAlign:'center'}}>
+          <button className="ig-role" onClick={()=> session ? setRole('manager') : setAskCode(true)} style={{textAlign:'center'}}>
             <div className="ig-ic" style={{background:'var(--ink)',color:'var(--sand)',margin:'0 auto 16px'}}><Icon.Shield/></div>
             <h3 style={{margin:0}}>Je suis manager</h3>
           </button>
@@ -4072,16 +5012,12 @@ export default function App() {
         </div>
       </div>
     );
-  } else if (role === "manager" && restoImpose) {
-    // Code d'accès resto-spécifique : jamais de sélecteur, jamais de retour vers un autre
-    // établissement — seule la déconnexion complète permet de ressaisir un autre code.
-    content = <ManagerView resto={restoImpose} onBack={deconnexion} superviseur={false} onBackLabel="Déconnexion" />;
   } else if (role === "manager" && !resto) {
-    content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} superviseur={superviseur} />;
+    content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} />;
   } else if (role === "manager") {
     content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "rh") {
-    content = <EspaceRH acces={rhAcces} restaurants={restaurants} onBack={reset} onDeconnexion={deconnexionRH} />;
+    content = <EspaceRH acces={rhAcces} restaurants={restaurants} onAjouterEtablissement={ajouterEtablissement} onBack={reset} onDeconnexion={deconnexionRH} />;
   } else if (role === "salarie" && !emp) {
     content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setRole(null)} />;
   } else {
@@ -4093,8 +5029,9 @@ export default function App() {
       <style>{CSS}</style>
       <div className="ig-topbar ig-noprint">
         <div className="ig-wrap">
-          <button className="ig-brand" style={{background:'none',border:'none',color:'inherit',cursor:'pointer',padding:0}} onClick={reset}>
-            🌊 Indie Group RH
+          <button className="ig-brand" style={{background:'none',border:'none',color:'inherit',cursor:'pointer',padding:0,display:'inline-flex',alignItems:'center',gap:8}} onClick={reset}>
+            <img src="/logo-ig-rond.png" alt="" width={24} height={24} style={{borderRadius:6}} />
+            Indie Group RH
           </button>
           {role && (
             <div className="ig-tag">
@@ -4110,7 +5047,7 @@ export default function App() {
           )}
         </div>
       </div>
-      <div className="ig-wrap" style={{paddingTop:24,paddingBottom:60}}>
+      <div className={"ig-wrap" + (role === "rh" ? " ig-wrap-rh" : "")} style={{paddingTop:24,paddingBottom:60}}>
         {content}
       </div>
     </div>
