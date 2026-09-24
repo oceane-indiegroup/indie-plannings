@@ -4990,11 +4990,11 @@ export default function App() {
     content = (
       <div className="ig-hero ig-hero-bg ig-fullbleed" style={{textAlign:'center',padding:'40px 20px',backgroundImage:`url(${fondAccueil})`}}>
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14,marginBottom:36}}>
-          <img src="/logo-ig-rond.png" alt="Indie Group" width={84} height={84} style={{borderRadius:18}} />
-          <div style={{background:'#fff',borderRadius:12,padding:'10px 20px',display:'inline-flex'}}>
-            <img src="/logo-indie-group.png" alt="Indie Group" style={{height:28,display:'block'}} />
-          </div>
-          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:600,fontSize:16,letterSpacing:'.5px',color:'rgba(255,255,255,.85)'}}>RH</div>
+          <svg width="84" height="84" viewBox="0 0 64 64" aria-label="Indie Group">
+            <rect width="64" height="64" rx="14" fill="#111111"/>
+            <text x="32" y="33" textAnchor="middle" dominantBaseline="central" fontFamily="'Inter',system-ui,sans-serif" fontWeight="800" fontSize="31" letterSpacing="-1.5" fill="#ffffff">IG</text>
+          </svg>
+          <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:700,fontSize:30,letterSpacing:'-.5px',color:'#fff'}}>Indie Group RH</div>
         </div>
         <div className="ig-roles" style={{width:'100%',maxWidth:720,margin:0}}>
           <button className="ig-role" onClick={()=> session ? setRole('manager') : setAskCode(true)} style={{textAlign:'center'}}>
@@ -5029,9 +5029,8 @@ export default function App() {
       <style>{CSS}</style>
       <div className="ig-topbar ig-noprint">
         <div className="ig-wrap">
-          <button className="ig-brand" style={{background:'none',border:'none',color:'inherit',cursor:'pointer',padding:0,display:'inline-flex',alignItems:'center',gap:8}} onClick={reset}>
-            <img src="/logo-ig-rond.png" alt="" width={24} height={24} style={{borderRadius:6}} />
-            Indie Group RH
+          <button className="ig-brand" style={{background:'none',border:'none',color:'inherit',cursor:'pointer',padding:0}} onClick={reset}>
+            🌊 Indie Group RH
           </button>
           {role && (
             <div className="ig-tag">
