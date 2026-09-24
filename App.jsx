@@ -297,13 +297,42 @@ function construireDocument(titre, corpsHTML, styles) {
 // sans casser la mesure, on le met dans une enveloppe "height:0; overflow:hidden" : le
 // conteneur lui-même reste en flux normal (donc mesuré normalement), seul son rendu visuel
 // est masqué par l'enveloppe.
+// Police + couleur de base utilisées par tous les documents imprimés (construireDocument) —
+// dupliquées ici (au lieu d'être partagées) car construireDocument s'exécute dans une AUTRE
+// fenêtre/document (celle ouverte par window.open), qui charge Google Fonts elle-même dans
+// son propre <head> ; ici, le rendu se fait dans LA page de l'appli, qui ne charge pas cette
+// police par défaut — sans ça, html2canvas capture le texte dans la police par défaut du
+// navigateur (serif) au lieu de la police utilisée partout ailleurs dans l'appli.
+let polirePDFChargee = false;
+async function chargerPolicePDF() {
+  if (polirePDFChargee) return;
+  if (!document.querySelector('link[data-police-pdf]')) {
+    const lien = document.createElement("link");
+    lien.rel = "stylesheet";
+    lien.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap";
+    lien.setAttribute("data-police-pdf", "1");
+    document.head.appendChild(lien);
+  }
+  try {
+    await Promise.all([
+      document.fonts.load("400 14px Inter"),
+      document.fonts.load("700 14px Inter"),
+    ]);
+    await document.fonts.ready;
+  } catch { /* au pire, repli sur une police système — pas bloquant */ }
+  polirePDFChargee = true;
+}
+
 async function genererPDFBase64(corpsHTML, styles) {
+  await chargerPolicePDF();
   const enveloppe = document.createElement("div");
   enveloppe.style.height = "0";
   enveloppe.style.overflow = "hidden";
   const conteneur = document.createElement("div");
   conteneur.style.width = "190mm"; // largeur imprimable d'une page A4 (210mm - 2x10mm de marge)
   conteneur.style.background = "#fff";
+  conteneur.style.fontFamily = "'Inter', system-ui, sans-serif";
+  conteneur.style.color = "#15303B";
   conteneur.innerHTML = `<style>${styles}</style><div style="padding:24px">${corpsHTML}</div>`;
   enveloppe.appendChild(conteneur);
   document.body.appendChild(enveloppe);
