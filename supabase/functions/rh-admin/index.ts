@@ -127,8 +127,8 @@ Deno.serve(async (req) => {
       if (!SMTP_USER || !SMTP_PASSWORD) {
         return json({ error: "smtp_non_configure", detail: "SMTP_USER / SMTP_PASSWORD manquants dans les secrets de la fonction rh-admin." }, 500);
       }
-      const { to, sujet, html, texte } = corps;
-      if (!to || !sujet || !html) return json({ error: "champs_manquants" }, 400);
+      const { to, sujet, html, texte, pdfBase64, nomFichier } = corps;
+      if (!to || !sujet || (!html && !texte)) return json({ error: "champs_manquants" }, 400);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(to))) return json({ error: "email_invalide" }, 400);
 
       // "encodeLB: true" corrige un bug connu de denomailer où les sauts de ligne mal
@@ -149,7 +149,19 @@ Deno.serve(async (req) => {
           to: String(to),
           subject: String(sujet),
           content: String(texte || " "),
-          html: String(html),
+          ...(html ? { html: String(html) } : {}),
+          // Pièce jointe (ex : la promesse d'embauche en PDF, générée côté navigateur puis
+          // envoyée ici en base64). "encoding: base64" : denomailer la reconvertit lui-même
+          // en binaire, il ne faut donc jamais lui donner un fichier déjà en base64 "pour de
+          // vrai" (texte binaire brut) sous cet encodage — voir sa documentation.
+          ...(pdfBase64 ? {
+            attachments: [{
+              filename: String(nomFichier || "document.pdf"),
+              contentType: "application/pdf",
+              encoding: "base64" as const,
+              content: String(pdfBase64),
+            }],
+          } : {}),
         });
       } catch (e) {
         return json({ error: "envoi_echoue", detail: String((e as Error)?.message || e) }, 500);
