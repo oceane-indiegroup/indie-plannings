@@ -4906,7 +4906,11 @@ function PrimeModal({ prime, restaurants, onSave, onClose }) {
     return () => { on = false; clearTimeout(t); };
   }, [recherche]);
   function choisirSalarie(c) {
-    setF((cur) => ({ ...cur, nom_salarie: c.nom, prenom_salarie: c.prenom || "", etablissement_origine: c.resto }));
+    // "Établissement concerné" ET "établissement d'origine" toujours basés sur l'établissement
+    // réel du salarié choisi — demande explicite d'Océane. Restent des menus déroulants
+    // modifiables ensuite pour les cas rares où la prime est portée par un autre établissement
+    // (ex : "GROUP" dans son ancien fichier), mais le point de départ est toujours le même.
+    setF((cur) => ({ ...cur, nom_salarie: c.nom, prenom_salarie: c.prenom || "", etablissement_origine: c.resto, etablissement_prime: c.resto }));
     setRecherche("");
     setResultats([]);
   }
@@ -4916,11 +4920,34 @@ function PrimeModal({ prime, restaurants, onSave, onClose }) {
       <input value={f[cle] ?? ""} onChange={(e)=>setF((cur)=>({ ...cur, [cle]: e.target.value }))} {...props} />
     </div>
   );
+  // Seule la prime unitaire NET se saisit — le reste (brut, totaux, coût employeur) se
+  // calcule automatiquement avec la même formule que pour les extras (EXTRA_NET_VERS_BRUT /
+  // EXTRA_BRUT_VERS_COUT_TOTAL), vérifiée contre l'historique réel d'Océane (ratio exact).
+  const net = Number(f.prime_unitaire_net) || 0;
+  const nombre = Number(f.nombre) || 0;
+  const brut = net * EXTRA_NET_VERS_BRUT;
+  const totalNet = net * nombre;
+  const totalBrut = brut * nombre;
+  const coutTotal = brut * EXTRA_BRUT_VERS_COUT_TOTAL * nombre;
+  const arrondi = (n) => Math.round(n * 100) / 100;
+  const champCalcule = (label, valeur) => (
+    <div className="ig-field">
+      <label>{label}</label>
+      <input value={f.prime_unitaire_net === "" ? "" : arrondi(valeur)} disabled style={{background:'var(--sand)',color:'var(--ink-2)'}} />
+    </div>
+  );
   function valider() {
     if (!f.raison.trim() || !f.nom_salarie.trim() || !f.prenom_salarie.trim()) { alert("Raison, nom et prénom sont obligatoires."); return; }
-    const patch = { ...f };
+    const netVide = f.prime_unitaire_net === "" || f.prime_unitaire_net == null;
+    const patch = {
+      ...f,
+      prime_unitaire_brut: netVide ? null : arrondi(brut),
+      prime_totale_net: netVide ? null : arrondi(totalNet),
+      prime_totale_brute: netVide ? null : arrondi(totalBrut),
+      cout_total: netVide ? null : arrondi(coutTotal),
+    };
     PRIME_CHAMPS_MAJ.forEach((c) => { if (patch[c]) patch[c] = patch[c].toUpperCase(); });
-    ["nombre","prime_unitaire_net","prime_unitaire_brut","prime_totale_net","prime_totale_brute","cout_total","annee"].forEach((c) => {
+    ["nombre","prime_unitaire_net","annee"].forEach((c) => {
       patch[c] = patch[c] === "" || patch[c] == null ? null : Number(patch[c]);
     });
     onSave(patch);
@@ -4965,10 +4992,10 @@ function PrimeModal({ prime, restaurants, onSave, onClose }) {
           {champ("Nombre de primes", "nombre", { type: "number" })}
           {champ("Statut (OK, Facture...)", "statut")}
           {champ("Prime unitaire net", "prime_unitaire_net", { type: "number" })}
-          {champ("Prime unitaire brut", "prime_unitaire_brut", { type: "number" })}
-          {champ("Prime totale net", "prime_totale_net", { type: "number" })}
-          {champ("Prime totale brute", "prime_totale_brute", { type: "number" })}
-          {champ("Coût total employeur", "cout_total", { type: "number" })}
+          {champCalcule("Prime unitaire brut (auto)", brut)}
+          {champCalcule("Prime totale net (auto)", totalNet)}
+          {champCalcule("Prime totale brute (auto)", totalBrut)}
+          {champCalcule("Coût total employeur (auto)", coutTotal)}
           {champ("Mois salaire", "mois_salaire")}
           {champ("Année", "annee", { type: "number" })}
         </div>
