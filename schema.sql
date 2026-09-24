@@ -518,6 +518,56 @@ create policy rh_documents_access on storage.objects
   );
 
 -- ============================================================================
+--  Primes — suivi des primes/régularisations à transmettre pour la paie (Payfit)
+-- ============================================================================
+--  Totalement séparé de rh_salaries : ce n'est pas une fiche salarié, juste une ligne
+--  de suivi (une prime peut concerner un salarié d'un autre établissement que celui où
+--  elle est accordée — cas fréquent, d'où les deux champs établissement séparés).
+--  Réservé au superviseur : contrairement aux autres tables RH, il n'y a AUCUNE policy
+--  "directeur_scope" ici — ni les directeurs ni les chefs n'y ont accès du tout, ni en
+--  lecture ni en écriture, quel que soit leur établissement.
+create table if not exists public.rh_primes (
+  id                      bigint generated always as identity primary key,
+  date_prime              date not null,
+  raison                  text not null,
+  etablissement_prime     text not null,
+  nom_salarie             text not null,
+  prenom_salarie          text not null,
+  etablissement_origine   text not null,
+  nombre                  numeric not null default 1,
+  prime_unitaire_net      numeric,
+  prime_unitaire_brut     numeric,
+  prime_totale_net        numeric,
+  prime_totale_brute      numeric,
+  cout_total              numeric,
+  mois_salaire            text,
+  annee                   integer,
+  statut                  text,
+  cree_le                 timestamptz not null default now(),
+  maj_le                  timestamptz not null default now()
+);
+create index if not exists rh_primes_periode_idx on public.rh_primes (annee, mois_salaire);
+
+create or replace function public.rh_primes_touch()
+returns trigger language plpgsql as $$
+begin
+  new.maj_le = now();
+  return new;
+end;
+$$;
+drop trigger if exists rh_primes_touch_trg on public.rh_primes;
+create trigger rh_primes_touch_trg before update on public.rh_primes
+  for each row execute function public.rh_primes_touch();
+
+alter table public.rh_primes enable row level security;
+
+drop policy if exists superviseur_all_primes on public.rh_primes;
+create policy superviseur_all_primes on public.rh_primes
+  for all to authenticated
+  using (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur))
+  with check (exists (select 1 from public.rh_acces a where a.user_id = auth.uid() and a.superviseur));
+
+-- ============================================================================
 --  Rappel : les comptes managers se créent dans
 --  Supabase → Authentication → Users → "Add user".
 --  Et pensez à désactiver l'inscription libre :
