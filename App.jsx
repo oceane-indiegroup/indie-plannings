@@ -523,6 +523,22 @@ const RhSheetSync = {
     if (data?.error) { console.error("RhSheetSync.upsertExtra:", data.error); return { ok: false, erreur: data.error }; }
     return { ok: true, ...data };
   },
+  // Synchronise une prime (création ou modification) vers le Sheet "Prime" — même principe
+  // que upsertExtra ci-dessus : "ligneCible" absent -> nouvelle ligne ; fourni (le numéro
+  // mémorisé dans rh_primes.sheet_ligne dès la création) -> écrit directement dessus.
+  async upsertPrime({ champs, ligneCible }) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", {
+      body: { action: "upsertPrime", champs, ligneCible },
+    });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      console.error("RhSheetSync.upsertPrime:", detail);
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) { console.error("RhSheetSync.upsertPrime:", data.error); return { ok: false, erreur: data.error }; }
+    return { ok: true, ...data };
+  },
 };
 
 // ---------- Gestion des accès RH (créer/retirer un compte directeur/chef) ----------
@@ -625,14 +641,34 @@ const RhPrimes = {
     if (error) { console.error("RhPrimes.list:", error.message); return []; }
     return data || [];
   },
+  // Crée la fiche en base PUIS ajoute la ligne correspondante dans le Google Sheet "Prime"
+  // (jamais l'inverse : sans id en base, un échec Sheet n'empêche pas au moins de garder la
+  // prime dans l'appli). Le numéro de ligne renvoyé est mémorisé (sheet_ligne) pour que
+  // toute modification ultérieure de CETTE prime écrive directement dessus, sans recherche.
   async creer(row) {
     const { data, error } = await supabase.from("rh_primes").insert(row).select().single();
     if (error) { console.error("RhPrimes.creer:", error.message); return null; }
-    return data;
+    const sync = await RhSheetSync.upsertPrime({ champs: data });
+    if (sync.ok) {
+      const { data: maj } = await supabase.from("rh_primes").update({ sheet_ligne: sync.ligne }).eq("id", data.id).select().single();
+      return maj || data;
+    }
+    console.error("RhPrimes.creer (sync Sheet):", sync.erreur);
+    return { ...data, _erreurSync: sync.erreur };
   },
   async maj(id, patch) {
     const { data, error } = await supabase.from("rh_primes").update(patch).eq("id", id).select().single();
     if (error) { console.error("RhPrimes.maj:", error.message); return null; }
+    // Si la création n'avait pas réussi à écrire dans le Sheet (sheet_ligne encore vide),
+    // une modification retente une VRAIE création de ligne (pas une écriture "dessus" qui
+    // n'aurait nulle part où écrire) — pour que le message d'erreur affiché à la création
+    // ("réessayez une modification pour resynchroniser") soit vrai.
+    const sync = await RhSheetSync.upsertPrime({ champs: data, ligneCible: data.sheet_ligne || undefined });
+    if (!sync.ok) { console.error("RhPrimes.maj (sync Sheet):", sync.erreur); return { ...data, _erreurSync: sync.erreur }; }
+    if (!data.sheet_ligne && sync.ligne) {
+      const { data: maj2 } = await supabase.from("rh_primes").update({ sheet_ligne: sync.ligne }).eq("id", id).select().single();
+      return maj2 || data;
+    }
     return data;
   },
   async supprimer(id) {
@@ -4968,12 +5004,16 @@ function PrimesRH({ restaurants, onClose }) {
   async function enregistrer(patch) {
     if (modal && modal.prime) {
       const maj = await RhPrimes.maj(modal.prime.id, patch);
-      if (maj) { setListe((l) => l.map((x) => x.id === maj.id ? maj : x)); setModal(null); }
-      else alert("La sauvegarde a échoué. Réessayez.");
+      if (maj) {
+        setListe((l) => l.map((x) => x.id === maj.id ? maj : x)); setModal(null);
+        if (maj._erreurSync) alert(`Prime enregistrée dans l'appli, mais l'écriture dans le Google Sheet a échoué : ${maj._erreurSync}. Réessayez une modification pour resynchroniser.`);
+      } else alert("La sauvegarde a échoué. Réessayez.");
     } else {
       const cree = await RhPrimes.creer(patch);
-      if (cree) { setListe((l) => [cree, ...l]); setModal(null); }
-      else alert("L'ajout a échoué. Réessayez.");
+      if (cree) {
+        setListe((l) => [cree, ...l]); setModal(null);
+        if (cree._erreurSync) alert(`Prime enregistrée dans l'appli, mais l'écriture dans le Google Sheet a échoué : ${cree._erreurSync}. Réessayez une modification pour resynchroniser.`);
+      } else alert("L'ajout a échoué. Réessayez.");
     }
   }
   async function supprimer(x) {

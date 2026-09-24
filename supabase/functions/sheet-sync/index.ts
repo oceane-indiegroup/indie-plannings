@@ -14,11 +14,20 @@
 // touche jamais à Google Drive : la création des dossiers/documents des salariés reste
 // entièrement gérée par le système Apps Script existant d'Océane.
 //
+// Gère aussi (mêmes principes) deux autres Google Sheet d'Océane, complètement séparés de
+// celui de l'onboarding : "Extra" (action "upsertExtra") et "Prime" (action "upsertPrime",
+// module réservé au superviseur) — le compte de service doit être partagé en édition sur
+// LES TROIS Sheets.
+//
 // Variables d'environnement à définir (Supabase → Edge Functions → sheet-sync → Secrets) :
 //   GOOGLE_SA_EMAIL         l'adresse du compte de service Google (créé dans Google Cloud)
 //   GOOGLE_SA_PRIVATE_KEY   sa clé privée
 //   SHEET_ID                l'identifiant du Google Sheet "onboarding" (dans son URL, après /d/)
 //   SHEET_TAB                le nom exact de l'onglet (ex: "Form_Responses1")
+//   SHEET_ID_EXTRA           l'identifiant du Google Sheet "Extra"
+//   SHEET_TAB_EXTRA          le nom exact de son onglet (défaut : "Réponses au formulaire 1")
+//   SHEET_ID_PRIME           l'identifiant du Google Sheet "Prime"
+//   SHEET_TAB_PRIME          le nom exact de son onglet (défaut : "Feuille 1")
 //   FORM_WEBHOOK_SECRET     un mot de passe inventé par vous, collé aussi dans le script Apps Script
 // SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont fournis automatiquement.
 
@@ -36,6 +45,11 @@ const SHEET_TAB = (Deno.env.get("SHEET_TAB") ?? "").trim();
 // être partagé en édition sur CE Sheet-là aussi, en plus de celui de l'onboarding.
 const SHEET_ID_EXTRA = (Deno.env.get("SHEET_ID_EXTRA") ?? "").trim();
 const SHEET_TAB_EXTRA = (Deno.env.get("SHEET_TAB_EXTRA") ?? "Réponses au formulaire 1").trim();
+// Google Sheet "Prime" d'Océane (encore différent des deux ci-dessus) : remplace le fichier
+// Excel qu'elle tenait à la main pour noter les primes/régularisations avant chaque paie.
+// Le compte de service doit être partagé en édition sur ce Sheet-là aussi.
+const SHEET_ID_PRIME = (Deno.env.get("SHEET_ID_PRIME") ?? "").trim();
+const SHEET_TAB_PRIME = (Deno.env.get("SHEET_TAB_PRIME") ?? "Feuille 1").trim();
 const FORM_WEBHOOK_SECRET = (Deno.env.get("FORM_WEBHOOK_SECRET") ?? "").trim();
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").trim();
 const SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
@@ -560,6 +574,66 @@ Deno.serve(async (req: Request) => {
         range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(colonne)}${ligneCible}`, values: [[valeur]],
       }));
       await ecrireCellules(jeton, data, SHEET_ID_EXTRA);
+
+      return json({ ok: true, ligne: ligneCible, creee: nouvelleLigne });
+    }
+
+    // ---- Synchro automatique d'une prime vers le Sheet "Prime" (SHEET_ID_PRIME) — appelée
+    // par l'appli à chaque création/modification d'une prime, module réservé au superviseur.
+    // Même principe que "upsertExtra" ci-dessus (leçon retenue de sa collision de lignes) :
+    // "ligneCible" absent -> nouvelle ligne ajoutée à la fin (création) ; fourni -> écriture
+    // directe dessus, sans recherche (modifications suivantes de cette même prime), la ligne
+    // ayant été mémorisée par l'appli (rh_primes.sheet_ligne) dès la création.
+    // Colonnes fixes (même ordre que le fichier Excel historique d'Océane) :
+    // 0 Date, 1 Raison, 2 Étab. concerné, 3 Nom, 4 Prénom, 5 Étab. origine, 6 Nbr de prime,
+    // 7 Prime unitaire net, 8 Prime unitaire brut, 9 Prime totale net, 10 Prime totale brute,
+    // 11 Prime coût total, 12 Mois salaire, 13 Année, 14 Statut.
+    if (action === "upsertPrime") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      if (!SHEET_ID_PRIME) return json({ error: "sheet_prime_non_configure" }, 500);
+
+      const { champs, ligneCible: ligneFournie } = corps;
+      const c = champs || {};
+      if (!c.date_prime || !c.raison || !c.nom_salarie || !c.prenom_salarie) return json({ error: "champs_manquants" }, 400);
+
+      const jeton = await jetonAcces();
+
+      let ligneCible: number;
+      const nouvelleLigne = !ligneFournie;
+      if (nouvelleLigne) {
+        const grille = await lireFeuille(jeton, SHEET_ID_PRIME, SHEET_TAB_PRIME);
+        ligneCible = grille.length + 1;
+      } else {
+        ligneCible = Number(ligneFournie);
+      }
+
+      const [a, m, j] = String(c.date_prime).split("-");
+      const dateStr = `${j}/${m}/${a}`;
+      const val = (v: unknown) => (v === null || v === undefined ? "" : String(v));
+      const cellules: { colonne: number; valeur: string }[] = [
+        { colonne: 0, valeur: dateStr },
+        { colonne: 1, valeur: val(c.raison) },
+        { colonne: 2, valeur: val(c.etablissement_prime) },
+        { colonne: 3, valeur: val(c.nom_salarie) },
+        { colonne: 4, valeur: val(c.prenom_salarie) },
+        { colonne: 5, valeur: val(c.etablissement_origine) },
+        { colonne: 6, valeur: val(c.nombre) },
+        { colonne: 7, valeur: val(c.prime_unitaire_net) },
+        { colonne: 8, valeur: val(c.prime_unitaire_brut) },
+        { colonne: 9, valeur: val(c.prime_totale_net) },
+        { colonne: 10, valeur: val(c.prime_totale_brute) },
+        { colonne: 11, valeur: val(c.cout_total) },
+        { colonne: 12, valeur: val(c.mois_salaire) },
+        { colonne: 13, valeur: val(c.annee) },
+        { colonne: 14, valeur: val(c.statut) },
+      ];
+
+      const data = cellules.map(({ colonne, valeur }) => ({
+        range: `'${SHEET_TAB_PRIME}'!${indexVersLettre(colonne)}${ligneCible}`, values: [[valeur]],
+      }));
+      await ecrireCellules(jeton, data, SHEET_ID_PRIME);
 
       return json({ ok: true, ligne: ligneCible, creee: nouvelleLigne });
     }

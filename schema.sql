@@ -548,6 +548,11 @@ create table if not exists public.rh_primes (
 );
 create index if not exists rh_primes_periode_idx on public.rh_primes (annee, mois_salaire);
 
+-- Numéro de ligne dans le Google Sheet "Prime" d'Océane, fixé une fois pour toutes à la
+-- création (même principe que rh_extras.sheet_ligne, qui a corrigé une collision de lignes
+-- sur ce Sheet-là) : chaque prime garde SA ligne, jamais retrouvée par recherche nom+date.
+alter table public.rh_primes add column if not exists sheet_ligne integer;
+
 create or replace function public.rh_primes_touch()
 returns trigger language plpgsql as $$
 begin
