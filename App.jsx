@@ -4806,6 +4806,11 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     { cle: "repos_hebdo", label: "Repos hebdo non pris" },
     { cle: "extras", label: "Extras" },
     { cle: "planning", label: "Planning" },
+    // Outil externe de gestion des pourboires, propre à Pablo (salle uniquement) — un clic
+    // ouvre directement l'outil dans un nouvel onglet, rien n'est intégré/dupliqué ici.
+    ...(restoActif === "PABLO" && uniteActive === "SALLE"
+      ? [{ cle: "tips", label: "Tips", externe: "https://tips-pablo-app.vercel.app/" }]
+      : []),
   ];
 
   useEffect(() => {
@@ -4895,7 +4900,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
           <p className="ig-muted">{SOUS_SECTIONS_RH.length} section{SOUS_SECTIONS_RH.length>1?'s':''} pour {restoActif}.</p>
           <div className="ig-resto-grid">
             {SOUS_SECTIONS_RH.map((s) => (
-              <button key={s.cle} className="ig-resto" onClick={()=>setSousSection(s.cle)}>
+              <button key={s.cle} className="ig-resto" onClick={()=> s.externe ? window.open(s.externe, "_blank", "noopener,noreferrer") : setSousSection(s.cle)}>
                 <div><div className="nm">{s.label}</div></div>
                 <Icon.Chevron />
               </button>
