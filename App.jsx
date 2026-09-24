@@ -326,6 +326,24 @@ async function chargerPolicePDF() {
   polirePDFChargee = true;
 }
 
+// html2pdf.js ignore TOUJOURS la largeur du conteneur qu'on lui donne : en interne (voir son
+// code source, Worker.prototype.toContainer), il clone le contenu dans SON PROPRE conteneur,
+// forcé à la largeur imprimable de la page (ici 190mm), quoi qu'on mette sur l'élément d'origine.
+// Or ce conteneur est ensuite capturé en pixels (96px = 1 pouce, la convention CSS standard)
+// puis réinjecté dans le PDF à sa taille physique réelle (190mm) SANS AUCUN redimensionnement —
+// alors que le PDF obtenu par "Imprimer > Enregistrer en PDF" du navigateur (imprimerDocument)
+// n'applique PAS cette conversion : Chrome y transpose directement chaque valeur en px de la
+// feuille de style en points PDF (1px → 1pt), qui sont 96/72 = 1,33 fois plus grands qu'un px
+// physique. Résultat vérifié : à styles identiques, le texte du PDF joint à l'email ressort
+// visiblement plus petit/tassé que celui de l'impression, sans remplir la page correctement.
+// On corrige en agrandissant toutes les valeurs en px de la feuille de style (polices, marges,
+// interlignage compris) de ce même facteur 96/72 avant de les donner à html2canvas — pour un
+// rendu final à l'identique de l'impression, vérifié à la main avant de livrer ce correctif.
+const ECHELLE_PDF = 96 / 72;
+function stylesEchellePDF(styles) {
+  return styles.replace(/(\d+(?:\.\d+)?)px/g, (_, n) => `${parseFloat(n) * ECHELLE_PDF}px`);
+}
+
 async function genererPDFBase64(corpsHTML, styles) {
   await chargerPolicePDF();
   const enveloppe = document.createElement("div");
@@ -336,7 +354,7 @@ async function genererPDFBase64(corpsHTML, styles) {
   conteneur.style.background = "#fff";
   conteneur.style.fontFamily = "'Inter', system-ui, sans-serif";
   conteneur.style.color = "#15303B";
-  conteneur.innerHTML = `<style>${styles}</style><div style="padding:24px">${corpsHTML}</div>`;
+  conteneur.innerHTML = `<style>${stylesEchellePDF(styles)}</style><div style="padding:${24 * ECHELLE_PDF}px">${corpsHTML}</div>`;
   enveloppe.appendChild(conteneur);
   document.body.appendChild(enveloppe);
   try {
