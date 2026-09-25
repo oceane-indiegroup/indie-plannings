@@ -9,6 +9,9 @@ const fondAccueil = "/22.jpeg";
 const CHEMIN_SALARIE = "/salarie";
 const MODE_SALARIE = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "").toLowerCase() === CHEMIN_SALARIE;
 const lienEspaceSalarie = () => window.location.origin + CHEMIN_SALARIE;
+// Formulaire Google d'onboarding (dossier d'embauche) proposé dans l'espace salarié.
+// Vide = la tuile s'affiche comme « bientôt disponible ».
+const LIEN_FORM_ONBOARDING = "https://forms.gle/pe762zytEaBqZgYF8";
 // N'utiliser QUE les fonctions d'écriture de xlsx (aoa_to_sheet, book_new, write) sur des
 // données internes à l'appli — jamais XLSX.read()/readFile() sur un fichier externe : les
 // failles connues de ce paquet concernent la lecture de fichiers xlsx non fiables.
@@ -3112,8 +3115,6 @@ function EmployeeView({ resto, emp, onBack }) {
         </div>
       </div>
 
-      {estEtablissementSBH(resto) && <MonArriveeSBH resto={resto} emp={emp} />}
-
       {prec && prec.length > 0 && prec.map((w) => (
         <div key={w.sem} className="ig-card" style={{padding:'16px 20px',marginBottom:18,border:'1.5px solid #E5A06A'}}>
           <div style={{fontWeight:700,marginBottom:4,color:'#9A4A1B'}}>Semaine du {fmtDate(w.lundi)} au {fmtDate(ajouterJours(w.lundi,6))} — à valider</div>
@@ -3392,7 +3393,75 @@ function MonArriveeSBH({ resto, emp }) {
   );
 }
 
-// Espace réduit pour un salarié pas encore dans l'équipe SBH : uniquement sa déclaration d'arrivée.
+// ---------- Espace salarié : accueil avec les modules ----------
+function EspaceSalarieAccueil({ onChoisir, onBack }) {
+  const tuiles = [
+    { id: "onboarding", emoji: "📝", titre: "Onboarding", texte: "Je remplis mon dossier d'embauche.", couleur: "var(--ink)" },
+    { id: "arrivee", emoji: "🏝️", titre: "Je prépare mon arrivée", texte: "Saint-Barth : date, heure, aéroport ou port, locomotion.", couleur: "var(--sea)" },
+    { id: "presence", emoji: "✅", titre: "Je valide ma présence", texte: "Émargement : je confirme mes jours et je signe ma semaine.", couleur: "var(--coral)" },
+  ];
+  return (
+    <div className="ig-hero" style={{maxWidth:760}}>
+      {onBack && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack} style={{marginBottom:20}}><Icon.Back/> Retour</button>}
+      <h1 className="ig-display" style={{fontFamily:"'Inter', system-ui, sans-serif",fontWeight:700,letterSpacing:'-.4px',fontSize:32,marginBottom:8}}>Espace salarié</h1>
+      <p style={{marginBottom:0}}>Que souhaitez-vous faire ?</p>
+      <div className="ig-roles" style={{gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))',margin:'22px 0'}}>
+        {tuiles.map((t) => {
+          const inactif = t.id === "onboarding" && !LIEN_FORM_ONBOARDING;
+          return (
+            <button key={t.id} className="ig-role" disabled={inactif} style={inactif ? {opacity:.55,cursor:'not-allowed'} : undefined}
+              onClick={() => {
+                if (t.id === "onboarding") window.open(LIEN_FORM_ONBOARDING, "_blank", "noopener,noreferrer");
+                else onChoisir(t.id);
+              }}>
+              <div className="ig-ic" style={{background:t.couleur,color:'#fff',fontSize:22}}>{t.emoji}</div>
+              <h3 style={{margin:'0 0 6px'}}>{t.titre}</h3>
+              <p className="ig-muted" style={{margin:0,fontSize:14}}>{inactif ? "Bientôt disponible." : t.texte}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Identification pour le module Arrivée : nom + établissement de Saint-Barth. Pas de
+// recherche dans l'effectif : les salariés de la saison (souvent onboardés via l'Espace RH)
+// n'y figurent pas toujours ; la direction les retrouve par nom.
+function ArriveeIdentify({ restaurants, onOk, onBack }) {
+  const etabs = restaurants.filter(estEtablissementSBH);
+  const [prenom, setPrenom] = useState("");
+  const [nom, setNom] = useState("");
+  const [resto, setResto] = useState(etabs.length === 1 ? etabs[0] : "");
+  const [err, setErr] = useState(false);
+  function valider() {
+    if (!prenom.trim() || !nom.trim() || !resto) { setErr(true); return; }
+    const p = prenom.trim();
+    onOk({ n: nom.trim().toUpperCase(), p: p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(), r: resto, po: "", _arriveeSeule: true });
+  }
+  const onKey = (ev) => { if (ev.key === "Enter") valider(); };
+  return (
+    <div className="ig-hero" style={{maxWidth:440}}>
+      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack} style={{marginBottom:20}}><Icon.Back/> Espace salarié</button>
+      <div className="ig-ic" style={{background:'var(--sea)',color:'#fff',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16,fontSize:22}}>🏝️</div>
+      <h1 className="ig-display" style={{fontFamily:"'Inter', system-ui, sans-serif",fontWeight:700,letterSpacing:'-.4px',fontSize:32,marginBottom:8}}>Je prépare mon arrivée</h1>
+      <p style={{marginBottom:20}}>Indiquez votre prénom, votre nom et l'établissement où vous allez travailler à Saint-Barth.</p>
+      <div className="ig-field"><label>Prénom</label><input value={prenom} autoFocus onChange={(e)=>{ setPrenom(e.target.value); setErr(false); }} onKeyDown={onKey} placeholder="Votre prénom" /></div>
+      <div className="ig-field"><label>Nom</label><input value={nom} onChange={(e)=>{ setNom(e.target.value); setErr(false); }} onKeyDown={onKey} placeholder="Votre nom" /></div>
+      <div className="ig-field">
+        <label>Établissement</label>
+        <select value={resto} onChange={(e)=>{ setResto(e.target.value); setErr(false); }}>
+          <option value="">— Choisir —</option>
+          {etabs.map((r)=>(<option key={r} value={r}>{r}</option>))}
+        </select>
+      </div>
+      {err && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:12,fontWeight:600}}>Renseignez votre prénom, votre nom et votre établissement.</div>}
+      <button className="ig-btn ig-btn-primary" onClick={valider}>Continuer</button>
+    </div>
+  );
+}
+
+// Module Arrivée : uniquement la déclaration d'arrivée du salarié.
 function ArriveeSeuleView({ resto, emp, onBack }) {
   return (
     <div style={{maxWidth:640}}>
@@ -3756,19 +3825,6 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
       )}
       {suggestions && suggestions.length === 0 && (
         <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:12,fontWeight:600}}>Aucune correspondance dans ce restaurant. Vérifiez l'orthographe ou le restaurant choisi.</div>
-      )}
-      {/* Saison à Saint-Barth : les salariés onboardés via l'Espace RH (rh_salaries) ne sont pas
-          reconnus ici (cet écran anonyme ne lit que le fichier + les ajouts du planning). Ils
-          doivent quand même pouvoir déclarer leur arrivée : la directrice les retrouve par nom. */}
-      {suggestions && estEtablissementSBH(resto) && prenom.trim() && nom.trim() && (
-        <div className="ig-card" style={{padding:'14px 16px',marginBottom:14,border:'1.5px solid var(--sea)'}}>
-          <div style={{fontWeight:700,marginBottom:4}}>🏝️ Vous arrivez à Saint-Barth pour {resto} ?</div>
-          <div className="ig-muted" style={{fontSize:13,marginBottom:10}}>Déclarez votre arrivée ici avec les nom et prénom saisis ci-dessus, même si votre planning n'est pas encore disponible.</div>
-          <button className="ig-btn ig-btn-sm" style={{background:'var(--sea)',color:'#fff'}}
-            onClick={()=>onFound({ n: nom.trim().toUpperCase(), p: prenom.trim().charAt(0).toUpperCase() + prenom.trim().slice(1).toLowerCase(), r: resto, po: "", _arriveeSeule: true })}>
-            Déclarer mon arrivée
-          </button>
-        </div>
       )}
 
       <button className="ig-btn ig-btn-primary" onClick={valider}>Valider</button>
@@ -5758,6 +5814,7 @@ export default function App() {
   const [rhAcces, setRhAcces] = useState(null); // droits RH de la personne connectée
   const [resto, setResto] = useState(null);
   const [emp, setEmp] = useState(null);
+  const [moduleSalarie, setModuleSalarie] = useState(null); // null (accueil) | 'arrivee' | 'presence'
   const [etabsAjoutes, setEtabsAjoutes] = useState([]);
   const [session, setSession] = useState(null); // session manager (Supabase Auth)
   // Accès étendu (export PayFit, validations à la place du salarié, forcer le modèle...),
@@ -5793,7 +5850,7 @@ export default function App() {
     setEtabsAjoutes(next);
     Store.set(kEtablissements, next);
   }
-  function reset() { setRole(MODE_SALARIE ? 'salarie' : null); setAskCode(false); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); }
+  function reset() { setRole(MODE_SALARIE ? 'salarie' : null); setAskCode(false); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); setModuleSalarie(null); }
   async function deconnexion() {
     await supabase.auth.signOut();
     localStorage.removeItem("ig_superviseur");
@@ -5848,10 +5905,14 @@ export default function App() {
     content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "rh") {
     content = <EspaceRH acces={rhAcces} restaurants={restaurants} onAjouterEtablissement={ajouterEtablissement} onBack={reset} onDeconnexion={deconnexionRH} />;
-  } else if (role === "salarie" && !emp) {
-    content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={MODE_SALARIE ? null : ()=>setRole(null)} />;
-  } else if (emp._arriveeSeule) {
+  } else if (!moduleSalarie) {
+    content = <EspaceSalarieAccueil onChoisir={setModuleSalarie} onBack={MODE_SALARIE ? null : ()=>setRole(null)} />;
+  } else if (moduleSalarie === "arrivee" && !emp) {
+    content = <ArriveeIdentify restaurants={restaurants} onOk={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setModuleSalarie(null)} />;
+  } else if (moduleSalarie === "arrivee") {
     content = <ArriveeSeuleView resto={resto} emp={emp} onBack={()=>{ setEmp(null); setResto(null); }} />;
+  } else if (!emp) {
+    content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setModuleSalarie(null)} />;
   } else {
     content = <EmployeeView resto={resto} emp={emp} onBack={()=>{ setEmp(null); setResto(null); }} />;
   }
