@@ -3585,14 +3585,16 @@ function recapWhatsApp(iso, liste) {
   return `🏝️ Arrivées SBH — ${titre}\n${lignes.join("\n")}`;
 }
 
-// Section « Arrivées » de l'Espace RH : l'équipe de référence (pour « sans réponse ») est
-// celle des fiches RH de la saison en cours de l'établissement.
+// Section « Arrivées » de l'Espace RH : Pablo Saint Barth et Cream sont FUSIONNÉS ici (un
+// seul et même staff à loger/récupérer sur l'île) — l'équipe de référence (pour « sans
+// réponse ») regroupe donc les fiches RH des DEUX établissements, salle et cuisine confondues.
 function ArriveesRH({ resto, superviseur }) {
   const [team, setTeam] = useState([]);
   useEffect(() => {
     let on = true;
-    RhSalaries.list(resto).then((lignes) => {
+    Promise.all(ETABLISSEMENTS_SBH.map((r) => RhSalaries.list(r))).then((listes) => {
       if (!on) return;
+      const lignes = listes.flat();
       // Même choix de saison que le planning : l'année en cours, sinon la dernière année
       // (jamais "Archives").
       const anneeCourante = String(new Date().getFullYear());
@@ -3624,25 +3626,28 @@ function ArriveesSBH({ resto, team, superviseur }) {
   const aujourdHui = dateISOLocale(new Date());
   const filtrees = useMemo(() => (liste || [])
     .filter((a) => periode === "tout" || !a.date || a.date >= aujourdHui)
-    // Uniquement l'établissement ouvert : Pablo SBH et Cream ne se mélangent pas.
-    .filter((a) => normTxt(a.resto) === normTxt(resto))
+    // Pablo Saint Barth et Cream sont fusionnés (même staff, même île) : aucun filtre par
+    // établissement ici, on affiche les arrivées des deux confondues.
     .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || (a.heure || "").localeCompare(b.heure || "")),
-  [liste, periode, resto, aujourdHui]);
+  [liste, periode, aujourdHui]);
   const parJour = useMemo(() => {
     const m = new Map();
     filtrees.forEach((a) => { const k = a.date || ""; if (!m.has(k)) m.set(k, []); m.get(k).push(a); });
     return Array.from(m.entries());
   }, [filtrees]);
 
-  // Salariés de l'établissement affiché sans réponse.
+  // Salariés des deux établissements SBH sans réponse (team est déjà la fusion des deux).
   const idNormA = (id) => normTxt(id).replace(/[^a-z0-9]+/g, " ").trim();
-  const idsRepondus = new Set((liste || []).filter((a) => normTxt(a.resto) === normTxt(resto)).map((a) => idNormA(a.id)));
+  const idsRepondus = new Set((liste || []).map((a) => idNormA(a.id)));
   const sansReponse = team.filter((e) => !idsRepondus.has(idNormA(idSalarie(e))))
     .sort((a, b) => (a.n + a.p).localeCompare(b.n + b.p));
 
   async function enregistrerPour(emp, data) {
     setEnregistrement(true);
-    await Arrivees.save(resto, idSalarie(emp), { ...data, prenom: emp.p, nom: emp.n, poste: emp.po || "", saisiParManager: true });
+    // L'arrivée se rattache au VRAI établissement du salarié (emp.r), pas à celui actuellement
+    // ouvert dans l'appli — les deux établissements SBH étant fusionnés dans cette vue, la
+    // direction peut saisir l'arrivée d'un salarié Cream depuis l'écran Pablo, ou l'inverse.
+    await Arrivees.save(emp.r || resto, idSalarie(emp), { ...data, prenom: emp.p, nom: emp.n, poste: emp.po || "", saisiParManager: true });
     setEnregistrement(false);
     setSaisie(null);
     montrerFlash(`Arrivée de ${emp.p} ${emp.n} enregistrée.`);
@@ -3686,7 +3691,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
       {flash && <div className="ig-arr-toast">{flash}</div>}
 
       <div className="ig-arr-hero">
-        <div className="ig-arr-hero-ti">🌴 Arrivées <span>{resto}</span></div>
+        <div className="ig-arr-hero-ti">🌴 Arrivées <span>{ETABLISSEMENTS_SBH.join(" & ")}</span></div>
         <p className="ig-arr-hero-txt">Toutes les arrivées déclarées par le staff : jour, heure, lieu (aéroport ou port), vol, moyen de locomotion et bagages. Appelez ou écrivez à chacun en un clic.</p>
         <div className="ig-arr-stats">
           <div className="ig-arr-stat" style={{"--c":"#3D5A98"}}><b>{totalAeroport}</b><span>✈️ à l'aéroport</span></div>
@@ -3733,7 +3738,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
                     <span className="ig-arr-lieu">{libelleLieu(a.lieu)}</span>
                   </div>
                   <div className="ig-arr-nom">{a.prenom} {a.nom}</div>
-                  {a.poste && <div className="ig-arr-poste">{a.poste}</div>}
+                  <div className="ig-arr-poste">{[a.poste, a.resto].filter(Boolean).join(" · ")}</div>
                   <dl className="ig-arr-det">
                     <dt>{port ? "⛴️ Ferry" : "🛫 Vol"}</dt><dd>{a.vol || <i>non précisé</i>}</dd>
                     <dt>📍 En provenance de</dt><dd>{a.provenance || <i>non précisé</i>}</dd>
@@ -3768,10 +3773,10 @@ function ArriveesSBH({ resto, team, superviseur }) {
         </summary>
         {sansReponse.length > 0 && (
           <>
-            <div className="ig-muted" style={{fontSize:13,margin:'4px 0 10px'}}>Salariés du registre d'embauche de {resto} qui n'ont pas encore déclaré leur arrivée. Relancez-les avec le lien, ou touchez « Saisir » pour remplir leur arrivée à leur place.</div>
+            <div className="ig-muted" style={{fontSize:13,margin:'4px 0 10px'}}>Salariés du registre d'embauche de {ETABLISSEMENTS_SBH.join(" et ")} qui n'ont pas encore déclaré leur arrivée. Relancez-les avec le lien, ou touchez « Saisir » pour remplir leur arrivée à leur place.</div>
             {sansReponse.map((e) => (
               <div key={idSalarie(e)} className="ig-arr-att-row">
-                <div><b>{e.p} {e.n}</b>{e.po && <div className="ig-muted" style={{fontSize:12}}>{e.po}</div>}</div>
+                <div><b>{e.p} {e.n}</b><div className="ig-muted" style={{fontSize:12}}>{[e.po, e.r].filter(Boolean).join(" · ")}</div></div>
                 <button onClick={() => setSaisie(e)}>✏️ Saisir</button>
               </div>
             ))}
