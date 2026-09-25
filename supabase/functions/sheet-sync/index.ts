@@ -421,6 +421,16 @@ async function formaterLigneOnboarding(jeton: string, ligne: number, colNom: num
   if (!res.ok) throw new Error("sheet_formatage_echec: " + (await res.text()));
 }
 
+// Lance un travail en arrière-plan APRÈS avoir déjà répondu à l'appelant (Apps Script), sans
+// jamais le faire attendre. "EdgeRuntime.waitUntil" (fourni par l'environnement Supabase, pas
+// par Deno standard) garantit que ce travail va bien jusqu'au bout au lieu de risquer d'être
+// coupé net dès que la réponse HTTP est envoyée.
+function enArrierePlan(promesse: Promise<unknown>) {
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt && typeof rt.waitUntil === "function") rt.waitUntil(promesse);
+}
+
 // Retrouve puis met en forme la ligne d'UNE personne dans le Sheet "onboarding" — appelée
 // après "formSubmit" (une vraie réponse au Form). Constaté à l'usage : une nouvelle réponse
 // au Form n'hérite pas toujours du format posé une fois sur toute la colonne (ça fonctionne
@@ -919,7 +929,12 @@ Deno.serve(async (req: Request) => {
           console.error("formSubmit fusion_echouee:", majRes.status, detail);
           return json({ error: "fusion_echouee", detail }, 500);
         }
-        await formaterLignePourPersonne(nom, prenom, resto);
+        // Surtout PAS de "await" ici : la mise en forme n'est qu'un détail visuel, alors que
+        // le script Apps Script d'Océane (création du dossier Drive) attend la réponse de CET
+        // appel pour continuer — la retarder en attendant la mise en forme a pu lui faire
+        // manquer l'étape Drive sur un onboarding récent. On répond donc IMMÉDIATEMENT, et le
+        // formatage se termine tranquillement derrière, sans bloquer personne.
+        enArrierePlan(formaterLignePourPersonne(nom, prenom, resto));
         return json({ ok: true, fusionne: true });
       }
 
@@ -948,7 +963,9 @@ Deno.serve(async (req: Request) => {
       // d'Océane (déclenché sur le même envoi de formulaire) : on ne le recrée pas ici,
       // pour ne jamais produire un dossier en double avec un nom légèrement différent.
 
-      await formaterLignePourPersonne(nom, prenom, resto);
+      // Pas de "await" (voir commentaire équivalent plus haut) : on répond tout de suite à
+      // Apps Script, la mise en forme se fait derrière sans retarder la création du dossier Drive.
+      enArrierePlan(formaterLignePourPersonne(nom, prenom, resto));
       return json({ ok: true });
     }
 
