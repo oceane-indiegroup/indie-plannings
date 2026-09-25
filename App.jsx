@@ -8,7 +8,9 @@ const fondAccueil = "/22.jpeg";
 // d'accès visible à l'espace manager ni à l'espace RH depuis ce lien.
 const CHEMIN_SALARIE = "/salarie";
 const MODE_SALARIE = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "").toLowerCase() === CHEMIN_SALARIE;
-const lienEspaceSalarie = () => window.location.origin + CHEMIN_SALARIE;
+// Toujours le domaine de production (public) — voir vite.config.js — sinon l'adresse courante.
+const DOMAINE_PRODUCTION = typeof __DOMAINE_PRODUCTION__ !== "undefined" ? __DOMAINE_PRODUCTION__ : "";
+const lienEspaceSalarie = () => (DOMAINE_PRODUCTION ? `https://${DOMAINE_PRODUCTION}` : window.location.origin) + CHEMIN_SALARIE;
 // Formulaire Google d'onboarding (dossier d'embauche) proposé dans l'espace salarié.
 // Vide = la tuile s'affiche comme « bientôt disponible ».
 const LIEN_FORM_ONBOARDING = "https://forms.gle/pe762zytEaBqZgYF8";
@@ -991,6 +993,15 @@ const CSS = `
 .ig-arr-hero { background:linear-gradient(135deg,#1E9E6A 0%,#2E7D86 100%); color:#fff; border-radius:22px; padding:18px 16px 16px; margin-bottom:14px; }
 .ig-arr-hero-ti { font-size:22px; font-weight:800; margin-bottom:14px; }
 .ig-arr-hero-ti span { display:block; font-size:12px; font-weight:600; letter-spacing:.6px; opacity:.85; margin-top:2px; }
+.ig-arr-hero-txt { font-size:13.5px; line-height:1.45; margin:-6px 0 14px; opacity:.95; }
+.ig-arr-aide { background:#fff; border-radius:16px; padding:12px 14px; font-size:13.5px; line-height:1.5; color:var(--ink-soft); margin-bottom:18px; border:1.5px solid var(--line); }
+.ig-arr-aide b { color:var(--ink); }
+.ig-arr-det { display:grid; grid-template-columns:auto 1fr; gap:6px 12px; margin:12px 0 0; font-size:14px; }
+.ig-arr-det dt { color:var(--ink-soft); font-weight:600; white-space:nowrap; }
+.ig-arr-det dd { margin:0; font-weight:600; min-width:0; overflow-wrap:anywhere; }
+.ig-arr-det i { font-weight:400; color:#8A97A0; }
+.ig-arr-maj { margin-top:10px; font-size:12px; color:#8A97A0; }
+.ig-arr-recap small { display:block; font-weight:500; font-size:12px; opacity:.8; margin-top:2px; }
 .ig-arr-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
 .ig-arr-stat { background:#fff; color:var(--ink); border-radius:16px; padding:12px 8px; text-align:center; text-decoration:none; border-bottom:4px solid var(--c); }
 .ig-arr-stat b { display:block; font-size:28px; line-height:1; color:var(--c); }
@@ -1023,7 +1034,7 @@ const CSS = `
 .ig-arr-actions .call { background:#E6EBF6; color:#3D5A98; }
 .ig-arr-actions .wa { background:#DCF5E7; color:#128C4B; }
 .ig-arr-suppr { margin-top:10px; background:none; border:none; color:var(--coral-d); font:600 13px 'Inter'; cursor:pointer; padding:4px 0; }
-.ig-arr-recap { width:100%; min-height:46px; border-radius:14px; border:1.5px dashed #1E9E6A; background:#E2F5EC; color:#146B48; font:700 14px 'Inter'; cursor:pointer; }
+.ig-arr-recap { width:100%; min-height:46px; padding:8px 12px; border-radius:14px; border:1.5px dashed #1E9E6A; background:#E2F5EC; color:#146B48; font:700 14px 'Inter'; cursor:pointer; }
 .ig-arr-attente { background:#fff; border-radius:20px; padding:14px 16px; border:1.5px solid #E5A06A; margin-bottom:20px; }
 .ig-arr-attente summary { list-style:none; display:flex; justify-content:space-between; align-items:center; font-weight:800; font-size:16px; cursor:pointer; min-height:32px; }
 .ig-arr-attente summary::-webkit-details-marker { display:none; }
@@ -1097,6 +1108,12 @@ const CSS = `
 .ig-field { margin:14px 0; }
 .ig-field label { display:block; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); margin-bottom:6px; }
 .ig-field input, .ig-field select { width:100%; padding:11px 12px; border:1.5px solid var(--line); border-radius:10px; font-size:15px; font-family:'Inter'; background:#fff; color:var(--ink); }
+/* iPhone (Safari) : les champs date/heure ont une apparence native qui ignore la largeur et
+   la hauteur, d'où des champs décalés/débordants — on les ramène au style des autres champs. */
+.ig-field input[type=date], .ig-field input[type=time] { -webkit-appearance:none; appearance:none; display:block; min-width:0; max-width:100%; min-height:46px; line-height:1.3; text-align:left; }
+.ig-field input[type=date]::-webkit-date-and-time-value, .ig-field input[type=time]::-webkit-date-and-time-value { text-align:left; margin:0; }
+.ig-arr-dh { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:12px; }
+.ig-arr-dh .ig-field { min-width:0; }
 .ig-field input:focus, .ig-field select:focus { outline:none; border-color:var(--sea); }
 .ig-times { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
 .ig-editbtn { background:none; border:none; cursor:pointer; color:var(--ink-soft); font-size:11px; text-decoration:underline; padding:2px; }
@@ -3344,13 +3361,13 @@ function ArriveeForm({ initial, onSave, onCancel, enregistrement }) {
         <label>Téléphone / WhatsApp *</label>
         <input type="tel" value={f.tel} onChange={maj("tel")} placeholder="+33 6 12 34 56 78" />
       </div>
-      <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
-        <div className="ig-field" style={{flex:'1 1 160px'}}>
+      <div className="ig-arr-dh">
+        <div className="ig-field">
           <label>Date d'arrivée *</label>
           <input type="date" value={f.date} min={dateISOLocale(new Date())} onChange={maj("date")} />
         </div>
-        <div className="ig-field" style={{flex:'1 1 120px'}}>
-          <label>Heure d'arrivée *</label>
+        <div className="ig-field">
+          <label>Heure *</label>
           <input type="time" value={f.heure} onChange={maj("heure")} />
         </div>
       </div>
@@ -3664,10 +3681,11 @@ function ArriveesSBH({ resto, team, superviseur }) {
 
       <div className="ig-arr-hero">
         <div className="ig-arr-hero-ti">🌴 Arrivées <span>{resto}</span></div>
+        <p className="ig-arr-hero-txt">Toutes les arrivées déclarées par le staff : jour, heure, lieu (aéroport ou port), vol, moyen de locomotion et bagages. Appelez ou écrivez à chacun en un clic.</p>
         <div className="ig-arr-stats">
-          <div className="ig-arr-stat" style={{"--c":"#3D5A98"}}><b>{totalAeroport}</b><span>✈️ Aéroport</span></div>
-          <div className="ig-arr-stat" style={{"--c":"#2E7D86"}}><b>{totalPort}</b><span>⛴️ Port</span></div>
-          <a className="ig-arr-stat" href="#ig-arr-attente" style={{"--c": sansReponse.length ? "#C8871A" : "#1E9E6A"}}><b>{sansReponse.length}</b><span>{sansReponse.length ? "⏳ Sans réponse" : "✅ Tous ont répondu"}</span></a>
+          <div className="ig-arr-stat" style={{"--c":"#3D5A98"}}><b>{totalAeroport}</b><span>✈️ à l'aéroport</span></div>
+          <div className="ig-arr-stat" style={{"--c":"#2E7D86"}}><b>{totalPort}</b><span>⛴️ au port</span></div>
+          <a className="ig-arr-stat" href="#ig-arr-attente" style={{"--c": sansReponse.length ? "#C8871A" : "#1E9E6A"}}><b>{sansReponse.length}</b><span>{sansReponse.length ? "⏳ n'ont pas répondu" : "✅ Tous ont répondu"}</span></a>
         </div>
       </div>
 
@@ -3678,6 +3696,10 @@ function ArriveesSBH({ resto, team, superviseur }) {
         </div>
         <button className="ig-arr-mini" onClick={recharger} aria-label="Actualiser">↻</button>
         <button className="ig-arr-share" onClick={partagerLien}>📤 Envoyer le lien au staff</button>
+      </div>
+      <div className="ig-arr-aide">
+        <b>Comment ça marche ?</b> Envoyez le lien au staff (WhatsApp, SMS…). Chacun ouvre « Je prépare mon arrivée » et remplit le formulaire. Sa réponse apparaît ici aussitôt, classée par jour et par heure.
+        {periode === "avenir" ? " Seules les arrivées à venir sont affichées : touchez « Toutes » pour voir aussi les passées." : ""}
       </div>
 
       {parJour.length === 0 && (
@@ -3693,7 +3715,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
             <div className="ig-arr-jour-hd">
               {et && <span className="ig-arr-badge" style={{background: et.c}}>{et.txt}</span>}
               <div className="ig-arr-jour-ti">{iso ? fmtJourLong(iso) + (iso.slice(0, 4) !== aujourdHui.slice(0, 4) ? ` ${iso.slice(0, 4)}` : "") : "Date non renseignée"}</div>
-              <div className="ig-arr-jour-ct">{nbA ? `✈️ ${nbA}` : ""}{nbA && nbP ? " · " : ""}{nbP ? `⛴️ ${nbP}` : ""}</div>
+              <div className="ig-arr-jour-ct">{jour.length} arrivée{jour.length > 1 ? "s" : ""}{nbA ? ` · ✈️ ${nbA} aéroport` : ""}{nbP ? ` · ⛴️ ${nbP} port` : ""}</div>
             </div>
             {jour.map((a) => {
               const telNum = (a.tel || "").replace(/[^\d+]/g, "");
@@ -3706,13 +3728,18 @@ function ArriveesSBH({ resto, team, superviseur }) {
                   </div>
                   <div className="ig-arr-nom">{a.prenom} {a.nom}</div>
                   {a.poste && <div className="ig-arr-poste">{a.poste}</div>}
-                  <div className="ig-arr-chips">
-                    {a.vol && <span>{port ? "⛴️" : "🛫"} {a.vol}</span>}
-                    {a.provenance && <span>📍 {a.provenance}</span>}
-                    <span>{libelleLocomotion(a.locomotion)}</span>
-                    {a.bagages !== "" && a.bagages != null && <span>🧳 {a.bagages}</span>}
+                  <dl className="ig-arr-det">
+                    <dt>{port ? "⛴️ Ferry" : "🛫 Vol"}</dt><dd>{a.vol || <i>non précisé</i>}</dd>
+                    <dt>📍 En provenance de</dt><dd>{a.provenance || <i>non précisé</i>}</dd>
+                    <dt>🚦 Sur place</dt><dd>{a.locomotion === "AUCUN" ? "Rien de réservé (à prévoir ?)" : `${libelleLocomotion(a.locomotion)} réservé${a.locomotion === "VOITURE" ? "e" : ""}`}</dd>
+                    <dt>🧳 Bagages</dt><dd>{a.bagages !== "" && a.bagages != null ? a.bagages : <i>non précisé</i>}</dd>
+                    <dt>📱 Téléphone</dt><dd>{a.tel || <i>non précisé</i>}</dd>
+                  </dl>
+                  {a.remarque && <div className="ig-arr-rq">💬 <b>Remarque :</b> {a.remarque}</div>}
+                  <div className="ig-arr-maj">
+                    {a.saisiParManager ? "✏️ Saisi par la direction" : "✅ Déclaré par le salarié"}
+                    {a.maj ? ` · mis à jour le ${new Date(a.maj).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} à ${new Date(a.maj).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}
                   </div>
-                  {a.remarque && <div className="ig-arr-rq">💬 {a.remarque}</div>}
                   {telNum && (
                     <div className="ig-arr-actions">
                       <a href={`tel:${telNum}`} className="call">📞 Appeler</a>
@@ -3723,7 +3750,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
                 </article>
               );
             })}
-            {iso && <button className="ig-arr-recap" onClick={() => copierJour(iso, jour)}>📋 Copier le récap du jour pour WhatsApp</button>}
+            {iso && <button className="ig-arr-recap" onClick={() => copierJour(iso, jour)}>📋 Copier le récap de ce jour<small>à coller dans WhatsApp (heures, noms, lieux, téléphones)</small></button>}
           </section>
         );
       })}
@@ -3735,7 +3762,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
         </summary>
         {sansReponse.length > 0 && (
           <>
-            <div className="ig-muted" style={{fontSize:13,margin:'4px 0 10px'}}>Envoyez-leur le lien, ou saisissez leur arrivée vous-même.</div>
+            <div className="ig-muted" style={{fontSize:13,margin:'4px 0 10px'}}>Salariés du registre d'embauche de {resto} qui n'ont pas encore déclaré leur arrivée. Relancez-les avec le lien, ou touchez « Saisir » pour remplir leur arrivée à leur place.</div>
             {sansReponse.map((e) => (
               <div key={idSalarie(e)} className="ig-arr-att-row">
                 <div><b>{e.p} {e.n}</b>{e.po && <div className="ig-muted" style={{fontSize:12}}>{e.po}</div>}</div>
