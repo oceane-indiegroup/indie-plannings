@@ -443,6 +443,11 @@ const Store = {
       .from("kv").upsert({ key, value }, { onConflict: "key" });
     if (error) console.error("Store.set:", key, error.message);
   },
+  async remove(key) {
+    const { error } = await supabase.from("kv").delete().eq("key", key);
+    if (error) { console.error("Store.remove:", key, error.message); return false; }
+    return true;
+  },
   // Récupère toutes les entrées dont la clé commence par un préfixe donné (ex: "extras:"),
   // pour reconstituer un historique complet sans avoir à connaître à l'avance les mois existants.
   async listByPrefix(prefix) {
@@ -882,6 +887,7 @@ const LOCOMOTIONS = [
 const Arrivees = {
   async load(resto, id) { return Store.get(kArrivee(resto, id)); },
   async save(resto, id, data) { await Store.set(kArrivee(resto, id), { ...data, resto, id, maj: new Date().toISOString() }); },
+  async remove(resto, id) { return Store.remove(kArrivee(resto, id)); },
   // Toutes les réponses de tous les établissements de SBH (la directrice récupère tout le monde).
   async listSBH() {
     const lignes = await Store.listByPrefix(PREFIXE_ARRIVEE);
@@ -2631,9 +2637,6 @@ function ManagerView({ resto, onBack, superviseur }) {
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           <button className={"ig-btn ig-btn-sm "+(vue==='planning'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('planning')}><Icon.Calendar width={16} height={16}/> Planning</button>
           <button className={"ig-btn ig-btn-sm "+(vue==='emargement'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('emargement')}><Icon.Check/> Émargement</button>
-          {estEtablissementSBH(resto) && (
-            <button className={"ig-btn ig-btn-sm "+(vue==='arrivees'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('arrivees')}>🏝️ Arrivées</button>
-          )}
         </div>
       </div>
 
@@ -2643,7 +2646,7 @@ function ManagerView({ resto, onBack, superviseur }) {
         </div>
       )}
 
-      {vue !== "extra" && vue !== "arrivees" && <WeekNav semDate={semDate} setSemDate={setSemDate} />}
+      {vue !== "extra" && <WeekNav semDate={semDate} setSemDate={setSemDate} />}
 
       {vue === "planning" && (
         <>
@@ -2785,8 +2788,6 @@ function ManagerView({ resto, onBack, superviseur }) {
           )}
         </>
       )}
-
-      {vue === "arrivees" && <ArriveesSBH resto={resto} team={team} />}
 
       {vue === "emargement" && (
         <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
@@ -3499,9 +3500,32 @@ function recapWhatsApp(iso, liste) {
   return `🏝️ Arrivées SBH — ${titre}\n${lignes.join("\n")}`;
 }
 
-// Vue manager : toutes les arrivées de Saint-Barth (tous établissements SBH confondus),
+// Section « Arrivées » de l'Espace RH : l'équipe de référence (pour « sans réponse ») est
+// celle des fiches RH de la saison en cours de l'établissement.
+function ArriveesRH({ resto, superviseur }) {
+  const [team, setTeam] = useState([]);
+  useEffect(() => {
+    let on = true;
+    RhSalaries.list(resto).then((lignes) => {
+      if (!on) return;
+      // Même choix de saison que le planning : l'année en cours, sinon la dernière année
+      // (jamais "Archives").
+      const anneeCourante = String(new Date().getFullYear());
+      const annees = [...new Set(lignes.map((l) => l.saison))].filter((x) => /^\d{4}$/.test(x)).sort();
+      const saison = annees.includes(anneeCourante) ? anneeCourante : annees[annees.length - 1];
+      const aujourdHui = dateISOLocale(new Date());
+      setTeam(lignes
+        .filter((l) => l.saison === saison && !(l.date_fin && l.date_fin < aujourdHui))
+        .map((l) => ({ n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—", u: l.unite })));
+    });
+    return () => { on = false; };
+  }, [resto]);
+  return <ArriveesSBH resto={resto} team={team} superviseur={superviseur} />;
+}
+
+// Vue direction : toutes les arrivées de Saint-Barth (tous établissements SBH confondus),
 // par jour et par heure, + les salariés de l'établissement qui n'ont pas encore répondu.
-function ArriveesSBH({ resto, team }) {
+function ArriveesSBH({ resto, team, superviseur }) {
   const [liste, setListe] = useState(null);
   const [periode, setPeriode] = useState("avenir"); // avenir | tout
   const [filtreEtab, setFiltreEtab] = useState("TOUS");
@@ -3538,6 +3562,12 @@ function ArriveesSBH({ resto, team }) {
     setEnregistrement(false);
     setSaisie(null);
     montrerFlash(`Arrivée de ${emp.p} ${emp.n} enregistrée.`);
+    recharger();
+  }
+  async function supprimer(a) {
+    if (!window.confirm(`Supprimer l'arrivée de ${a.prenom} ${a.nom} (${a.resto}) ? Cette action est définitive.`)) return;
+    const ok = await Arrivees.remove(a.resto, a.id);
+    montrerFlash(ok ? `Arrivée de ${a.prenom} ${a.nom} supprimée.` : "La suppression n'a pas fonctionné.");
     recharger();
   }
   async function copierJour(iso, jour) {
@@ -3609,6 +3639,9 @@ function ArriveesSBH({ resto, team }) {
                         <a className="ig-btn ig-btn-ghost ig-btn-sm" href={`https://wa.me/${telNum.replace(/^\+/, "")}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
                       </div>
                     )}
+                    {superviseur && (
+                      <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={() => supprimer(a)}>🗑 Supprimer</button>
+                    )}
                   </div>
                 );
               })}
@@ -3623,7 +3656,7 @@ function ArriveesSBH({ resto, team }) {
         </div>
         {sansReponse.length > 0 && (
           <>
-            <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>À relancer (ils remplissent le formulaire depuis « Je suis salarié »), ou saisissez leur arrivée vous-même.</div>
+            <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>À relancer (lien ci-dessus → « Je prépare mon arrivée »), ou saisissez leur arrivée vous-même.</div>
             <div style={{display:'flex',flexDirection:'column',gap:6}}>
               {sansReponse.map((e) => (
                 <div key={idSalarie(e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
@@ -5681,6 +5714,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     { cle: "repos_hebdo", label: "Repos hebdo non pris" },
     { cle: "extras", label: "Extras" },
     { cle: "planning", label: "Planning" },
+    // Arrivées du staff à Saint-Barth (la directrice va chercher chacun à l'aéroport/au port).
+    ...(estEtablissementSBH(restoActif) ? [{ cle: "arrivees", label: "Arrivées" }] : []),
     // Primes/régularisations à transmettre pour la paie — réservé au superviseur (jamais
     // visible des directeurs/chefs), un module par établissement comme "Repos hebdo non pris".
     ...(estSuperviseur ? [{ cle: "primes", label: "Primes" }] : []),
@@ -5760,7 +5795,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
           <div className="ig-eyebrow" style={{margin:0}}>Espace RH{estSuperviseur && <span style={{marginLeft:8,padding:'2px 8px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10,letterSpacing:'.5px'}}>SUPERVISEUR</span>}</div>
           <h2 className="ig-section-title">{restoActif}</h2>
         </div>
-        {estSuperviseur && sousSection && sousSection !== "planning" && sousSection !== "primes" && (
+        {estSuperviseur && sousSection && sousSection !== "planning" && sousSection !== "primes" && sousSection !== "arrivees" && (
           <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
             {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
             <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
@@ -5791,6 +5826,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
         <ReposHebdoRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
       ) : sousSection === "extras" ? (
         <ExtrasRH resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} />
+      ) : sousSection === "arrivees" ? (
+        <ArriveesRH resto={restoActif} superviseur={estSuperviseur} />
       ) : sousSection === "primes" ? (
         <PrimesRH resto={restoActif} restaurants={restaurants} superviseur={estSuperviseur} />
       ) : sousSection === "planning" && (
