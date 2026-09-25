@@ -2154,6 +2154,12 @@ function ManagerView({ resto, onBack, superviseur }) {
   // Équipe effective : salariés du fichier + ajouts manuels + salariés RH (bornés par leur
   // contrat), moins ceux dont le contrat est terminé.
   const team = useMemo(() => {
+    // "sem" (cleSemaine) est volontairement décalée d'un jour par le bug de fuseau horaire
+    // documenté sur cleSemaine() — bon pour une clé de stockage (compatibilité historique),
+    // mais faux pour comparer une vraie date de contrat : un salarié dont le contrat commence
+    // PILE le lundi affiché se retrouvait exclu (sem < date_debut à tort, sem étant calée sur
+    // le dimanche). "semReelle" est la vraie date calendaire du lundi, sans ce décalage.
+    const semReelle = dateISOLocale(lundiDeLaSemaine(semDate));
     const base = EMPLOYEES.filter((e) => e.r === resto);
     const ajouts = roster.ajouts || [];
     // Comparaison de la même personne entre ajout manuel / fiche RH / fichier tolérante à la
@@ -2168,8 +2174,8 @@ function ManagerView({ resto, onBack, superviseur }) {
     // ses heures/poste dans Planning sans attendre une mise à jour de la fiche RH).
     const rhActifs = rhTeam.filter((e) => {
       if (ajoutIds.has(idNorm(e))) return false;
-      if (e._rhDebut && sem < e._rhDebut) return false; // contrat pas encore commencé cette semaine
-      if (e._rhFin && sem > e._rhFin) return false; // contrat terminé avant cette semaine
+      if (e._rhDebut && semReelle < e._rhDebut) return false; // contrat pas encore commencé cette semaine
+      if (e._rhFin && semReelle > e._rhFin) return false; // contrat terminé avant cette semaine
       return true;
     });
     const rhIds = new Set(rhActifs.map((e) => idNorm(e)));
@@ -2179,13 +2185,13 @@ function ManagerView({ resto, onBack, superviseur }) {
     const supprimes = new Set(roster.supprimes || []);
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
-      if (e._debut && sem < e._debut) return false; // ajout manuel : contrat pas encore commencé cette semaine
+      if (e._debut && semReelle < e._debut) return false; // ajout manuel : contrat pas encore commencé cette semaine
       const fin = (roster.departs || {})[idSalarie(e)];
       // fin = date de fin de contrat (AAAA-MM-JJ). Visible tant que le lundi de la
       // semaine affichée est <= date de fin ; masqué pour les semaines entièrement après.
-      return !fin || sem <= fin;
+      return !fin || semReelle <= fin;
     });
-  }, [resto, roster, sem, rhTeam]);
+  }, [resto, roster, sem, semDate, rhTeam]);
 
   // Équipe filtrée par la recherche (nom/prénom) et le filtre d'unité (salle/cuisine).
   const teamFiltre = useMemo(() => {
