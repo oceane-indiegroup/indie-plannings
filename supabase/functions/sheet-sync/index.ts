@@ -374,6 +374,53 @@ async function ajouterLignesFormulaire(jeton: string, sheetId: string, tab: stri
   if (!res.ok) throw new Error("sheet_ajout_lignes_echec: " + (await res.text()));
 }
 
+// Identifiant interne (gid, un nombre) d'un onglet, requis par les requêtes de MISE EN FORME
+// (repeatCell) — différent de son nom. Une ligne appelée par l'appli via l'API n'hérite
+// JAMAIS automatiquement du format des colonnes (contrairement à une vraie réponse de Google
+// Form, que Google Sheets met en forme tout seul) : il faut donc le faire explicitement.
+async function idOnglet(jeton: string, sheetId: string, tab: string): Promise<number> {
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties`, {
+    headers: { Authorization: `Bearer ${jeton}` },
+  });
+  if (!res.ok) throw new Error("sheet_metadata_echec: " + (await res.text()));
+  const j = await res.json();
+  const onglet = (j.sheets || []).find((s: { properties: { title: string; sheetId: number } }) => s.properties.title === tab);
+  if (!onglet) throw new Error(`onglet_introuvable: "${tab}"`);
+  return onglet.properties.sheetId;
+}
+
+// Met en forme une ligne nouvellement créée par l'appli dans le Sheet "onboarding" : toutes
+// ses colonnes centrées horizontalement, et sa colonne NOM en police 14 (demande d'Océane,
+// pour que les fiches créées par l'appli aient exactement le même rendu que celles arrivées
+// par une vraie réponse au Form).
+async function formaterLigneOnboarding(jeton: string, ligne: number, colNom: number | undefined, nbColonnes: number) {
+  const gid = await idOnglet(jeton, SHEET_ID, SHEET_TAB);
+  const requetes: unknown[] = [
+    {
+      repeatCell: {
+        range: { sheetId: gid, startRowIndex: ligne - 1, endRowIndex: ligne, startColumnIndex: 0, endColumnIndex: Math.max(nbColonnes, 1) },
+        cell: { userEnteredFormat: { horizontalAlignment: "CENTER" } },
+        fields: "userEnteredFormat.horizontalAlignment",
+      },
+    },
+  ];
+  if (colNom !== undefined) {
+    requetes.push({
+      repeatCell: {
+        range: { sheetId: gid, startRowIndex: ligne - 1, endRowIndex: ligne, startColumnIndex: colNom, endColumnIndex: colNom + 1 },
+        cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { fontSize: 14 } } },
+        fields: "userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize",
+      },
+    });
+  }
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ requests: requetes }),
+  });
+  if (!res.ok) throw new Error("sheet_formatage_echec: " + (await res.text()));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   try {
@@ -935,6 +982,18 @@ Deno.serve(async (req: Request) => {
         });
       }
       await ecrireCellules(jeton, data);
+      // Mise en forme (colonnes centrées, NOM en police 14) uniquement sur une ligne
+      // NOUVELLEMENT créée par l'appli : une vraie réponse au Form est déjà mise en forme
+      // par Google Sheets lui-même, et une ligne déjà existante garde le format qu'Océane
+      // lui a donné (on ne l'écrase jamais). N'empêche jamais la sauvegarde de la fiche en
+      // cas d'échec (ex: droits insuffisants du compte de service sur la mise en forme).
+      if (nouvelleLigne) {
+        try {
+          await formaterLigneOnboarding(jeton, ligneCible, colIndex["nom"], entetes.length);
+        } catch (e) {
+          console.error("upsertRow formatage_echoue:", e);
+        }
+      }
       return json({ ok: true, ligne: ligneCible });
     }
 
