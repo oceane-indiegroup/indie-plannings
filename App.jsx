@@ -4,6 +4,11 @@ import { supabase } from "./supabaseClient";
 // Photo de fond de l'écran d'accueil : chargée en chemin public (pas un import), pour que le
 // build ne casse jamais si le fichier est absent ou pas encore uploadé — au pire, pas de photo.
 const fondAccueil = "/22.jpeg";
+// Lien dédié aux salariés (ex : https://…/salarie) : n'ouvre QUE l'espace salarié — pas
+// d'accès visible à l'espace manager ni à l'espace RH depuis ce lien.
+const CHEMIN_SALARIE = "/salarie";
+const MODE_SALARIE = typeof window !== "undefined" && window.location.pathname.replace(/\/+$/, "").toLowerCase() === CHEMIN_SALARIE;
+const lienEspaceSalarie = () => window.location.origin + CHEMIN_SALARIE;
 // N'utiliser QUE les fonctions d'écriture de xlsx (aoa_to_sheet, book_new, write) sur des
 // données internes à l'appli — jamais XLSX.read()/readFile() sur un fichier externe : les
 // failles connues de ce paquet concernent la lecture de fichiers xlsx non fiables.
@@ -3496,6 +3501,11 @@ function ArriveesSBH({ resto, team }) {
             <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={recharger}>↻ Actualiser</button>
           </div>
         </div>
+        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginTop:12,paddingTop:12,borderTop:'1px solid var(--line)',fontSize:13}}>
+          <span className="ig-muted">Lien à envoyer au staff :</span>
+          <b style={{wordBreak:'break-all'}}>{lienEspaceSalarie()}</b>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={async () => montrerFlash((await copierTexte(lienEspaceSalarie())) ? "Lien copié." : "Copie impossible sur cet appareil.")}>📋 Copier le lien</button>
+        </div>
       </div>
 
       {parJour.length === 0 && (
@@ -3706,7 +3716,7 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
 
   return (
     <div className="ig-hero" style={{maxWidth:440}}>
-      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack} style={{marginBottom:20}}><Icon.Back/> Retour</button>
+      {onBack && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack} style={{marginBottom:20}}><Icon.Back/> Retour</button>}
       <div className="ig-ic" style={{background:'var(--coral)',color:'#fff',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16}}><Icon.User/></div>
       <h1 className="ig-display" style={{fontFamily:"'Inter', system-ui, sans-serif",fontWeight:700,letterSpacing:'-.4px',fontSize:32,marginBottom:8}}>Qui suis-je ?</h1>
       <p style={{marginBottom:20}}>Indiquez votre prénom, votre nom et votre restaurant pour accéder à votre espace.</p>
@@ -5741,7 +5751,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
 
 // ---------- Application principale ----------
 export default function App() {
-  const [role, setRole] = useState(null);     // 'manager' | 'salarie' | 'rh'
+  const [role, setRole] = useState(MODE_SALARIE ? 'salarie' : null);
+  useEffect(() => { if (MODE_SALARIE) document.title = "Indie Group · Espace salarié"; }, []);     // 'manager' | 'salarie' | 'rh'
   const [askCode, setAskCode] = useState(false);
   const [askRH, setAskRH] = useState(false);
   const [rhAcces, setRhAcces] = useState(null); // droits RH de la personne connectée
@@ -5782,7 +5793,7 @@ export default function App() {
     setEtabsAjoutes(next);
     Store.set(kEtablissements, next);
   }
-  function reset() { setRole(null); setAskCode(false); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); }
+  function reset() { setRole(MODE_SALARIE ? 'salarie' : null); setAskCode(false); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); }
   async function deconnexion() {
     await supabase.auth.signOut();
     localStorage.removeItem("ig_superviseur");
@@ -5838,7 +5849,7 @@ export default function App() {
   } else if (role === "rh") {
     content = <EspaceRH acces={rhAcces} restaurants={restaurants} onAjouterEtablissement={ajouterEtablissement} onBack={reset} onDeconnexion={deconnexionRH} />;
   } else if (role === "salarie" && !emp) {
-    content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setRole(null)} />;
+    content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={MODE_SALARIE ? null : ()=>setRole(null)} />;
   } else if (emp._arriveeSeule) {
     content = <ArriveeSeuleView resto={resto} emp={emp} onBack={()=>{ setEmp(null); setResto(null); }} />;
   } else {
@@ -5851,7 +5862,7 @@ export default function App() {
       <div className="ig-topbar ig-noprint">
         <div className="ig-wrap">
           <button className="ig-brand" style={{background:'none',border:'none',color:'inherit',cursor:'pointer',padding:0}} onClick={reset}>
-            🌊 Indie Group RH
+            🌊 Indie Group {MODE_SALARIE ? 'Salariés' : 'RH'}
           </button>
           {role && (
             <div className="ig-tag">
