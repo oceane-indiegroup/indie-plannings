@@ -3387,6 +3387,22 @@ function MonArriveeSBH({ resto, emp }) {
   );
 }
 
+// Espace réduit pour un salarié pas encore dans l'équipe SBH : uniquement sa déclaration d'arrivée.
+function ArriveeSeuleView({ resto, emp, onBack }) {
+  return (
+    <div style={{maxWidth:640}}>
+      <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:14}}>
+        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> Retour</button>
+        <div>
+          <div className="ig-eyebrow" style={{margin:0}}>Arrivée à Saint-Barth · {resto}</div>
+          <h2 className="ig-section-title">{emp.p} {emp.n}</h2>
+        </div>
+      </div>
+      <MonArriveeSBH resto={resto} emp={emp} />
+    </div>
+  );
+}
+
 async function copierTexte(texte) {
   try { await navigator.clipboard.writeText(texte); return true; }
   catch {
@@ -3437,8 +3453,9 @@ function ArriveesSBH({ resto, team }) {
   }, [filtrees]);
 
   // Salariés de l'établissement affiché sans réponse.
-  const idsRepondus = new Set((liste || []).filter((a) => a.resto === resto).map((a) => a.id));
-  const sansReponse = team.filter((e) => !idsRepondus.has(idSalarie(e)))
+  const idNormA = (id) => normTxt(id).replace(/[^a-z0-9]+/g, " ").trim();
+  const idsRepondus = new Set((liste || []).filter((a) => a.resto === resto).map((a) => idNormA(a.id)));
+  const sansReponse = team.filter((e) => !idsRepondus.has(idNormA(idSalarie(e))))
     .sort((a, b) => (a.n + a.p).localeCompare(b.n + b.p));
 
   async function enregistrerPour(emp, data) {
@@ -3502,7 +3519,7 @@ function ArriveesSBH({ resto, team }) {
                   <div key={a.resto + a.id} style={{display:'flex',gap:14,alignItems:'flex-start',padding:'10px 12px',borderRadius:12,background: a.lieu === "PORT" ? '#EAF3F3' : '#F7F2EA',flexWrap:'wrap'}}>
                     <div style={{fontWeight:800,fontSize:20,minWidth:64,fontVariantNumeric:'tabular-nums'}}>{a.heure || "--:--"}</div>
                     <div style={{flex:'1 1 220px',fontSize:14}}>
-                      <div style={{fontWeight:700,fontSize:15}}>{a.prenom} {a.nom} <span className="ig-muted" style={{fontWeight:500,fontSize:13}}>· {a.poste || "—"} · {a.resto}</span></div>
+                      <div style={{fontWeight:700,fontSize:15}}>{a.prenom} {a.nom} <span className="ig-muted" style={{fontWeight:500,fontSize:13}}>· {a.poste ? `${a.poste} · ` : ""}{a.resto}</span></div>
                       <div>{libelleLieu(a.lieu)}{a.vol ? ` · ${a.vol}` : ""}{a.provenance ? ` · depuis ${a.provenance}` : ""}</div>
                       <div>{libelleLocomotion(a.locomotion)}{a.bagages !== "" && a.bagages != null ? ` · 🧳 ${a.bagages}` : ""}</div>
                       {a.remarque && <div style={{fontStyle:'italic',marginTop:2}}>« {a.remarque} »</div>}
@@ -3729,6 +3746,19 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
       )}
       {suggestions && suggestions.length === 0 && (
         <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:12,fontWeight:600}}>Aucune correspondance dans ce restaurant. Vérifiez l'orthographe ou le restaurant choisi.</div>
+      )}
+      {/* Saison à Saint-Barth : les salariés onboardés via l'Espace RH (rh_salaries) ne sont pas
+          reconnus ici (cet écran anonyme ne lit que le fichier + les ajouts du planning). Ils
+          doivent quand même pouvoir déclarer leur arrivée : la directrice les retrouve par nom. */}
+      {suggestions && estEtablissementSBH(resto) && prenom.trim() && nom.trim() && (
+        <div className="ig-card" style={{padding:'14px 16px',marginBottom:14,border:'1.5px solid var(--sea)'}}>
+          <div style={{fontWeight:700,marginBottom:4}}>🏝️ Vous arrivez à Saint-Barth pour {resto} ?</div>
+          <div className="ig-muted" style={{fontSize:13,marginBottom:10}}>Déclarez votre arrivée ici avec les nom et prénom saisis ci-dessus, même si votre planning n'est pas encore disponible.</div>
+          <button className="ig-btn ig-btn-sm" style={{background:'var(--sea)',color:'#fff'}}
+            onClick={()=>onFound({ n: nom.trim().toUpperCase(), p: prenom.trim().charAt(0).toUpperCase() + prenom.trim().slice(1).toLowerCase(), r: resto, po: "", _arriveeSeule: true })}>
+            Déclarer mon arrivée
+          </button>
+        </div>
       )}
 
       <button className="ig-btn ig-btn-primary" onClick={valider}>Valider</button>
@@ -5809,6 +5839,8 @@ export default function App() {
     content = <EspaceRH acces={rhAcces} restaurants={restaurants} onAjouterEtablissement={ajouterEtablissement} onBack={reset} onDeconnexion={deconnexionRH} />;
   } else if (role === "salarie" && !emp) {
     content = <EmployeeIdentify restaurants={restaurants} onFound={(e)=>{ setEmp(e); setResto(e.r); }} onBack={()=>setRole(null)} />;
+  } else if (emp._arriveeSeule) {
+    content = <ArriveeSeuleView resto={resto} emp={emp} onBack={()=>{ setEmp(null); setResto(null); }} />;
   } else {
     content = <EmployeeView resto={resto} emp={emp} onBack={()=>{ setEmp(null); setResto(null); }} />;
   }
