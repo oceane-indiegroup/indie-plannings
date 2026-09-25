@@ -203,6 +203,14 @@ alter table public.rh_salaries add column if not exists couleur text;
 -- directeur ne ressaisit jamais ce qu'il avait déjà rempli.
 alter table public.rh_salaries add column if not exists provisoire boolean not null default false;
 
+-- Numéro de ligne dans le Google Sheet "onboarding" d'Océane, mémorisé dès la première
+-- synchro réussie (même principe que rh_extras.sheet_ligne / rh_primes.sheet_ligne) : les
+-- modifications suivantes de cette fiche écrivent directement dessus au lieu de rechercher
+-- la ligne par nom+prénom+établissement à chaque fois — cette recherche pouvait échouer
+-- silencieusement (accent, espace...) et créait alors une nouvelle ligne quasi vide à
+-- chaque modification.
+alter table public.rh_salaries add column if not exists sheet_ligne integer;
+
 -- "Logé" est passé d'une case à cocher à un champ texte libre (pour préciser
 -- "seul", "en colocation"...). Convertit une éventuelle colonne booléenne existante
 -- sans perdre les données déjà saisies ; ne fait rien si c'est déjà du texte.

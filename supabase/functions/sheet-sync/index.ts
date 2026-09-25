@@ -875,8 +875,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ---- L'appli crée ou modifie une fiche : répercuter dans le Sheet ----
+    // "ligneCible" (mémorisée dans rh_salaries.sheet_ligne dès la première synchro réussie)
+    // évite de re-rechercher la ligne par nom+prénom+établissement à CHAQUE modification :
+    // cette recherche pouvait échouer silencieusement (accent, espace parasite...) et créait
+    // alors une nouvelle ligne quasi vide à chaque édition suivante de la même fiche. Absente
+    // (fiche jamais encore synchronisée avec ce mécanisme) -> on cherche comme avant.
     if (action === "upsertRow") {
-      const { resto, nom, prenom, unite, champs } = corps;
+      const { resto, nom, prenom, unite, champs, ligneCible: ligneFournie } = corps;
       if (!resto || !nom || !prenom || !champs) return json({ error: "champs_manquants" }, 400);
 
       const enTete = req.headers.get("Authorization") || "";
@@ -898,16 +903,22 @@ Deno.serve(async (req: Request) => {
       const colIndex = colonneIndex(entetes);
       if (!("nom" in colIndex) || !("prenom" in colIndex)) return json({ error: "colonnes_nom_prenom_introuvables" }, 500);
 
-      const restoCol = colIndex["resto"];
-      let ligneCible = -1;
-      for (let i = 1; i < grille.length; i++) {
-        const r = grille[i];
-        const memeNom = normaliser(r[colIndex["nom"]]) === normaliser(nom);
-        const memePrenom = normaliser(r[colIndex["prenom"]]) === normaliser(prenom);
-        const memeResto = restoCol === undefined || normaliser(r[restoCol] || "") === normaliser(resto);
-        if (memeNom && memePrenom && memeResto) { ligneCible = i + 1; break; } // +1 : la grille est 0-indexée, les lignes Sheet démarrent à 1
+      let ligneCible: number;
+      let nouvelleLigne = false;
+      if (ligneFournie) {
+        ligneCible = Number(ligneFournie);
+      } else {
+        const restoCol = colIndex["resto"];
+        ligneCible = -1;
+        for (let i = 1; i < grille.length; i++) {
+          const r = grille[i];
+          const memeNom = normaliser(r[colIndex["nom"]]) === normaliser(nom);
+          const memePrenom = normaliser(r[colIndex["prenom"]]) === normaliser(prenom);
+          const memeResto = restoCol === undefined || normaliser(r[restoCol] || "") === normaliser(resto);
+          if (memeNom && memePrenom && memeResto) { ligneCible = i + 1; break; } // +1 : la grille est 0-indexée, les lignes Sheet démarrent à 1
+        }
+        if (ligneCible === -1) { ligneCible = grille.length + 1; nouvelleLigne = true; } // nouvelle ligne, juste après la dernière
       }
-      if (ligneCible === -1) ligneCible = grille.length + 1; // nouvelle ligne, juste après la dernière
 
       const data: { range: string; values: string[][] }[] = [];
       Object.keys(champs).forEach((cle) => {
@@ -916,7 +927,7 @@ Deno.serve(async (req: Request) => {
         data.push({ range: `'${SHEET_TAB}'!${lettre}${ligneCible}`, values: [[versDateSheet(cle, champs[cle])]] });
       });
       // Toujours renseigner nom/prénom/établissement sur une ligne nouvellement créée.
-      if (grille.length + 1 === ligneCible) {
+      if (nouvelleLigne) {
         [["nom", nom], ["prenom", prenom], ["resto", resto]].forEach(([cle, val]) => {
           if (cle in colIndex && !(cle in champs)) {
             data.push({ range: `'${SHEET_TAB}'!${indexVersLettre(colIndex[cle as string])}${ligneCible}`, values: [[String(val)]] });
