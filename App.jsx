@@ -5346,7 +5346,11 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
 
 // ---------- Application principale ----------
 export default function App() {
-  const [role, setRole] = useState(null);     // 'manager' | 'salarie' | 'rh'
+  // L'URL /salarie (partagée aux salariés, en raccourci sur leur téléphone) saute directement
+  // à l'écran "Je suis salarié" plutôt que de repasser par l'écran d'accueil Manager/Salarié/RH.
+  const [role, setRole] = useState(() => (
+    window.location.pathname.replace(/\/+$/, "") === "/salarie" ? "salarie" : null
+  ));     // 'manager' | 'salarie' | 'rh'
   const [askCode, setAskCode] = useState(false);
   const [askRH, setAskRH] = useState(false);
   const [rhAcces, setRhAcces] = useState(null); // droits RH de la personne connectée
