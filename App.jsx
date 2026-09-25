@@ -985,6 +985,52 @@ const CSS = `
 .ig-resto:hover { border-color:var(--coral); background:#fff; }
 .ig-resto .nm { font-weight:600; font-size:15px; }
 .ig-resto .ct { font-size:12px; color:var(--ink-soft); }
+/* Module Arrivées (pensé pour le téléphone). */
+.ig-arr { max-width:720px; margin:0 auto; font-family:'Inter',system-ui,sans-serif; }
+.ig-arr-toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:60; background:var(--ink); color:var(--sand); padding:12px 18px; border-radius:999px; font-size:14px; font-weight:600; box-shadow:0 10px 30px -10px rgba(0,0,0,.5); max-width:calc(100vw - 32px); text-align:center; }
+.ig-arr-hero { background:linear-gradient(135deg,#1E9E6A 0%,#2E7D86 100%); color:#fff; border-radius:22px; padding:18px 16px 16px; margin-bottom:14px; }
+.ig-arr-hero-ti { font-size:22px; font-weight:800; margin-bottom:14px; }
+.ig-arr-hero-ti span { display:block; font-size:12px; font-weight:600; letter-spacing:.6px; opacity:.85; margin-top:2px; }
+.ig-arr-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.ig-arr-stat { background:#fff; color:var(--ink); border-radius:16px; padding:12px 8px; text-align:center; text-decoration:none; border-bottom:4px solid var(--c); }
+.ig-arr-stat b { display:block; font-size:28px; line-height:1; color:var(--c); }
+.ig-arr-stat span { display:block; font-size:11.5px; font-weight:600; margin-top:6px; }
+.ig-arr-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+.ig-arr-seg { display:flex; background:var(--sand-2); border-radius:999px; padding:4px; }
+.ig-arr-seg button { border:none; background:none; padding:9px 16px; border-radius:999px; font:600 14px 'Inter'; color:var(--ink-soft); cursor:pointer; }
+.ig-arr-seg button.on { background:#fff; color:var(--ink); box-shadow:0 2px 6px -3px rgba(0,0,0,.35); }
+.ig-arr-mini { width:42px; height:42px; border-radius:50%; border:1.5px solid var(--line); background:#fff; font-size:18px; cursor:pointer; }
+.ig-arr-share { flex:1 1 200px; min-height:44px; border:none; border-radius:999px; background:var(--ink); color:var(--sand); font:700 14px 'Inter'; cursor:pointer; padding:0 16px; }
+.ig-arr-vide { text-align:center; font-size:40px; padding:30px 10px; background:#fff; border-radius:20px; border:1.5px dashed var(--line); margin-bottom:16px; }
+.ig-arr-vide div { font-size:15px; color:var(--ink-soft); margin-top:8px; }
+.ig-arr-jour { margin-bottom:20px; }
+.ig-arr-jour.passe { opacity:.6; }
+.ig-arr-jour-hd { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 4px 10px; }
+.ig-arr-badge { color:#fff; font-size:11px; font-weight:800; letter-spacing:.4px; text-transform:uppercase; padding:4px 10px; border-radius:999px; }
+.ig-arr-jour-ti { font-size:18px; font-weight:800; }
+.ig-arr-jour-ct { margin-left:auto; font-size:13px; font-weight:600; color:var(--ink-soft); }
+.ig-arr-card { background:#fff; border-radius:20px; padding:14px 16px 16px; margin-bottom:10px; border-left:6px solid var(--c); box-shadow:0 6px 20px -16px rgba(21,48,59,.6); }
+.ig-arr-card-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.ig-arr-heure { font-size:30px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.5px; }
+.ig-arr-lieu { background:var(--c); color:#fff; font-size:13px; font-weight:700; padding:6px 12px; border-radius:999px; white-space:nowrap; }
+.ig-arr-nom { font-size:18px; font-weight:700; margin-top:4px; }
+.ig-arr-poste { font-size:13px; color:var(--ink-soft); }
+.ig-arr-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.ig-arr-chips span { background:var(--sand); border-radius:999px; padding:5px 10px; font-size:13px; font-weight:600; }
+.ig-arr-rq { margin-top:10px; font-size:14px; background:#FBF0DC; border-radius:12px; padding:8px 12px; }
+.ig-arr-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.ig-arr-actions a { display:flex; align-items:center; justify-content:center; min-height:48px; border-radius:14px; font-weight:700; font-size:15px; text-decoration:none; }
+.ig-arr-actions .call { background:#E6EBF6; color:#3D5A98; }
+.ig-arr-actions .wa { background:#DCF5E7; color:#128C4B; }
+.ig-arr-suppr { margin-top:10px; background:none; border:none; color:var(--coral-d); font:600 13px 'Inter'; cursor:pointer; padding:4px 0; }
+.ig-arr-recap { width:100%; min-height:46px; border-radius:14px; border:1.5px dashed #1E9E6A; background:#E2F5EC; color:#146B48; font:700 14px 'Inter'; cursor:pointer; }
+.ig-arr-attente { background:#fff; border-radius:20px; padding:14px 16px; border:1.5px solid #E5A06A; margin-bottom:20px; }
+.ig-arr-attente summary { list-style:none; display:flex; justify-content:space-between; align-items:center; font-weight:800; font-size:16px; cursor:pointer; min-height:32px; }
+.ig-arr-attente summary::-webkit-details-marker { display:none; }
+.ig-arr-voir { font-size:13px; font-weight:700; color:#9A4A1B; background:#FCE5D6; padding:5px 12px; border-radius:999px; }
+.ig-arr-attente[open] .ig-arr-voir { display:none; }
+.ig-arr-att-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid var(--line); font-size:14px; }
+.ig-arr-att-row button { flex-shrink:0; min-height:40px; padding:0 14px; border-radius:12px; border:1.5px solid var(--line); background:var(--sand); font:700 13px 'Inter'; cursor:pointer; }
 /* Tuiles de sections de l'Espace RH : une couleur par section (--c = accent, --t = teinte). */
 .ig-sec-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; margin-top:22px; }
 .ig-sec { position:relative; overflow:hidden; text-align:left; background:var(--t); border:1.5px solid transparent; border-radius:18px; padding:20px 20px 18px; cursor:pointer; font-family:'Inter',system-ui,sans-serif; color:var(--ink); display:flex; flex-direction:column; gap:10px; min-height:150px; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
@@ -3283,6 +3329,11 @@ function ArriveeForm({ initial, onSave, onCancel, enregistrement }) {
     if (!f.lieu) manque.push("lieu d'arrivée");
     if (!f.locomotion) manque.push("moyen de locomotion");
     if (manque.length) { setErr("Merci de renseigner : " + manque.join(", ") + "."); return; }
+    // Évite les dates saisies par erreur (ex : 01/01 laissé par défaut sur certains téléphones).
+    const auj = dateISOLocale(new Date());
+    const dansUnAn = dateISOLocale(ajouterJours(new Date(), 366));
+    if (f.date < auj) { setErr("La date d'arrivée est déjà passée : vérifiez le jour, le mois et l'année."); return; }
+    if (f.date > dansUnAn) { setErr("La date d'arrivée est à plus d'un an : vérifiez l'année."); return; }
     setErr("");
     onSave({ ...f, tel: f.tel.trim(), vol: f.vol.trim(), provenance: f.provenance.trim(), remarque: f.remarque.trim() });
   }
@@ -3296,7 +3347,7 @@ function ArriveeForm({ initial, onSave, onCancel, enregistrement }) {
       <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
         <div className="ig-field" style={{flex:'1 1 160px'}}>
           <label>Date d'arrivée *</label>
-          <input type="date" value={f.date} onChange={maj("date")} />
+          <input type="date" value={f.date} min={dateISOLocale(new Date())} onChange={maj("date")} />
         </div>
         <div className="ig-field" style={{flex:'1 1 120px'}}>
           <label>Heure d'arrivée *</label>
@@ -3539,7 +3590,6 @@ function ArriveesRH({ resto, superviseur }) {
 function ArriveesSBH({ resto, team, superviseur }) {
   const [liste, setListe] = useState(null);
   const [periode, setPeriode] = useState("avenir"); // avenir | tout
-  const [filtreEtab, setFiltreEtab] = useState("TOUS");
   const [saisie, setSaisie] = useState(null); // salarié pour qui le manager saisit l'arrivée
   const [enregistrement, setEnregistrement] = useState(false);
   const [flash, setFlash] = useState("");
@@ -3549,12 +3599,12 @@ function ArriveesSBH({ resto, team, superviseur }) {
   function montrerFlash(m) { setFlash(m); setTimeout(() => setFlash(""), 3500); }
 
   const aujourdHui = dateISOLocale(new Date());
-  const etabs = useMemo(() => Array.from(new Set((liste || []).map((a) => a.resto))).sort(), [liste]);
   const filtrees = useMemo(() => (liste || [])
     .filter((a) => periode === "tout" || !a.date || a.date >= aujourdHui)
-    .filter((a) => filtreEtab === "TOUS" || a.resto === filtreEtab)
+    // Uniquement l'établissement ouvert : Pablo SBH et Cream ne se mélangent pas.
+    .filter((a) => normTxt(a.resto) === normTxt(resto))
     .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || (a.heure || "").localeCompare(b.heure || "")),
-  [liste, periode, filtreEtab, aujourdHui]);
+  [liste, periode, resto, aujourdHui]);
   const parJour = useMemo(() => {
     const m = new Map();
     filtrees.forEach((a) => { const k = a.date || ""; if (!m.has(k)) m.set(k, []); m.get(k).push(a); });
@@ -3563,7 +3613,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
 
   // Salariés de l'établissement affiché sans réponse.
   const idNormA = (id) => normTxt(id).replace(/[^a-z0-9]+/g, " ").trim();
-  const idsRepondus = new Set((liste || []).filter((a) => a.resto === resto).map((a) => idNormA(a.id)));
+  const idsRepondus = new Set((liste || []).filter((a) => normTxt(a.resto) === normTxt(resto)).map((a) => idNormA(a.id)));
   const sansReponse = team.filter((e) => !idsRepondus.has(idNormA(idSalarie(e))))
     .sort((a, b) => (a.n + a.p).localeCompare(b.n + b.p));
 
@@ -3590,95 +3640,111 @@ function ArriveesSBH({ resto, team, superviseur }) {
 
   const totalAeroport = filtrees.filter((a) => a.lieu === "AEROPORT").length;
   const totalPort = filtrees.filter((a) => a.lieu === "PORT").length;
+  const demain = dateISOLocale(ajouterJours(new Date(), 1));
+  function etiquetteJour(iso) {
+    if (!iso) return null;
+    if (iso === aujourdHui) return { txt: "Aujourd'hui", c: "var(--coral)" };
+    if (iso === demain) return { txt: "Demain", c: "#C8871A" };
+    if (iso < aujourdHui) return { txt: "Passé", c: "#8A97A0" };
+    const n = Math.round((dateDepuisISO(iso) - dateDepuisISO(aujourdHui)) / 86400000);
+    return { txt: `Dans ${n} j`, c: "#3D5A98" };
+  }
+  async function partagerLien() {
+    const url = lienEspaceSalarie();
+    if (navigator.share) {
+      try { await navigator.share({ title: "Indie Group · Espace salarié", text: "🌴 Merci de renseigner ton arrivée à Saint-Barth (tuile « Je prépare mon arrivée ») :", url }); return; }
+      catch { /* partage annulé : on retombe sur la copie */ }
+    }
+    montrerFlash((await copierTexte(url)) ? "Lien copié : collez-le dans WhatsApp." : "Copie impossible sur cet appareil.");
+  }
 
   return (
-    <div>
-      {flash && <div style={{background:'#EAF3F3',border:'1.5px solid var(--sea)',borderRadius:12,padding:'10px 14px',marginBottom:14,fontSize:14,fontWeight:600}}>{flash}</div>}
+    <div className="ig-arr">
+      {flash && <div className="ig-arr-toast">{flash}</div>}
 
-      <div className="ig-card" style={{padding:'16px 20px',marginBottom:16}}>
-        <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
-          <div style={{fontWeight:700,fontSize:16}}>🏝️ Arrivées à Saint-Barth</div>
-          <span className="ig-muted" style={{fontSize:14}}>{filtrees.length} arrivée{filtrees.length > 1 ? "s" : ""} · ✈️ {totalAeroport} · ⛴️ {totalPort}</span>
-          <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap'}}>
-            <button className={"ig-btn ig-btn-sm " + (periode === "avenir" ? "ig-btn-ink" : "ig-btn-ghost")} onClick={() => setPeriode("avenir")}>À venir</button>
-            <button className={"ig-btn ig-btn-sm " + (periode === "tout" ? "ig-btn-ink" : "ig-btn-ghost")} onClick={() => setPeriode("tout")}>Toutes</button>
-            {etabs.length > 1 && (
-              <select value={filtreEtab} onChange={(e) => setFiltreEtab(e.target.value)} style={{padding:'6px 10px',borderRadius:10,border:'1.5px solid var(--line)',fontFamily:'Inter',fontSize:13}}>
-                <option value="TOUS">Tous les établissements</option>
-                {etabs.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            )}
-            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={recharger}>↻ Actualiser</button>
-          </div>
+      <div className="ig-arr-hero">
+        <div className="ig-arr-hero-ti">🌴 Arrivées <span>{resto}</span></div>
+        <div className="ig-arr-stats">
+          <div className="ig-arr-stat" style={{"--c":"#3D5A98"}}><b>{totalAeroport}</b><span>✈️ Aéroport</span></div>
+          <div className="ig-arr-stat" style={{"--c":"#2E7D86"}}><b>{totalPort}</b><span>⛴️ Port</span></div>
+          <a className="ig-arr-stat" href="#ig-arr-attente" style={{"--c": sansReponse.length ? "#C8871A" : "#1E9E6A"}}><b>{sansReponse.length}</b><span>{sansReponse.length ? "⏳ Sans réponse" : "✅ Tous ont répondu"}</span></a>
         </div>
-        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginTop:12,paddingTop:12,borderTop:'1px solid var(--line)',fontSize:13}}>
-          <span className="ig-muted">Lien à envoyer au staff :</span>
-          <b style={{wordBreak:'break-all'}}>{lienEspaceSalarie()}</b>
-          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={async () => montrerFlash((await copierTexte(lienEspaceSalarie())) ? "Lien copié." : "Copie impossible sur cet appareil.")}>📋 Copier le lien</button>
+      </div>
+
+      <div className="ig-arr-bar">
+        <div className="ig-arr-seg">
+          <button className={periode === "avenir" ? "on" : ""} onClick={() => setPeriode("avenir")}>À venir</button>
+          <button className={periode === "tout" ? "on" : ""} onClick={() => setPeriode("tout")}>Toutes</button>
         </div>
+        <button className="ig-arr-mini" onClick={recharger} aria-label="Actualiser">↻</button>
+        <button className="ig-arr-share" onClick={partagerLien}>📤 Envoyer le lien au staff</button>
       </div>
 
       {parJour.length === 0 && (
-        <div className="ig-card" style={{padding:20,marginBottom:16}}><div className="ig-muted">Aucune arrivée {periode === "avenir" ? "à venir " : ""}renseignée pour le moment.</div></div>
+        <div className="ig-arr-vide">🏝️<div>Aucune arrivée {periode === "avenir" ? "à venir " : ""}pour le moment.</div></div>
       )}
 
       {parJour.map(([iso, jour]) => {
+        const et = etiquetteJour(iso);
         const nbA = jour.filter((a) => a.lieu === "AEROPORT").length;
         const nbP = jour.filter((a) => a.lieu === "PORT").length;
         return (
-          <div key={iso} className="ig-card" style={{padding:'16px 20px',marginBottom:16}}>
-            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
-              <div style={{fontWeight:700,fontSize:17}}>{iso ? fmtJourLong(iso) : "Date non renseignée"}</div>
-              <span className="ig-muted" style={{fontSize:14}}>{jour.length} arrivée{jour.length > 1 ? "s" : ""}{nbA ? ` · ✈️ ${nbA}` : ""}{nbP ? ` · ⛴️ ${nbP}` : ""}</span>
-              {iso && <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto'}} onClick={() => copierJour(iso, jour)}>📋 Copier pour WhatsApp</button>}
+          <section key={iso} className={"ig-arr-jour" + (iso && iso < aujourdHui ? " passe" : "")}>
+            <div className="ig-arr-jour-hd">
+              {et && <span className="ig-arr-badge" style={{background: et.c}}>{et.txt}</span>}
+              <div className="ig-arr-jour-ti">{iso ? fmtJourLong(iso) + (iso.slice(0, 4) !== aujourdHui.slice(0, 4) ? ` ${iso.slice(0, 4)}` : "") : "Date non renseignée"}</div>
+              <div className="ig-arr-jour-ct">{nbA ? `✈️ ${nbA}` : ""}{nbA && nbP ? " · " : ""}{nbP ? `⛴️ ${nbP}` : ""}</div>
             </div>
-            <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              {jour.map((a) => {
-                const telNum = (a.tel || "").replace(/[^\d+]/g, "");
-                return (
-                  <div key={a.resto + a.id} style={{display:'flex',gap:14,alignItems:'flex-start',padding:'10px 12px',borderRadius:12,background: a.lieu === "PORT" ? '#EAF3F3' : '#F7F2EA',flexWrap:'wrap'}}>
-                    <div style={{fontWeight:800,fontSize:20,minWidth:64,fontVariantNumeric:'tabular-nums'}}>{a.heure || "--:--"}</div>
-                    <div style={{flex:'1 1 220px',fontSize:14}}>
-                      <div style={{fontWeight:700,fontSize:15}}>{a.prenom} {a.nom} <span className="ig-muted" style={{fontWeight:500,fontSize:13}}>· {a.poste ? `${a.poste} · ` : ""}{a.resto}</span></div>
-                      <div>{libelleLieu(a.lieu)}{a.vol ? ` · ${a.vol}` : ""}{a.provenance ? ` · depuis ${a.provenance}` : ""}</div>
-                      <div>{libelleLocomotion(a.locomotion)}{a.bagages !== "" && a.bagages != null ? ` · 🧳 ${a.bagages}` : ""}</div>
-                      {a.remarque && <div style={{fontStyle:'italic',marginTop:2}}>« {a.remarque} »</div>}
-                    </div>
-                    {telNum && (
-                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                        <a className="ig-btn ig-btn-ghost ig-btn-sm" href={`tel:${telNum}`}>📞 Appeler</a>
-                        <a className="ig-btn ig-btn-ghost ig-btn-sm" href={`https://wa.me/${telNum.replace(/^\+/, "")}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
-                      </div>
-                    )}
-                    {superviseur && (
-                      <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{color:'var(--coral-d)'}} onClick={() => supprimer(a)}>🗑 Supprimer</button>
-                    )}
+            {jour.map((a) => {
+              const telNum = (a.tel || "").replace(/[^\d+]/g, "");
+              const port = a.lieu === "PORT";
+              return (
+                <article key={a.resto + a.id} className="ig-arr-card" style={{"--c": port ? "#2E7D86" : "#3D5A98"}}>
+                  <div className="ig-arr-card-top">
+                    <div className="ig-arr-heure">{a.heure || "--:--"}</div>
+                    <span className="ig-arr-lieu">{libelleLieu(a.lieu)}</span>
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                  <div className="ig-arr-nom">{a.prenom} {a.nom}</div>
+                  {a.poste && <div className="ig-arr-poste">{a.poste}</div>}
+                  <div className="ig-arr-chips">
+                    {a.vol && <span>{port ? "⛴️" : "🛫"} {a.vol}</span>}
+                    {a.provenance && <span>📍 {a.provenance}</span>}
+                    <span>{libelleLocomotion(a.locomotion)}</span>
+                    {a.bagages !== "" && a.bagages != null && <span>🧳 {a.bagages}</span>}
+                  </div>
+                  {a.remarque && <div className="ig-arr-rq">💬 {a.remarque}</div>}
+                  {telNum && (
+                    <div className="ig-arr-actions">
+                      <a href={`tel:${telNum}`} className="call">📞 Appeler</a>
+                      <a href={`https://wa.me/${telNum.replace(/^\+/, "")}`} target="_blank" rel="noreferrer" className="wa">💬 WhatsApp</a>
+                    </div>
+                  )}
+                  {superviseur && <button className="ig-arr-suppr" onClick={() => supprimer(a)}>🗑 Supprimer</button>}
+                </article>
+              );
+            })}
+            {iso && <button className="ig-arr-recap" onClick={() => copierJour(iso, jour)}>📋 Copier le récap du jour pour WhatsApp</button>}
+          </section>
         );
       })}
 
-      <div className="ig-card" style={{padding:'16px 20px',marginBottom:16,border: sansReponse.length ? '1.5px solid #E5A06A' : '1.5px solid var(--line)'}}>
-        <div style={{fontWeight:700,marginBottom:4,color: sansReponse.length ? '#9A4A1B' : 'inherit'}}>
-          {sansReponse.length ? `${sansReponse.length} salarié${sansReponse.length > 1 ? "s" : ""} de ${resto} sans réponse` : `Toute l'équipe de ${resto} a répondu 🎉`}
-        </div>
+      <details id="ig-arr-attente" className="ig-arr-attente" open={sansReponse.length > 0 && sansReponse.length <= 5}>
+        <summary>
+          <span>{sansReponse.length ? `⏳ ${sansReponse.length} sans réponse` : "✅ Toute l'équipe a répondu"}</span>
+          {sansReponse.length > 0 && <span className="ig-arr-voir">Voir</span>}
+        </summary>
         {sansReponse.length > 0 && (
           <>
-            <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>À relancer (lien ci-dessus → « Je prépare mon arrivée »), ou saisissez leur arrivée vous-même.</div>
-            <div style={{display:'flex',flexDirection:'column',gap:6}}>
-              {sansReponse.map((e) => (
-                <div key={idSalarie(e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
-                  <div style={{fontSize:14}}><b>{e.p} {e.n}</b> <span className="ig-muted">· {e.po}</span></div>
-                  <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={() => setSaisie(e)}>Saisir son arrivée</button>
-                </div>
-              ))}
-            </div>
+            <div className="ig-muted" style={{fontSize:13,margin:'4px 0 10px'}}>Envoyez-leur le lien, ou saisissez leur arrivée vous-même.</div>
+            {sansReponse.map((e) => (
+              <div key={idSalarie(e)} className="ig-arr-att-row">
+                <div><b>{e.p} {e.n}</b>{e.po && <div className="ig-muted" style={{fontSize:12}}>{e.po}</div>}</div>
+                <button onClick={() => setSaisie(e)}>✏️ Saisir</button>
+              </div>
+            ))}
           </>
         )}
-      </div>
+      </details>
 
       {saisie && (
         <div className="ig-overlay" onClick={() => setSaisie(null)}>
