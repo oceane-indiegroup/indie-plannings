@@ -421,6 +421,35 @@ async function formaterLigneOnboarding(jeton: string, ligne: number, colNom: num
   if (!res.ok) throw new Error("sheet_formatage_echec: " + (await res.text()));
 }
 
+// Retrouve puis met en forme la ligne d'UNE personne dans le Sheet "onboarding" — appelée
+// après "formSubmit" (une vraie réponse au Form). Constaté à l'usage : une nouvelle réponse
+// au Form n'hérite pas toujours du format posé une fois sur toute la colonne (ça fonctionne
+// pour la plupart des lignes, mais pas systématiquement) — donc on le fait aussi explicitement
+// ici, comme pour une ligne créée par l'appli. Best-effort : n'importe quel échec (recherche
+// infructueuse, droits insuffisants...) reste silencieux et ne bloque jamais l'onboarding.
+async function formaterLignePourPersonne(nomP: string, prenomP: string, restoP: string) {
+  try {
+    const jeton = await jetonAcces();
+    const grille = await lireFeuille(jeton);
+    if (grille.length === 0) return;
+    const colIndex = colonneIndex(grille[0]);
+    if (!("nom" in colIndex) || !("prenom" in colIndex)) return;
+    const restoCol = colIndex["resto"];
+    let ligneCible = -1;
+    for (let i = 1; i < grille.length; i++) {
+      const r = grille[i];
+      const memeNom = normaliser(r[colIndex["nom"]]) === normaliser(nomP);
+      const memePrenom = normaliser(r[colIndex["prenom"]]) === normaliser(prenomP);
+      const memeResto = restoCol === undefined || normaliser(r[restoCol] || "") === normaliser(restoP);
+      if (memeNom && memePrenom && memeResto) { ligneCible = i + 1; break; }
+    }
+    if (ligneCible === -1) return;
+    await formaterLigneOnboarding(jeton, ligneCible, colIndex["nom"], grille[0].length);
+  } catch (e) {
+    console.error("formaterLignePourPersonne echouee:", e);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   try {
@@ -890,6 +919,7 @@ Deno.serve(async (req: Request) => {
           console.error("formSubmit fusion_echouee:", majRes.status, detail);
           return json({ error: "fusion_echouee", detail }, 500);
         }
+        await formaterLignePourPersonne(nom, prenom, resto);
         return json({ ok: true, fusionne: true });
       }
 
@@ -918,6 +948,7 @@ Deno.serve(async (req: Request) => {
       // d'Océane (déclenché sur le même envoi de formulaire) : on ne le recrée pas ici,
       // pour ne jamais produire un dossier en double avec un nom légèrement différent.
 
+      await formaterLignePourPersonne(nom, prenom, resto);
       return json({ ok: true });
     }
 
