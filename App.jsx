@@ -847,6 +847,39 @@ const kValidation = (resto, sem) => `validation:${slugKey(resto)}:${sem}`;
 // Fiche juridique de chaque établissement (raison sociale, SIRET...) : nécessaire pour
 // générer les contrats de prêt. Clé unique, valeur = { [resto]: {...} }.
 const kEtablissementsJuridique = "etablissements_juridique";
+// Arrivées à Saint-Barth : chaque salarié des établissements de SBH indique quand et où il
+// arrive (aéroport ou port), pour que la direction organise les allers-retours de récupération.
+// Une clé PAR SALARIÉ (pas un seul objet partagé) : deux salariés qui répondent en même temps
+// ne peuvent pas écraser la réponse l'un de l'autre.
+// Valeur : { resto, id, prenom, nom, poste, tel, date, heure, lieu, vol, provenance,
+//            locomotion, bagages, remarque, maj }
+const kArrivee = (resto, id) => `arrivee:${slugKey(resto)}:${slugKey(id)}`;
+const PREFIXE_ARRIVEE = "arrivee:";
+const ETABLISSEMENTS_SBH = ["PABLO SAINT BARTH", "CREAM"];
+function estEtablissementSBH(resto) {
+  const r = normTxt(resto);
+  if (!r) return false;
+  return ETABLISSEMENTS_SBH.some((e) => normTxt(e) === r) || r.includes("cream") || /\b(saint|st)[ -]barth|\bsbh\b/.test(r);
+}
+const LIEUX_ARRIVEE = [
+  { v: "AEROPORT", label: "Aéroport", emoji: "✈️" },
+  { v: "PORT", label: "Port", emoji: "⛴️" },
+];
+const LOCOMOTIONS = [
+  { v: "SCOOTER", label: "Scooter", emoji: "🛵" },
+  { v: "VOITURE", label: "Voiture", emoji: "🚗" },
+  { v: "QUAD", label: "Quad", emoji: "🏍️" },
+  { v: "AUCUN", label: "Rien de réservé", emoji: "❌" },
+];
+const Arrivees = {
+  async load(resto, id) { return Store.get(kArrivee(resto, id)); },
+  async save(resto, id, data) { await Store.set(kArrivee(resto, id), { ...data, resto, id, maj: new Date().toISOString() }); },
+  // Toutes les réponses de tous les établissements de SBH (la directrice récupère tout le monde).
+  async listSBH() {
+    const lignes = await Store.listByPrefix(PREFIXE_ARRIVEE);
+    return lignes.map((l) => l.value).filter((v) => v && estEtablissementSBH(v.resto));
+  },
+};
 function cleMois(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
 
 // ---------- Icônes (SVG inline, pas de dépendance) ----------
@@ -2590,6 +2623,9 @@ function ManagerView({ resto, onBack, superviseur }) {
         <div style={{marginLeft:'auto',display:'flex',gap:8}}>
           <button className={"ig-btn ig-btn-sm "+(vue==='planning'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('planning')}><Icon.Calendar width={16} height={16}/> Planning</button>
           <button className={"ig-btn ig-btn-sm "+(vue==='emargement'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('emargement')}><Icon.Check/> Émargement</button>
+          {estEtablissementSBH(resto) && (
+            <button className={"ig-btn ig-btn-sm "+(vue==='arrivees'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setVue('arrivees')}>🏝️ Arrivées</button>
+          )}
         </div>
       </div>
 
@@ -2599,7 +2635,7 @@ function ManagerView({ resto, onBack, superviseur }) {
         </div>
       )}
 
-      {vue !== "extra" && <WeekNav semDate={semDate} setSemDate={setSemDate} />}
+      {vue !== "extra" && vue !== "arrivees" && <WeekNav semDate={semDate} setSemDate={setSemDate} />}
 
       {vue === "planning" && (
         <>
@@ -2741,6 +2777,8 @@ function ManagerView({ resto, onBack, superviseur }) {
           )}
         </>
       )}
+
+      {vue === "arrivees" && <ArriveesSBH resto={resto} team={team} />}
 
       {vue === "emargement" && (
         <EmargementSheet resto={resto} semDate={semDate} planning={planning} pointages={pointages} team={team} onToggleSignature={superviseur ? toggleSignatureManuelle : undefined} onToggleJour={superviseur ? toggleJourManuel : undefined} />
@@ -3069,6 +3107,8 @@ function EmployeeView({ resto, emp, onBack }) {
         </div>
       </div>
 
+      {estEtablissementSBH(resto) && <MonArriveeSBH resto={resto} emp={emp} />}
+
       {prec && prec.length > 0 && prec.map((w) => (
         <div key={w.sem} className="ig-card" style={{padding:'16px 20px',marginBottom:18,border:'1.5px solid #E5A06A'}}>
           <div style={{fontWeight:700,marginBottom:4,color:'#9A4A1B'}}>Semaine du {fmtDate(w.lundi)} au {fmtDate(ajouterJours(w.lundi,6))} — à valider</div>
@@ -3176,6 +3216,337 @@ function EmployeeView({ resto, emp, onBack }) {
         </div>
       )}
       </>
+      )}
+    </div>
+  );
+}
+
+// ---------- Arrivées à Saint-Barth ----------
+// "AAAA-MM-JJ" -> Date locale (sans décalage de fuseau, cf. dateISOLocale).
+function dateDepuisISO(iso) {
+  const [a, m, j] = (iso || "").split("-").map(Number);
+  return new Date(a, (m || 1) - 1, j || 1);
+}
+function fmtJourLong(iso) {
+  const t = dateDepuisISO(iso).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+function libelleLieu(v) { const l = LIEUX_ARRIVEE.find((x) => x.v === v); return l ? `${l.emoji} ${l.label}` : "—"; }
+function libelleLocomotion(v) { const l = LOCOMOTIONS.find((x) => x.v === v); return l ? `${l.emoji} ${l.label}` : "—"; }
+
+// Groupe de boutons à choix unique (plus rapide qu'une liste déroulante sur téléphone).
+function ChoixBoutons({ options, valeur, onChoisir }) {
+  return (
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      {options.map((o) => (
+        <button key={o.v} type="button" onClick={() => onChoisir(o.v)}
+          className={"ig-btn ig-btn-sm " + (valeur === o.v ? "ig-btn-ink" : "ig-btn-ghost")}
+          style={{flex:'1 1 120px',justifyContent:'center'}}>
+          {o.emoji} {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const ARRIVEE_VIDE = { tel: "", date: "", heure: "", lieu: "", vol: "", provenance: "", locomotion: "", bagages: "", remarque: "" };
+
+// Formulaire d'arrivée (utilisé par le salarié, et par le manager pour saisir à sa place).
+function ArriveeForm({ initial, onSave, onCancel, enregistrement }) {
+  const [f, setF] = useState(() => ({ ...ARRIVEE_VIDE, ...(initial || {}) }));
+  const [err, setErr] = useState("");
+  const maj = (champ) => (e) => setF({ ...f, [champ]: e && e.target ? e.target.value : e });
+
+  function valider() {
+    const manque = [];
+    if (!f.tel.trim()) manque.push("téléphone");
+    if (!f.date) manque.push("date");
+    if (!f.heure) manque.push("heure");
+    if (!f.lieu) manque.push("lieu d'arrivée");
+    if (!f.locomotion) manque.push("moyen de locomotion");
+    if (manque.length) { setErr("Merci de renseigner : " + manque.join(", ") + "."); return; }
+    setErr("");
+    onSave({ ...f, tel: f.tel.trim(), vol: f.vol.trim(), provenance: f.provenance.trim(), remarque: f.remarque.trim() });
+  }
+
+  return (
+    <div>
+      <div className="ig-field">
+        <label>Téléphone / WhatsApp *</label>
+        <input type="tel" value={f.tel} onChange={maj("tel")} placeholder="+33 6 12 34 56 78" />
+      </div>
+      <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+        <div className="ig-field" style={{flex:'1 1 160px'}}>
+          <label>Date d'arrivée *</label>
+          <input type="date" value={f.date} onChange={maj("date")} />
+        </div>
+        <div className="ig-field" style={{flex:'1 1 120px'}}>
+          <label>Heure d'arrivée *</label>
+          <input type="time" value={f.heure} onChange={maj("heure")} />
+        </div>
+      </div>
+      <div className="ig-field">
+        <label>J'arrive au *</label>
+        <ChoixBoutons options={LIEUX_ARRIVEE} valeur={f.lieu} onChoisir={maj("lieu")} />
+      </div>
+      <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+        <div className="ig-field" style={{flex:'1 1 180px'}}>
+          <label>{f.lieu === "PORT" ? "Compagnie du ferry" : "N° de vol / compagnie"}</label>
+          <input value={f.vol} onChange={maj("vol")} placeholder={f.lieu === "PORT" ? "ex : Voyager, Edge…" : "ex : TX 1234, Winair…"} />
+        </div>
+        <div className="ig-field" style={{flex:'1 1 180px'}}>
+          <label>En provenance de</label>
+          <input value={f.provenance} onChange={maj("provenance")} placeholder="ex : Saint-Martin, Guadeloupe…" />
+        </div>
+      </div>
+      <div className="ig-field">
+        <label>Moyen de locomotion réservé sur place *</label>
+        <ChoixBoutons options={LOCOMOTIONS} valeur={f.locomotion} onChoisir={maj("locomotion")} />
+      </div>
+      <div className="ig-field" style={{maxWidth:200}}>
+        <label>Nombre de bagages</label>
+        <input type="number" min="0" max="20" value={f.bagages} onChange={maj("bagages")} placeholder="ex : 2" />
+      </div>
+      <div className="ig-field">
+        <label>Remarque</label>
+        <input value={f.remarque} onChange={maj("remarque")} placeholder="ex : j'arrive avec un collègue, vol susceptible de changer…" />
+      </div>
+      {err && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:12,fontWeight:600}}>{err}</div>}
+      <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+        <button className="ig-btn ig-btn-primary" onClick={valider} disabled={enregistrement}>{enregistrement ? "Enregistrement…" : "Enregistrer mon arrivée"}</button>
+        {onCancel && <button className="ig-btn ig-btn-ghost" onClick={onCancel}>Annuler</button>}
+      </div>
+    </div>
+  );
+}
+
+// Récapitulatif compact d'une arrivée.
+function ArriveeResume({ a }) {
+  return (
+    <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'6px 14px',fontSize:14}}>
+      <span className="ig-muted">Quand</span><b>{a.date ? fmtJourLong(a.date) : "—"} à {a.heure || "—"}</b>
+      <span className="ig-muted">Où</span><span>{libelleLieu(a.lieu)}{a.vol ? ` · ${a.vol}` : ""}{a.provenance ? ` · depuis ${a.provenance}` : ""}</span>
+      <span className="ig-muted">Sur place</span><span>{libelleLocomotion(a.locomotion)}</span>
+      {a.bagages !== "" && a.bagages != null && (<><span className="ig-muted">Bagages</span><span>{a.bagages}</span></>)}
+      <span className="ig-muted">Téléphone</span><span>{a.tel || "—"}</span>
+      {a.remarque && (<><span className="ig-muted">Remarque</span><span>{a.remarque}</span></>)}
+    </div>
+  );
+}
+
+// Carte "Mon arrivée à Saint-Barth" dans l'espace salarié.
+function MonArriveeSBH({ resto, emp }) {
+  const id = idSalarie(emp);
+  const [arrivee, setArrivee] = useState(undefined); // undefined = chargement, null = pas encore répondu
+  const [edition, setEdition] = useState(false);
+  const [enregistrement, setEnregistrement] = useState(false);
+  const [erreur, setErreur] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    Arrivees.load(resto, id).then((v) => { if (on) setArrivee(v || null); });
+    return () => { on = false; };
+  }, [resto, id]);
+
+  async function enregistrer(data) {
+    setEnregistrement(true);
+    setErreur("");
+    const complet = { ...data, prenom: emp.p, nom: emp.n, poste: emp.po || "" };
+    await Arrivees.save(resto, id, complet);
+    // Relecture : Store.set n'échoue jamais bruyamment, on vérifie que la réponse est bien en base.
+    const relu = await Arrivees.load(resto, id);
+    setEnregistrement(false);
+    if (!relu) { setErreur("L'enregistrement n'a pas fonctionné. Vérifiez votre connexion et réessayez, ou prévenez votre manager."); return; }
+    setArrivee(relu);
+    setEdition(false);
+  }
+
+  if (arrivee === undefined) return null;
+  const aRepondu = !!arrivee;
+
+  return (
+    <div className="ig-card" style={{padding:'18px 20px',marginBottom:18,border: aRepondu ? '1.5px solid var(--line)' : '1.5px solid var(--sea)'}}>
+      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:18,fontWeight:600,marginBottom:6}}>🏝️ Mon arrivée à Saint-Barth</div>
+      {aRepondu && !edition ? (
+        <>
+          <div className="ig-status-line" style={{background:'#EAF3F3',marginBottom:12}}>
+            <span className="ig-stamp" style={{borderColor:'var(--sea)'}}><Icon.Check width={15} height={15}/> Arrivée transmise à la direction</span>
+          </div>
+          <ArriveeResume a={arrivee} />
+          <div className="ig-muted" style={{marginTop:12,fontSize:13}}>Un changement de vol ou d'horaire ? Mettez à jour ici, la direction verra la modification.</div>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginTop:10}} onClick={() => setEdition(true)}>Modifier mon arrivée</button>
+        </>
+      ) : (
+        <>
+          <div className="ig-muted" style={{marginBottom:6}}>La direction vient chercher chacun à son arrivée. Indiquez quand et où vous arrivez pour qu'elle puisse organiser les trajets.</div>
+          <ArriveeForm initial={arrivee} onSave={enregistrer} onCancel={aRepondu ? () => setEdition(false) : null} enregistrement={enregistrement} />
+          {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:12,fontWeight:600}}>{erreur}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
+async function copierTexte(texte) {
+  try { await navigator.clipboard.writeText(texte); return true; }
+  catch {
+    const ta = document.createElement("textarea");
+    ta.value = texte; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+}
+
+// Récap d'une journée prêt à coller dans WhatsApp.
+function recapWhatsApp(iso, liste) {
+  const titre = fmtJourLong(iso);
+  const lignes = liste.map((a) => {
+    const infos = [libelleLieu(a.lieu) + (a.vol ? ` (${a.vol})` : ""), libelleLocomotion(a.locomotion)];
+    if (a.bagages !== "" && a.bagages != null) infos.push(`${a.bagages} bagage${Number(a.bagages) > 1 ? "s" : ""}`);
+    return `• ${a.heure || "--:--"} — ${a.prenom} ${a.nom} (${a.resto}) — ${infos.join(" · ")}${a.tel ? ` — ${a.tel}` : ""}${a.remarque ? `\n   ↳ ${a.remarque}` : ""}`;
+  });
+  return `🏝️ Arrivées SBH — ${titre}\n${lignes.join("\n")}`;
+}
+
+// Vue manager : toutes les arrivées de Saint-Barth (tous établissements SBH confondus),
+// par jour et par heure, + les salariés de l'établissement qui n'ont pas encore répondu.
+function ArriveesSBH({ resto, team }) {
+  const [liste, setListe] = useState(null);
+  const [periode, setPeriode] = useState("avenir"); // avenir | tout
+  const [filtreEtab, setFiltreEtab] = useState("TOUS");
+  const [saisie, setSaisie] = useState(null); // salarié pour qui le manager saisit l'arrivée
+  const [enregistrement, setEnregistrement] = useState(false);
+  const [flash, setFlash] = useState("");
+
+  function recharger() { Arrivees.listSBH().then(setListe); }
+  useEffect(() => { recharger(); }, []);
+  function montrerFlash(m) { setFlash(m); setTimeout(() => setFlash(""), 3500); }
+
+  const aujourdHui = dateISOLocale(new Date());
+  const etabs = useMemo(() => Array.from(new Set((liste || []).map((a) => a.resto))).sort(), [liste]);
+  const filtrees = useMemo(() => (liste || [])
+    .filter((a) => periode === "tout" || !a.date || a.date >= aujourdHui)
+    .filter((a) => filtreEtab === "TOUS" || a.resto === filtreEtab)
+    .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || (a.heure || "").localeCompare(b.heure || "")),
+  [liste, periode, filtreEtab, aujourdHui]);
+  const parJour = useMemo(() => {
+    const m = new Map();
+    filtrees.forEach((a) => { const k = a.date || ""; if (!m.has(k)) m.set(k, []); m.get(k).push(a); });
+    return Array.from(m.entries());
+  }, [filtrees]);
+
+  // Salariés de l'établissement affiché sans réponse.
+  const idsRepondus = new Set((liste || []).filter((a) => a.resto === resto).map((a) => a.id));
+  const sansReponse = team.filter((e) => !idsRepondus.has(idSalarie(e)))
+    .sort((a, b) => (a.n + a.p).localeCompare(b.n + b.p));
+
+  async function enregistrerPour(emp, data) {
+    setEnregistrement(true);
+    await Arrivees.save(resto, idSalarie(emp), { ...data, prenom: emp.p, nom: emp.n, poste: emp.po || "", saisiParManager: true });
+    setEnregistrement(false);
+    setSaisie(null);
+    montrerFlash(`Arrivée de ${emp.p} ${emp.n} enregistrée.`);
+    recharger();
+  }
+  async function copierJour(iso, jour) {
+    const ok = await copierTexte(recapWhatsApp(iso, jour));
+    montrerFlash(ok ? "Récap copié : collez-le dans WhatsApp." : "Copie impossible sur cet appareil.");
+  }
+
+  if (liste === null) return <div className="ig-card" style={{padding:20}}><div className="ig-muted">Chargement des arrivées…</div></div>;
+
+  const totalAeroport = filtrees.filter((a) => a.lieu === "AEROPORT").length;
+  const totalPort = filtrees.filter((a) => a.lieu === "PORT").length;
+
+  return (
+    <div>
+      {flash && <div style={{background:'#EAF3F3',border:'1.5px solid var(--sea)',borderRadius:12,padding:'10px 14px',marginBottom:14,fontSize:14,fontWeight:600}}>{flash}</div>}
+
+      <div className="ig-card" style={{padding:'16px 20px',marginBottom:16}}>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
+          <div style={{fontWeight:700,fontSize:16}}>🏝️ Arrivées à Saint-Barth</div>
+          <span className="ig-muted" style={{fontSize:14}}>{filtrees.length} arrivée{filtrees.length > 1 ? "s" : ""} · ✈️ {totalAeroport} · ⛴️ {totalPort}</span>
+          <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap'}}>
+            <button className={"ig-btn ig-btn-sm " + (periode === "avenir" ? "ig-btn-ink" : "ig-btn-ghost")} onClick={() => setPeriode("avenir")}>À venir</button>
+            <button className={"ig-btn ig-btn-sm " + (periode === "tout" ? "ig-btn-ink" : "ig-btn-ghost")} onClick={() => setPeriode("tout")}>Toutes</button>
+            {etabs.length > 1 && (
+              <select value={filtreEtab} onChange={(e) => setFiltreEtab(e.target.value)} style={{padding:'6px 10px',borderRadius:10,border:'1.5px solid var(--line)',fontFamily:'Inter',fontSize:13}}>
+                <option value="TOUS">Tous les établissements</option>
+                {etabs.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            )}
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={recharger}>↻ Actualiser</button>
+          </div>
+        </div>
+      </div>
+
+      {parJour.length === 0 && (
+        <div className="ig-card" style={{padding:20,marginBottom:16}}><div className="ig-muted">Aucune arrivée {periode === "avenir" ? "à venir " : ""}renseignée pour le moment.</div></div>
+      )}
+
+      {parJour.map(([iso, jour]) => {
+        const nbA = jour.filter((a) => a.lieu === "AEROPORT").length;
+        const nbP = jour.filter((a) => a.lieu === "PORT").length;
+        return (
+          <div key={iso} className="ig-card" style={{padding:'16px 20px',marginBottom:16}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
+              <div style={{fontWeight:700,fontSize:17}}>{iso ? fmtJourLong(iso) : "Date non renseignée"}</div>
+              <span className="ig-muted" style={{fontSize:14}}>{jour.length} arrivée{jour.length > 1 ? "s" : ""}{nbA ? ` · ✈️ ${nbA}` : ""}{nbP ? ` · ⛴️ ${nbP}` : ""}</span>
+              {iso && <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto'}} onClick={() => copierJour(iso, jour)}>📋 Copier pour WhatsApp</button>}
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {jour.map((a) => {
+                const telNum = (a.tel || "").replace(/[^\d+]/g, "");
+                return (
+                  <div key={a.resto + a.id} style={{display:'flex',gap:14,alignItems:'flex-start',padding:'10px 12px',borderRadius:12,background: a.lieu === "PORT" ? '#EAF3F3' : '#F7F2EA',flexWrap:'wrap'}}>
+                    <div style={{fontWeight:800,fontSize:20,minWidth:64,fontVariantNumeric:'tabular-nums'}}>{a.heure || "--:--"}</div>
+                    <div style={{flex:'1 1 220px',fontSize:14}}>
+                      <div style={{fontWeight:700,fontSize:15}}>{a.prenom} {a.nom} <span className="ig-muted" style={{fontWeight:500,fontSize:13}}>· {a.poste || "—"} · {a.resto}</span></div>
+                      <div>{libelleLieu(a.lieu)}{a.vol ? ` · ${a.vol}` : ""}{a.provenance ? ` · depuis ${a.provenance}` : ""}</div>
+                      <div>{libelleLocomotion(a.locomotion)}{a.bagages !== "" && a.bagages != null ? ` · 🧳 ${a.bagages}` : ""}</div>
+                      {a.remarque && <div style={{fontStyle:'italic',marginTop:2}}>« {a.remarque} »</div>}
+                    </div>
+                    {telNum && (
+                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                        <a className="ig-btn ig-btn-ghost ig-btn-sm" href={`tel:${telNum}`}>📞 Appeler</a>
+                        <a className="ig-btn ig-btn-ghost ig-btn-sm" href={`https://wa.me/${telNum.replace(/^\+/, "")}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="ig-card" style={{padding:'16px 20px',marginBottom:16,border: sansReponse.length ? '1.5px solid #E5A06A' : '1.5px solid var(--line)'}}>
+        <div style={{fontWeight:700,marginBottom:4,color: sansReponse.length ? '#9A4A1B' : 'inherit'}}>
+          {sansReponse.length ? `${sansReponse.length} salarié${sansReponse.length > 1 ? "s" : ""} de ${resto} sans réponse` : `Toute l'équipe de ${resto} a répondu 🎉`}
+        </div>
+        {sansReponse.length > 0 && (
+          <>
+            <div className="ig-muted" style={{marginBottom:10,fontSize:13}}>À relancer (ils remplissent le formulaire depuis « Je suis salarié »), ou saisissez leur arrivée vous-même.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {sansReponse.map((e) => (
+                <div key={idSalarie(e)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+                  <div style={{fontSize:14}}><b>{e.p} {e.n}</b> <span className="ig-muted">· {e.po}</span></div>
+                  <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={() => setSaisie(e)}>Saisir son arrivée</button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {saisie && (
+        <div className="ig-overlay" onClick={() => setSaisie(null)}>
+          <div className="ig-modal" style={{maxWidth:560}} onClick={(e) => e.stopPropagation()}>
+            <h3>Arrivée de {saisie.p} {saisie.n}</h3>
+            <ArriveeForm onSave={(d) => enregistrerPour(saisie, d)} onCancel={() => setSaisie(null)} enregistrement={enregistrement} />
+          </div>
+        </div>
       )}
     </div>
   );

@@ -80,3 +80,28 @@ create policy anon_pointages_update on public.kv
 --  Et pensez à désactiver l'inscription libre :
 --  Authentication → Providers → Email → décochez "Enable sign-ups".
 -- ============================================================================
+
+-- ----------------------------------------------------------------------------
+--  Arrivées à Saint-Barth (clés "arrivee:<RESTO>:<SALARIE>")
+--  Les salariés (anonymes) déclarent leur date/heure/lieu d'arrivée ; la direction
+--  (connectée) voit tout via la règle managers_all ci-dessus.
+--  À exécuter une fois dans Supabase → SQL Editor (sans risque si relancé).
+-- ----------------------------------------------------------------------------
+drop policy if exists anon_arrivees_select on public.kv;
+create policy anon_arrivees_select on public.kv
+  for select
+  to anon
+  using (key like 'arrivee:%');
+
+drop policy if exists anon_arrivees_insert on public.kv;
+create policy anon_arrivees_insert on public.kv
+  for insert
+  to anon
+  with check (key like 'arrivee:%');
+
+drop policy if exists anon_arrivees_update on public.kv;
+create policy anon_arrivees_update on public.kv
+  for update
+  to anon
+  using (key like 'arrivee:%')
+  with check (key like 'arrivee:%');
