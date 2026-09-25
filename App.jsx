@@ -458,12 +458,24 @@ const Store = {
 // rh_salaries, elle répercute les mêmes champs dans le Sheet qu'Océane continue de tenir
 // à jour elle-même. Passe par la fonction Supabase "sheet-sync" (clé Google côté serveur).
 const RhSheetSync = {
-  async upsert({ resto, unite, nom, prenom, champs }) {
-    if (!resto || !nom || !prenom) return;
-    const { error } = await supabase.functions.invoke("sheet-sync", {
-      body: { action: "upsertRow", resto, unite, nom, prenom, champs },
+  // "ligneCible" absent -> la fonction cherche la ligne par nom+prénom+établissement (utile
+  // une première fois, ou pour une fiche créée avant que ce mécanisme existe) ; fourni (le
+  // numéro mémorisé dans rh_salaries.sheet_ligne dès la première synchro réussie) -> écrit
+  // directement dessus, sans recherche — évite qu'une recherche en échec silencieux (accent,
+  // espace...) ne crée une nouvelle ligne quasi vide à chaque modification suivante.
+  async upsert({ resto, unite, nom, prenom, champs, ligneCible }) {
+    if (!resto || !nom || !prenom) return { ok: false, erreur: "champs_manquants" };
+    const { data, error } = await supabase.functions.invoke("sheet-sync", {
+      body: { action: "upsertRow", resto, unite, nom, prenom, champs, ligneCible },
     });
-    if (error) console.error("RhSheetSync.upsert:", error.message);
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      console.error("RhSheetSync.upsert:", detail);
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) { console.error("RhSheetSync.upsert:", data.error); return { ok: false, erreur: data.error }; }
+    return { ok: true, ...data };
   },
   // Rattrapage en un clic : crée en base les salariés déjà présents dans le Sheet mais
   // jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique).
@@ -582,13 +594,20 @@ const RhSalaries = {
   async creer(row) {
     const { data, error } = await supabase.from("rh_salaries").insert(row).select().single();
     if (error) { console.error("RhSalaries.creer:", error.message); return null; }
-    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data });
+    // Fire-and-forget (une fiche se crée même si le Sheet est indisponible), mais on
+    // mémorise quand même la ligne dès qu'on la connaît, pour verrouiller les prochaines
+    // synchros de cette fiche dessus (voir RhSheetSync.upsert).
+    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data }).then((r) => {
+      if (r?.ok && r.ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", data.id).then(() => {});
+    });
     return data;
   },
   async maj(id, patch) {
     const { data, error } = await supabase.from("rh_salaries").update(patch).eq("id", id).select().single();
     if (error) { console.error("RhSalaries.maj:", error.message); return null; }
-    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch });
+    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch, ligneCible: data.sheet_ligne || undefined }).then((r) => {
+      if (r?.ok && r.ligne && r.ligne !== data.sheet_ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", id).then(() => {});
+    });
     return data;
   },
   // Effectif réel par établissement (saison la plus récente de chaque établissement),
