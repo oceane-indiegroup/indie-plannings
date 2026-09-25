@@ -985,6 +985,17 @@ const CSS = `
 .ig-resto:hover { border-color:var(--coral); background:#fff; }
 .ig-resto .nm { font-weight:600; font-size:15px; }
 .ig-resto .ct { font-size:12px; color:var(--ink-soft); }
+/* Tuiles de sections de l'Espace RH : une couleur par section (--c = accent, --t = teinte). */
+.ig-sec-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; margin-top:22px; }
+.ig-sec { position:relative; overflow:hidden; text-align:left; background:var(--t); border:1.5px solid transparent; border-radius:18px; padding:20px 20px 18px; cursor:pointer; font-family:'Inter',system-ui,sans-serif; color:var(--ink); display:flex; flex-direction:column; gap:10px; min-height:150px; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.ig-sec::before { content:""; position:absolute; left:0; top:0; right:0; height:5px; background:var(--c); }
+.ig-sec:hover { transform:translateY(-3px); border-color:var(--c); box-shadow:0 14px 30px -18px rgba(21,48,59,.45); }
+.ig-sec:focus-visible { outline:3px solid var(--c); outline-offset:2px; }
+.ig-sec .em { width:48px; height:48px; border-radius:14px; background:#fff; display:flex; align-items:center; justify-content:center; font-size:26px; box-shadow:0 2px 8px -4px rgba(21,48,59,.35); }
+.ig-sec .ti { font-weight:700; font-size:17px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.ig-sec .ti svg { color:var(--c); flex-shrink:0; }
+.ig-sec .de { font-size:13px; line-height:1.4; color:var(--ink-soft); }
+.ig-sec .bd { position:absolute; top:16px; right:16px; font-size:10px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:#fff; background:var(--c); padding:3px 8px; border-radius:999px; }
 
 /* Recherche salarié */
 .ig-search { position:relative; margin-top:18px; max-width:440px; }
@@ -5709,20 +5720,21 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
   // est la première ; d'autres sections viendront s'ajouter à côté par la suite.
   const [sousSection, setSousSection] = useState(null);
+  // emoji / c (couleur d'accent) / t (teinte de fond) / desc : habillage des tuiles de section.
   const SOUS_SECTIONS_RH = [
-    { cle: "registre", label: "Registre embauche" },
-    { cle: "repos_hebdo", label: "Repos hebdo non pris" },
-    { cle: "extras", label: "Extras" },
-    { cle: "planning", label: "Planning" },
+    { cle: "registre", label: "Registre embauche", emoji: "📋", c: "#2E7D86", t: "#E4F1F2", desc: "Les salariés onboardés, leurs contrats et leurs infos." },
+    { cle: "planning", label: "Planning", emoji: "📅", c: "#3D5A98", t: "#E6EBF6", desc: "Les horaires de la semaine et l'émargement." },
     // Arrivées du staff à Saint-Barth (la directrice va chercher chacun à l'aéroport/au port).
-    ...(estEtablissementSBH(restoActif) ? [{ cle: "arrivees", label: "Arrivées" }] : []),
+    ...(estEtablissementSBH(restoActif) ? [{ cle: "arrivees", label: "Arrivées", emoji: "🌴", c: "#1E9E6A", t: "#E2F5EC", desc: "Qui arrive, quand, à l'aéroport ou au port.", badge: "Saint-Barth" }] : []),
+    { cle: "extras", label: "Extras", emoji: "✨", c: "#C8871A", t: "#FBF0DC", desc: "Les extras du mois et leurs contrats." },
+    { cle: "repos_hebdo", label: "Repos hebdo non pris", emoji: "🛌", c: "#8A5CB8", t: "#F0E8F8", desc: "Les jours de repos non pris à régulariser." },
     // Primes/régularisations à transmettre pour la paie — réservé au superviseur (jamais
     // visible des directeurs/chefs), un module par établissement comme "Repos hebdo non pris".
-    ...(estSuperviseur ? [{ cle: "primes", label: "Primes" }] : []),
+    ...(estSuperviseur ? [{ cle: "primes", label: "Primes", emoji: "💶", c: "#E5604D", t: "#FCE6E1", desc: "Primes et régularisations à transmettre pour la paie.", badge: "Superviseur" }] : []),
     // Outil externe de gestion des pourboires, propre à Pablo (salle uniquement) — un clic
     // ouvre directement l'outil dans un nouvel onglet, rien n'est intégré/dupliqué ici.
     ...(restoActif === "PABLO" && uniteActive === "SALLE"
-      ? [{ cle: "tips", label: "Tips", externe: "https://tips-pablo-app.vercel.app/" }]
+      ? [{ cle: "tips", label: "Tips", externe: "https://tips-pablo-app.vercel.app/", emoji: "💰", c: "#15303B", t: "#E7EAEC", desc: "L'outil de gestion des pourboires de Pablo.", badge: "Lien externe" }]
       : []),
   ];
 
@@ -5811,11 +5823,13 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
           <div className="ig-eyebrow">Étape 2</div>
           <h2 className="ig-section-title">Choisissez une section</h2>
           <p className="ig-muted">{SOUS_SECTIONS_RH.length} section{SOUS_SECTIONS_RH.length>1?'s':''} pour {restoActif}.</p>
-          <div className="ig-resto-grid">
+          <div className="ig-sec-grid">
             {SOUS_SECTIONS_RH.map((s) => (
-              <button key={s.cle} className="ig-resto" onClick={()=> s.externe ? window.open(s.externe, "_blank", "noopener,noreferrer") : setSousSection(s.cle)}>
-                <div><div className="nm">{s.label}</div></div>
-                <Icon.Chevron />
+              <button key={s.cle} className="ig-sec" style={{"--c": s.c, "--t": s.t}} onClick={()=> s.externe ? window.open(s.externe, "_blank", "noopener,noreferrer") : setSousSection(s.cle)}>
+                {s.badge && <span className="bd">{s.badge}</span>}
+                <span className="em" aria-hidden="true">{s.emoji}</span>
+                <span className="ti">{s.label} <Icon.Chevron /></span>
+                <span className="de">{s.desc}</span>
               </button>
             ))}
           </div>
