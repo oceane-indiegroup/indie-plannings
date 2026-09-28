@@ -877,14 +877,18 @@ Deno.serve(async (req: Request) => {
       // registre). On complète donc aussi les fiches déjà là, mais UNIQUEMENT les champs
       // encore vides (jamais un champ qu'un directeur aurait déjà renseigné/modifié).
       //
-      // La clé de correspondance inclut la SAISON (resto+salarie_id+saison, comme la
-      // contrainte unique de la table) : un même salarié peut légitimement avoir une fiche
-      // par saison, avec des dates de contrat différentes d'une année sur l'autre. L'ancienne
-      // version ne clé indexait que par resto+salarie_id, donc dès qu'une personne avait ne
-      // serait-ce qu'UNE fiche d'une saison passée, sa fiche de la nouvelle saison n'était
-      // jamais créée par l'import (elle "existait déjà" au sens de l'ancienne clé) — c'est ce
-      // qui a fait disparaître Mohamed Kherraz et Emma Heller (2026) au profit de leurs
-      // fiches 2025 déjà en base.
+      // La clé de correspondance est resto+salarie_id+DATE DE DÉBUT DE CONTRAT — pas la
+      // saison. Un même salarié peut légitimement avoir une fiche par saison (dates de
+      // contrat différentes d'une année sur l'autre : voir Kherraz/Heller 2025 vs 2026 plus
+      // haut), MAIS une fiche déjà archivée à la main (saison "Archives", "Vieux dossiers"...
+      // un libellé LIBRE, pas forcément une année) reste bien LE MÊME contrat que celui du
+      // Sheet, avec la même date de début — comparer par saison la traitait à tort comme
+      // "jamais vue" et recréait un doublon exact à chaque réimport (constaté sur 5 fiches
+      // Cuisine de CHERRY déjà dans "Archives" : Di Maggio, Feray, Goux, Lepori, Roumly).
+      // Comparer par date de début reconnaît le même contrat quel que soit le nom donné à sa
+      // saison, tout en distinguant bien deux contrats différents (même sans date exploitable,
+      // les deux clés valent "" et se traitent alors comme avant — au pire une fiche à
+      // fusionner à la main, jamais un doublon silencieux).
       const CHAMPS_COMPLETABLES = ["date_debut", "date_fin", "date_fin_periode_essai", "heures_contrat", "heures_sup", "salaire_net", "type_contrat", "niveau", "echelon"];
       const existants: Record<string, Record<string, unknown>> = {};
       {
@@ -896,7 +900,7 @@ Deno.serve(async (req: Request) => {
         if (existRes.ok) {
           const lignesExist = await existRes.json();
           for (const l of lignesExist) {
-            existants[`${l.resto}::${l.salarie_id}::${l.saison}`] = l;
+            existants[`${l.resto}::${l.salarie_id}::${l.date_debut || ""}`] = l;
           }
         }
       }
@@ -904,7 +908,7 @@ Deno.serve(async (req: Request) => {
       const aInsererFinal: Record<string, unknown>[] = [];
       const patchs: { id: unknown; patch: Record<string, unknown> }[] = [];
       for (const ligne of aInserer) {
-        const cleF = `${ligne.resto}::${ligne.salarie_id}::${ligne.saison}`;
+        const cleF = `${ligne.resto}::${ligne.salarie_id}::${ligne.date_debut || ""}`;
         const existant = existants[cleF];
         if (!existant) { aInsererFinal.push(ligne); continue; }
         const patch: Record<string, unknown> = {};
