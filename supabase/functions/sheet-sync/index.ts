@@ -421,42 +421,40 @@ async function formaterLigneOnboarding(jeton: string, ligne: number, colNom: num
   if (!res.ok) throw new Error("sheet_formatage_echec: " + (await res.text()));
 }
 
-// Lance un travail en arrière-plan APRÈS avoir déjà répondu à l'appelant (Apps Script), sans
-// jamais le faire attendre. "EdgeRuntime.waitUntil" (fourni par l'environnement Supabase, pas
-// par Deno standard) garantit que ce travail va bien jusqu'au bout au lieu de risquer d'être
-// coupé net dès que la réponse HTTP est envoyée.
-function enArrierePlan(promesse: Promise<unknown>) {
-  // deno-lint-ignore no-explicit-any
-  const rt = (globalThis as any).EdgeRuntime;
-  if (rt && typeof rt.waitUntil === "function") rt.waitUntil(promesse);
+// Force le texte de la cellule NOM en MAJUSCULE (demande d'Océane : "le nom de famille en
+// majuscule", distinct de la mise en forme visuelle ci-dessus qui ne touche jamais au texte).
+// Une fiche créée par l'appli est déjà en majuscule en amont (nom.toUpperCase() avant
+// l'écriture) ; une vraie réponse au Form, elle, garde EXACTEMENT ce que la personne a tapé
+// (souvent pas en majuscule), d'où ce forçage explicite.
+async function forcerNomMajuscule(jeton: string, sheetId: string, tab: string, ligne: number, colNom: number, valeurActuelle: string) {
+  const maj = (valeurActuelle || "").toUpperCase();
+  if (!valeurActuelle || valeurActuelle === maj) return;
+  await ecrireCellules(jeton, [{ range: `'${tab}'!${indexVersLettre(colNom)}${ligne}`, values: [[maj]] }], sheetId);
 }
 
-// Retrouve puis met en forme la ligne d'UNE personne dans le Sheet "onboarding" — appelée
-// après "formSubmit" (une vraie réponse au Form). Constaté à l'usage : une nouvelle réponse
-// au Form n'hérite pas toujours du format posé une fois sur toute la colonne (ça fonctionne
-// pour la plupart des lignes, mais pas systématiquement) — donc on le fait aussi explicitement
-// ici, comme pour une ligne créée par l'appli. Best-effort : n'importe quel échec (recherche
-// infructueuse, droits insuffisants...) reste silencieux et ne bloque jamais l'onboarding.
-async function formaterLignePourPersonne(nomP: string, prenomP: string, restoP: string) {
+// Met en forme la DERNIÈRE ligne du Sheet "onboarding" — appelée juste après qu'une vraie
+// réponse au Form vient d'y être ajoutée. Une réponse de Google Form s'ajoute TOUJOURS tout en
+// bas du Sheet, jamais ailleurs : pas besoin de la retrouver par nom/prénom. L'ancienne version
+// cherchait la ligne par texte (nom+prénom+établissement), ce qui pouvait échouer silencieusement
+// (accent, espace, casse différente de ce que la personne a tapé) et laissait alors la ligne sans
+// AUCUNE mise en forme, comme observé sur deux onboardings récents (Calais, Vincent) : ni centrage,
+// ni police 14, ni majuscule. Appelée en l'attendant (pas en arrière-plan) : ces 2 petits appels à
+// l'API Sheets sont rapides, et il vaut mieux garantir que la mise en forme s'applique vraiment
+// plutôt que de la laisser filer sans confirmation. Best-effort : un échec (droits insuffisants...)
+// reste silencieux et ne bloque jamais l'onboarding.
+async function formaterDerniereLigne() {
   try {
     const jeton = await jetonAcces();
     const grille = await lireFeuille(jeton);
-    if (grille.length === 0) return;
+    if (grille.length < 2) return;
     const colIndex = colonneIndex(grille[0]);
-    if (!("nom" in colIndex) || !("prenom" in colIndex)) return;
-    const restoCol = colIndex["resto"];
-    let ligneCible = -1;
-    for (let i = 1; i < grille.length; i++) {
-      const r = grille[i];
-      const memeNom = normaliser(r[colIndex["nom"]]) === normaliser(nomP);
-      const memePrenom = normaliser(r[colIndex["prenom"]]) === normaliser(prenomP);
-      const memeResto = restoCol === undefined || normaliser(r[restoCol] || "") === normaliser(restoP);
-      if (memeNom && memePrenom && memeResto) { ligneCible = i + 1; break; }
+    const ligne = grille.length;
+    if (colIndex["nom"] !== undefined) {
+      await forcerNomMajuscule(jeton, SHEET_ID, SHEET_TAB, ligne, colIndex["nom"], grille[ligne - 1][colIndex["nom"]]);
     }
-    if (ligneCible === -1) return;
-    await formaterLigneOnboarding(jeton, ligneCible, colIndex["nom"], grille[0].length);
+    await formaterLigneOnboarding(jeton, ligne, colIndex["nom"], grille[0].length);
   } catch (e) {
-    console.error("formaterLignePourPersonne echouee:", e);
+    console.error("formaterDerniereLigne echouee:", e);
   }
 }
 
@@ -929,12 +927,13 @@ Deno.serve(async (req: Request) => {
           console.error("formSubmit fusion_echouee:", majRes.status, detail);
           return json({ error: "fusion_echouee", detail }, 500);
         }
-        // Surtout PAS de "await" ici : la mise en forme n'est qu'un détail visuel, alors que
-        // le script Apps Script d'Océane (création du dossier Drive) attend la réponse de CET
-        // appel pour continuer — la retarder en attendant la mise en forme a pu lui faire
-        // manquer l'étape Drive sur un onboarding récent. On répond donc IMMÉDIATEMENT, et le
-        // formatage se termine tranquillement derrière, sans bloquer personne.
-        enArrierePlan(formaterLignePourPersonne(nom, prenom, resto));
+        // Attendu (pas en arrière-plan) : voir le commentaire de formaterDerniereLigne plus
+        // haut — le passage en arrière-plan (tenté un temps, pour ne jamais retarder la
+        // création du dossier Drive par le script Apps Script d'Océane) a laissé la mise en
+        // forme ne jamais s'appliquer sur deux onboardings réels de suite. Ce sont 2 petits
+        // appels API rapides : le risque de retarder Apps Script au point de casser son étape
+        // Drive est bien moindre que celui, confirmé, de ne jamais mettre en forme la ligne.
+        await formaterDerniereLigne();
         return json({ ok: true, fusionne: true });
       }
 
@@ -963,9 +962,8 @@ Deno.serve(async (req: Request) => {
       // d'Océane (déclenché sur le même envoi de formulaire) : on ne le recrée pas ici,
       // pour ne jamais produire un dossier en double avec un nom légèrement différent.
 
-      // Pas de "await" (voir commentaire équivalent plus haut) : on répond tout de suite à
-      // Apps Script, la mise en forme se fait derrière sans retarder la création du dossier Drive.
-      enArrierePlan(formaterLignePourPersonne(nom, prenom, resto));
+      // Attendu (voir commentaire équivalent plus haut).
+      await formaterDerniereLigne();
       return json({ ok: true });
     }
 
