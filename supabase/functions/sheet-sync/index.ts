@@ -662,6 +662,73 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, ligne: ligneCible, creee: nouvelleLigne });
     }
 
+    // ---- Une vraie réponse vient d'être soumise au Google Form "Extra" (via un script Apps
+    // Script à poser sur CE Sheet, symétrique à "formSubmit" pour l'onboarding) : contrairement
+    // à une création via l'appli (upsertExtra, ci-dessus), une réponse brute au Form n'est ni en
+    // majuscule (NOM/PRENOM), ni calculée (Taux Brut / Prime Net / Prime Brute / Prime Coût
+    // Total), ni datée en Mois/Année — rien de tout ça n'existe côté Google Forms, l'appli seule
+    // le calculait jusqu'ici. On relit donc la DERNIÈRE ligne du Sheet juste après son ajout
+    // (une réponse au Form s'ajoute toujours tout en bas, comme pour l'onboarding) et on la
+    // complète. Aucun paramètre nécessaire dans le corps de la requête à part le secret : tout
+    // se relit directement depuis la ligne elle-même. Best-effort, comme "formaterDerniereLigne" :
+    // un échec reste silencieux plutôt que de faire échouer le webhook Apps Script.
+    if (action === "extraFormSubmit") {
+      if (!FORM_WEBHOOK_SECRET || corps.secret !== FORM_WEBHOOK_SECRET) return json({ error: "secret_invalide" }, 401);
+      if (!SHEET_ID_EXTRA) return json({ error: "sheet_extra_non_configure" }, 500);
+      try {
+        const jeton = await jetonAcces();
+        const grille = await lireFeuille(jeton, SHEET_ID_EXTRA, SHEET_TAB_EXTRA);
+        if (grille.length < 2) return json({ ok: true });
+        const ligne = grille.length;
+        const r = grille[ligne - 1];
+
+        // Mêmes colonnes fixes que "upsertExtra" ci-dessus : 3 DATE, 4 NOM, 5 PRENOM, 7 Heures,
+        // 8 Taux net, 9 sur heures origine, 10 Taux brut, 11 Prime net, 12 Prime brute,
+        // 13 Prime coût total, 15 MOIS, 16 Année.
+        const nom = (r[4] || "").toUpperCase();
+        const prenom = (r[5] || "").toUpperCase();
+        const heures = Number(String(r[7] || "").replace(",", ".")) || 0;
+        const tauxNet = Number(String(r[8] || "").replace(",", ".")) || 0;
+        const surHeuresOrigine = normaliser(r[9] || "").startsWith("oui");
+        const dateStr = r[3] || "";
+
+        // Mêmes formules que calculExtra (App.jsx) / EXTRA_NET_VERS_BRUT / EXTRA_BRUT_VERS_COUT_TOTAL.
+        const tauxBrut = surHeuresOrigine ? 0 : tauxNet * EXTRA_NET_VERS_BRUT;
+        const primeNet = surHeuresOrigine ? 0 : heures * tauxNet;
+        const primeBrute = surHeuresOrigine ? 0 : heures * tauxBrut;
+        const primeCoutTotal = surHeuresOrigine ? 0 : tauxBrut * EXTRA_BRUT_VERS_COUT_TOTAL * heures;
+        const arrondi = (n: number) => Math.round(n || 0);
+
+        const MOIS_NOMS_MAJ = ["JANVIER","FEVRIER","MARS","AVRIL","MAI","JUIN","JUILLET","AOUT","SEPTEMBRE","OCTOBRE","NOVEMBRE","DECEMBRE"];
+        const mDate = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        const nomMois = mDate ? (MOIS_NOMS_MAJ[Number(mDate[2]) - 1] || "") : "";
+        const annee = mDate ? mDate[3] : "";
+
+        const cellules: { colonne: number; valeur: string }[] = [
+          { colonne: 4, valeur: nom },
+          { colonne: 5, valeur: prenom },
+        ];
+        if (!surHeuresOrigine) {
+          cellules.push(
+            { colonne: 10, valeur: String(arrondi(tauxBrut)) },
+            { colonne: 11, valeur: String(arrondi(primeNet)) },
+            { colonne: 12, valeur: String(arrondi(primeBrute)) },
+            { colonne: 13, valeur: String(arrondi(primeCoutTotal)) },
+          );
+        }
+        if (nomMois) cellules.push({ colonne: 15, valeur: nomMois });
+        if (annee) cellules.push({ colonne: 16, valeur: annee });
+
+        const data = cellules.map(({ colonne, valeur }) => ({
+          range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(colonne)}${ligne}`, values: [[valeur]],
+        }));
+        await ecrireCellules(jeton, data, SHEET_ID_EXTRA);
+      } catch (e) {
+        console.error("extraFormSubmit echouee:", e);
+      }
+      return json({ ok: true });
+    }
+
     // ---- Synchro automatique d'une prime vers le Sheet "Prime" (SHEET_ID_PRIME) — appelée
     // par l'appli à chaque création/modification d'une prime, module réservé au superviseur.
     // Même principe que "upsertExtra" ci-dessus (leçon retenue de sa collision de lignes) :
