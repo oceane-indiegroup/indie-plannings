@@ -729,20 +729,26 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true });
     }
 
-    // ---- Rattrapage en un clic pour le Sheet "Extra" : relit TOUT le Sheet et corrige
-    // toutes les lignes qui en ont besoin (majuscule NOM/PRENOM, Taux Brut/Prime Net/Prime
-    // Brute/Prime Coût Total, Mois/Année) — pas seulement la dernière, contrairement à
-    // "extraFormSubmit" qui suppose qu'un déclencheur Apps Script a tourné à chaque réponse.
-    // Le déclencheur "Lors de l'envoi du formulaire" s'est révélé peu fiable (mauvais projet,
-    // jamais déclenché, autorisation manquante...) : cette action sert de filet de sécurité
-    // actionnable à tout moment par le superviseur, un bouton dans l'appli, sans dépendre
-    // d'aucune configuration côté Google. Ne touche jamais une ligne déjà correcte (comparaison
-    // avant écriture), et jamais les lignes "sur heures origine" (Taux Brut etc. volontairement
-    // vides, comme upsertExtra/extraFormSubmit). Réservé au superviseur.
+    // ---- Rattrapage pour le Sheet "Extra" : relit TOUT le Sheet et corrige toutes les
+    // lignes qui en ont besoin (majuscule NOM/PRENOM, Taux Brut/Prime Net/Prime Brute/Prime
+    // Coût Total, Mois/Année) — pas seulement la dernière, contrairement à "extraFormSubmit"
+    // qui suppose qu'un déclencheur Apps Script a tourné à chaque réponse. Le déclencheur
+    // "Lors de l'envoi du formulaire" s'est révélé peu fiable (mauvais projet, jamais
+    // déclenché, autorisation manquante...) : deux façons d'appeler cette action, toutes deux
+    // acceptées ici — (1) le bouton "Corriger le Sheet Extra" dans l'appli (superviseur
+    // authentifié) et (2) un déclencheur Apps Script BASÉ SUR L'HEURE (toutes les X minutes,
+    // avec le même secret que formSubmit/extraFormSubmit) pour une correction automatique,
+    // sans dépendre de la capture fiable d'un événement précis — un déclencheur temporel est
+    // nettement plus robuste qu'un déclencheur "à l'envoi du formulaire". Ne touche jamais une
+    // ligne déjà correcte (comparaison avant écriture), et jamais les lignes "sur heures
+    // origine" (Taux Brut etc. volontairement vides, comme upsertExtra/extraFormSubmit).
     if (action === "extraCompleterTout") {
-      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
-      if (!appelant) return json({ error: "non_authentifie" }, 401);
-      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      const viaSecret = !!FORM_WEBHOOK_SECRET && corps.secret === FORM_WEBHOOK_SECRET;
+      if (!viaSecret) {
+        const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+        if (!appelant) return json({ error: "non_authentifie" }, 401);
+        if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      }
       if (!SHEET_ID_EXTRA) return json({ error: "sheet_extra_non_configure" }, 500);
 
       const jeton = await jetonAcces();
