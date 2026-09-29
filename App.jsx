@@ -506,6 +506,20 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Rattrapage en un clic pour le Sheet "Extra" : corrige toutes les lignes qui en ont besoin
+  // (majuscule NOM/PRENOM, calculs Taux Brut/Prime Net/Prime Brute/Prime Coût Total, Mois/
+  // Année) — utile car le déclencheur Google ("Lors de l'envoi du formulaire") censé le faire
+  // automatiquement à chaque réponse s'est révélé peu fiable. Réservé au superviseur.
+  async completerExtra() {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "extraCompleterTout" } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
   // Archive de fin de saison : copie toutes les fiches d'une saison donnée dans un onglet
   // dédié du Google Sheet. N'efface rien en base. Réservé au superviseur.
   async archiverSaison(saison) {
@@ -5190,6 +5204,7 @@ function ExtrasRH({ resto, unite, superviseur }) {
   const [fiche, setFiche] = useState(false);
   const [flash, setFlash] = useState("");
   const [recherche, setRecherche] = useState("");
+  const [completBusy, setCompletBusy] = useState(false);
 
   useEffect(() => {
     let on = true;
@@ -5202,6 +5217,20 @@ function ExtrasRH({ resto, unite, superviseur }) {
   }, [resto, unite, mois]);
 
   function montrerFlash(msg) { setFlash(msg); setTimeout(() => setFlash(""), 6000); }
+
+  // Corrige d'un coup toutes les lignes du Sheet Extra qui en ont besoin (majuscule, calculs,
+  // mois/année) — filet de sécurité pour les réponses au vrai Google Form, dont le déclencheur
+  // automatique côté Google s'est révélé peu fiable. Ne recharge pas la liste (le Sheet est une
+  // synchro à sens unique app -> Sheet pour les extras créés ici ; ce bouton corrige l'autre
+  // sens, les réponses arrivées directement dans le Sheet).
+  async function completerSheetExtra() {
+    if (completBusy) return;
+    setCompletBusy(true);
+    const r = await RhSheetSync.completerExtra();
+    setCompletBusy(false);
+    if (!r.ok) { montrerFlash(`Échec : ${r.erreur || "erreur inconnue"}`); return; }
+    montrerFlash(r.corrigees > 0 ? `${r.corrigees} ligne${r.corrigees>1?'s':''} corrigée${r.corrigees>1?'s':''} dans le Sheet Extra.` : "Rien à corriger, le Sheet Extra est déjà à jour.");
+  }
 
   async function creerExtra({ salarieNom, salariePrenom, restoOrigine, poste, date }) {
     const nomMaj = salarieNom.toUpperCase();
@@ -5303,6 +5332,7 @@ function ExtrasRH({ resto, unite, superviseur }) {
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Ajouter un extra</button>
         <a className="ig-btn ig-btn-ghost" href="https://forms.gle/pNFPqnH2eAX3C7gs7" target="_blank" rel="noopener noreferrer">+ Ajouter un extra extérieur</a>
         {superviseur && <button className="ig-btn ig-btn-ghost" onClick={()=>setFiche(true)}>Fiche juridique de {resto}</button>}
+        {superviseur && <button className="ig-btn ig-btn-ghost" onClick={completerSheetExtra} disabled={completBusy}>{completBusy ? "Correction…" : "↻ Corriger le Sheet Extra"}</button>}
         {superviseur && !ficheOk && <span style={{color:'var(--coral-d)',fontSize:13,fontWeight:600}}>⚠ à compléter avant de générer des contrats valides</span>}
       </div>
 

@@ -729,6 +729,80 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true });
     }
 
+    // ---- Rattrapage en un clic pour le Sheet "Extra" : relit TOUT le Sheet et corrige
+    // toutes les lignes qui en ont besoin (majuscule NOM/PRENOM, Taux Brut/Prime Net/Prime
+    // Brute/Prime Coût Total, Mois/Année) — pas seulement la dernière, contrairement à
+    // "extraFormSubmit" qui suppose qu'un déclencheur Apps Script a tourné à chaque réponse.
+    // Le déclencheur "Lors de l'envoi du formulaire" s'est révélé peu fiable (mauvais projet,
+    // jamais déclenché, autorisation manquante...) : cette action sert de filet de sécurité
+    // actionnable à tout moment par le superviseur, un bouton dans l'appli, sans dépendre
+    // d'aucune configuration côté Google. Ne touche jamais une ligne déjà correcte (comparaison
+    // avant écriture), et jamais les lignes "sur heures origine" (Taux Brut etc. volontairement
+    // vides, comme upsertExtra/extraFormSubmit). Réservé au superviseur.
+    if (action === "extraCompleterTout") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      if (!SHEET_ID_EXTRA) return json({ error: "sheet_extra_non_configure" }, 500);
+
+      const jeton = await jetonAcces();
+      const grille = await lireFeuille(jeton, SHEET_ID_EXTRA, SHEET_TAB_EXTRA);
+      if (grille.length < 2) return json({ ok: true, corrigees: 0 });
+
+      const arrondi = (n: number) => Math.round(n || 0);
+      const MOIS_NOMS_MAJ = ["JANVIER","FEVRIER","MARS","AVRIL","MAI","JUIN","JUILLET","AOUT","SEPTEMBRE","OCTOBRE","NOVEMBRE","DECEMBRE"];
+      const data: { range: string; values: string[][] }[] = [];
+      let corrigees = 0;
+
+      for (let i = 1; i < grille.length; i++) {
+        const r = grille[i];
+        const ligneNo = i + 1;
+        const nomBrut = r[4] || "";
+        if (!nomBrut.trim()) continue; // ligne vide
+
+        let touchee = false;
+        const nomMaj = nomBrut.toUpperCase();
+        if (nomMaj !== nomBrut) { data.push({ range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(4)}${ligneNo}`, values: [[nomMaj]] }); touchee = true; }
+        const prenomBrut = r[5] || "";
+        const prenomMaj = prenomBrut.toUpperCase();
+        if (prenomMaj !== prenomBrut) { data.push({ range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(5)}${ligneNo}`, values: [[prenomMaj]] }); touchee = true; }
+
+        const surHeuresOrigine = normaliser(r[9] || "").startsWith("oui");
+        const tauxBrutActuel = (r[10] || "").trim();
+        if (!surHeuresOrigine && !tauxBrutActuel) {
+          const heures = Number(String(r[7] || "").replace(",", ".")) || 0;
+          const tauxNet = Number(String(r[8] || "").replace(",", ".")) || 0;
+          if (heures > 0 && tauxNet > 0) {
+            const tauxBrut = tauxNet * EXTRA_NET_VERS_BRUT;
+            const primeNet = heures * tauxNet;
+            const primeBrute = heures * tauxBrut;
+            const primeCoutTotal = tauxBrut * EXTRA_BRUT_VERS_COUT_TOTAL * heures;
+            data.push(
+              { range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(10)}${ligneNo}`, values: [[String(arrondi(tauxBrut))]] },
+              { range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(11)}${ligneNo}`, values: [[String(arrondi(primeNet))]] },
+              { range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(12)}${ligneNo}`, values: [[String(arrondi(primeBrute))]] },
+              { range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(13)}${ligneNo}`, values: [[String(arrondi(primeCoutTotal))]] },
+            );
+            touchee = true;
+          }
+        }
+
+        const dateStr = r[3] || "";
+        const mDate = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (mDate) {
+          const nomMois = MOIS_NOMS_MAJ[Number(mDate[2]) - 1] || "";
+          const annee = mDate[3];
+          if (nomMois && (r[15] || "") !== nomMois) { data.push({ range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(15)}${ligneNo}`, values: [[nomMois]] }); touchee = true; }
+          if (annee && (r[16] || "") !== annee) { data.push({ range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(16)}${ligneNo}`, values: [[annee]] }); touchee = true; }
+        }
+
+        if (touchee) corrigees++;
+      }
+
+      if (data.length > 0) await ecrireCellules(jeton, data, SHEET_ID_EXTRA);
+      return json({ ok: true, corrigees });
+    }
+
     // ---- Synchro automatique d'une prime vers le Sheet "Prime" (SHEET_ID_PRIME) — appelée
     // par l'appli à chaque création/modification d'une prime, module réservé au superviseur.
     // Même principe que "upsertExtra" ci-dessus (leçon retenue de sa collision de lignes) :
