@@ -14,6 +14,8 @@ const lienEspaceSalarie = () => (DOMAINE_PRODUCTION ? `https://${DOMAINE_PRODUCT
 // Formulaire Google d'onboarding (dossier d'embauche) proposé dans l'espace salarié.
 // Vide = la tuile s'affiche comme « bientôt disponible ».
 const LIEN_FORM_ONBOARDING = "https://forms.gle/pe762zytEaBqZgYF8";
+// Formulaire Google de notes de frais, même principe que l'onboarding ci-dessus.
+const LIEN_FORM_NOTES_FRAIS = "https://forms.gle/tZAjvtowcGE59UX19";
 // N'utiliser QUE les fonctions d'écriture de xlsx (aoa_to_sheet, book_new, write) sur des
 // données internes à l'appli — jamais XLSX.read()/readFile() sur un fichier externe : les
 // failles connues de ce paquet concernent la lecture de fichiers xlsx non fiables.
@@ -3509,10 +3511,13 @@ function MonArriveeSBH({ resto, emp }) {
 
 // ---------- Espace salarié : accueil avec les modules ----------
 function EspaceSalarieAccueil({ onChoisir, onBack }) {
+  // "lien" : tuile qui ouvre simplement un Google Form dans un nouvel onglet (même principe
+  // que l'onboarding) — pas de module interne, contrairement aux tuiles "arrivee"/"presence".
   const tuiles = [
-    { id: "onboarding", emoji: "📝", titre: "Onboarding", texte: "Je remplis mon dossier d'embauche.", couleur: "var(--ink)" },
+    { id: "onboarding", emoji: "📝", titre: "Onboarding", texte: "Je remplis mon dossier d'embauche.", couleur: "var(--ink)", lien: LIEN_FORM_ONBOARDING },
     { id: "arrivee", emoji: "🏝️", titre: "Je prépare mon arrivée", texte: "Saint-Barth : date, heure, aéroport ou port, locomotion.", couleur: "var(--sea)" },
     { id: "presence", emoji: "✅", titre: "Je valide ma présence", texte: "Émargement : je confirme mes jours et je signe ma semaine.", couleur: "var(--coral)" },
+    { id: "notes_frais", emoji: "🧾", titre: "Notes de frais", texte: "Je transmets mes notes de frais.", couleur: "#C8871A", lien: LIEN_FORM_NOTES_FRAIS },
   ];
   return (
     <div className="ig-hero" style={{maxWidth:760}}>
@@ -3521,11 +3526,11 @@ function EspaceSalarieAccueil({ onChoisir, onBack }) {
       <p style={{marginBottom:0}}>Que souhaitez-vous faire ?</p>
       <div className="ig-roles" style={{gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))',margin:'22px 0'}}>
         {tuiles.map((t) => {
-          const inactif = t.id === "onboarding" && !LIEN_FORM_ONBOARDING;
+          const inactif = "lien" in t && !t.lien;
           return (
             <button key={t.id} className="ig-role" disabled={inactif} style={inactif ? {opacity:.55,cursor:'not-allowed'} : undefined}
               onClick={() => {
-                if (t.id === "onboarding") window.open(LIEN_FORM_ONBOARDING, "_blank", "noopener,noreferrer");
+                if (t.lien) window.open(t.lien, "_blank", "noopener,noreferrer");
                 else onChoisir(t.id);
               }}>
               <div className="ig-ic" style={{background:t.couleur,color:'#fff',fontSize:22}}>{t.emoji}</div>
