@@ -506,6 +506,20 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Rattrapage en un clic pour le Sheet "onboarding" : force le NOM en majuscule et applique
+  // le centrage + la police 14 sur TOUTES les lignes du Sheet qui en ont besoin — utile pour
+  // les lignes anciennes, jamais mises en forme (avant la mise en place de "formaterDerniereLigne",
+  // qui ne traite que la toute dernière ligne à chaque nouvelle réponse). Réservé au superviseur.
+  async completerOnboarding() {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "onboardingCompleterTout" } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
   // Rattrapage en un clic pour le Sheet "Extra" : corrige toutes les lignes qui en ont besoin
   // (majuscule NOM/PRENOM, calculs Taux Brut/Prime Net/Prime Brute/Prime Coût Total, Mois/
   // Année) — utile car le déclencheur Google ("Lors de l'envoi du formulaire") censé le faire
@@ -5849,6 +5863,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   const [gestionAcces, setGestionAcces] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+  const [formatBusy, setFormatBusy] = useState(false);
+  const [formatMsg, setFormatMsg] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [compteursRH, setCompteursRH] = useState({}); // effectif réel par établissement (rh_salaries)
   // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
@@ -5895,12 +5911,26 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     setRefreshKey((k) => k + 1);
   }
 
+  // Rattrapage en un clic : force la majuscule + le centrage/police 14 sur TOUTES les lignes
+  // du Sheet "onboarding" qui en ont besoin — pour les lignes anciennes jamais mises en forme
+  // (avant la mise en place de la mise en forme automatique à chaque vraie réponse au Form).
+  async function corrigerFormatageSheet() {
+    if (formatBusy) return;
+    setFormatBusy(true); setFormatMsg("");
+    const r = await RhSheetSync.completerOnboarding();
+    setFormatBusy(false);
+    if (!r.ok) { setFormatMsg(`Échec : ${r.erreur || "erreur inconnue"}`); return; }
+    setFormatMsg(r.corrigees > 0 ? `${r.corrigees} ligne${r.corrigees>1?'s':''} corrigée${r.corrigees>1?'s':''} (majuscule/mise en forme).` : "Rien à corriger, le Sheet est déjà à jour.");
+  }
+
   if (estSuperviseur && !restoActif) {
     return (
       <>
         <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:10,alignItems:'center'}}>
           {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
+          {formatMsg && <span className="ig-muted" style={{fontSize:12.5}}>{formatMsg}</span>}
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheet} disabled={formatBusy}>{formatBusy ? "Correction…" : "↻ Corriger la mise en forme"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
         </div>
         <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} />

@@ -887,6 +887,72 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, ligne: ligneCible, creee: nouvelleLigne });
     }
 
+    // ---- Rattrapage de mise en forme pour le Sheet "onboarding" : "formaterDerniereLigne"
+    // ne met en forme QUE la ligne qui vient d'arriver (juste après une vraie réponse au
+    // Form) — les lignes plus anciennes, jamais formatées à l'époque (avant que ce mécanisme
+    // n'existe, ou pendant l'incident de synchro du 28/09), restent telles quelles pour
+    // toujours. Cette action relit tout le Sheet, force le NOM en majuscule sur chaque ligne
+    // qui en a besoin, puis applique le centrage + la police 14 (colonne NOM) à TOUTES les
+    // lignes de données en une seule requête de mise en forme groupée (plus rapide qu'un
+    // appel par ligne). Réservé au superviseur, déclenché à la main depuis l'appli (pas de
+    // secret Apps Script ici : contrairement à "extraCompleterTout", pas besoin d'un
+    // déclencheur automatique, c'est un rattrapage ponctuel sur les lignes déjà anciennes).
+    if (action === "onboardingCompleterTout") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+      const jeton = await jetonAcces();
+      const grille = await lireFeuille(jeton);
+      if (grille.length < 2) return json({ ok: true, corrigees: 0 });
+      const colIndex = colonneIndex(grille[0]);
+      const colNom = colIndex["nom"];
+
+      const data: { range: string; values: string[][] }[] = [];
+      let corrigees = 0;
+      if (colNom !== undefined) {
+        for (let i = 1; i < grille.length; i++) {
+          const nomBrut = grille[i][colNom] || "";
+          if (!nomBrut.trim()) continue;
+          const nomMaj = nomBrut.toUpperCase();
+          if (nomMaj !== nomBrut) {
+            data.push({ range: `'${SHEET_TAB}'!${indexVersLettre(colNom)}${i + 1}`, values: [[nomMaj]] });
+            corrigees++;
+          }
+        }
+      }
+      if (data.length > 0) await ecrireCellules(jeton, data);
+
+      const gid = await idOnglet(jeton, SHEET_ID, SHEET_TAB);
+      const nbColonnes = grille[0].length;
+      const requetes: unknown[] = [
+        {
+          repeatCell: {
+            range: { sheetId: gid, startRowIndex: 1, endRowIndex: grille.length, startColumnIndex: 0, endColumnIndex: Math.max(nbColonnes, 1) },
+            cell: { userEnteredFormat: { horizontalAlignment: "CENTER" } },
+            fields: "userEnteredFormat.horizontalAlignment",
+          },
+        },
+      ];
+      if (colNom !== undefined) {
+        requetes.push({
+          repeatCell: {
+            range: { sheetId: gid, startRowIndex: 1, endRowIndex: grille.length, startColumnIndex: colNom, endColumnIndex: colNom + 1 },
+            cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { fontSize: 14 } } },
+            fields: "userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize",
+          },
+        });
+      }
+      const fmtRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ requests: requetes }),
+      });
+      if (!fmtRes.ok) return json({ error: "sheet_formatage_echec", detail: await fmtRes.text(), majuscules: corrigees }, 500);
+
+      return json({ ok: true, corrigees });
+    }
+
     // ---- Rattrapage en un clic : relit tout le Sheet et crée en base les salariés qui
     // s'y trouvent déjà mais que l'app n'a jamais reçus (onboardés avant que la synchro
     // automatique ne soit en place). Réservé au superviseur. Les fiches déjà existantes en
