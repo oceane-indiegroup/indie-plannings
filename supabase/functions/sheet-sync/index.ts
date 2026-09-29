@@ -905,17 +905,64 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // Fiches "provisoire" (créées à l'avance par un directeur, salaire/dates déjà connus,
+      // en attente du vrai onboarding — voir "formSubmit" plus bas pour le même principe sur
+      // une vraie réponse au Form). Une ligne du Sheet qui n'a pas de correspondance exacte
+      // ci-dessus doit d'abord être comparée à ces fiches (même établissement+unité, nom/prénom
+      // proches) : si elle correspond, on COMPLÈTE cette fiche au lieu d'en créer une nouvelle à
+      // côté. Cette étape manquait à ce rattrapage en masse (contrairement à "formSubmit") —
+      // c'est ce qui a créé les doublons Richelme/Roux lors du rattrapage post-incident.
+      const TOUS_CHAMPS_IMPORTABLES = [
+        "civilite", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu",
+        "telephone", "email", "poste", "iban", "bic", "contact_urgence", "type_contrat", "niveau",
+        "echelon", "date_naissance", "date_debut", "date_fin", "date_fin_periode_essai",
+        "heures_contrat", "heures_sup", "salaire_net", "mutuelle",
+      ];
+      let provisoires: { id: number; resto: string; unite: string; nom: string; prenom: string; [c: string]: unknown }[] = [];
+      {
+        const filtreResto = restoDemande ? `&resto=eq.${encodeURIComponent(restoDemande)}` : "";
+        const champsProv = ["id", "resto", "unite", "nom", "prenom", ...TOUS_CHAMPS_IMPORTABLES].join(",");
+        const provRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?provisoire=is.true&select=${champsProv}${filtreResto}`, {
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+        });
+        if (provRes.ok) provisoires = await provRes.json();
+      }
+
       const aInsererFinal: Record<string, unknown>[] = [];
       const patchs: { id: unknown; patch: Record<string, unknown> }[] = [];
+      const patchsProvisoire: { id: unknown; patch: Record<string, unknown> }[] = [];
       for (const ligne of aInserer) {
         const cleF = `${ligne.resto}::${ligne.salarie_id}::${ligne.date_debut || ""}`;
         const existant = existants[cleF];
-        if (!existant) { aInsererFinal.push(ligne); continue; }
-        const patch: Record<string, unknown> = {};
-        for (const c of CHAMPS_COMPLETABLES) {
-          if (existant[c] == null && (ligne as Record<string, unknown>)[c] != null) patch[c] = (ligne as Record<string, unknown>)[c];
+        if (existant) {
+          const patch: Record<string, unknown> = {};
+          for (const c of CHAMPS_COMPLETABLES) {
+            if (existant[c] == null && (ligne as Record<string, unknown>)[c] != null) patch[c] = (ligne as Record<string, unknown>)[c];
+          }
+          if (Object.keys(patch).length > 0) patchs.push({ id: existant.id, patch });
+          continue;
         }
-        if (Object.keys(patch).length > 0) patchs.push({ id: existant.id, patch });
+
+        const nomN = normaliser(String(ligne.nom || ""));
+        const prenomN = normaliser(String(ligne.prenom || ""));
+        const scores = provisoires
+          .filter((p) => p.resto === ligne.resto && p.unite === ligne.unite)
+          .map((p) => ({ p, score: lev(nomN, normaliser(p.nom)) + lev(prenomN, normaliser(p.prenom)) }))
+          .filter((s) => s.score <= 3) // tolère 1-2 fautes de frappe réparties sur nom+prénom
+          .sort((a, b) => a.score - b.score);
+        // N'agit que si un seul candidat est nettement le meilleur (même règle que "formSubmit").
+        if (scores.length === 1 || (scores.length > 1 && scores[0].score < scores[1].score)) {
+          const cible = scores[0].p;
+          const patch: Record<string, unknown> = { nom: ligne.nom, prenom: ligne.prenom, provisoire: false };
+          for (const c of TOUS_CHAMPS_IMPORTABLES) {
+            if (cible[c] == null && (ligne as Record<string, unknown>)[c] != null) patch[c] = (ligne as Record<string, unknown>)[c];
+          }
+          patchsProvisoire.push({ id: cible.id, patch });
+          provisoires = provisoires.filter((p) => p !== cible); // ne réutilise pas la même provisoire pour 2 lignes du Sheet
+          continue;
+        }
+
+        aInsererFinal.push(ligne);
       }
 
       let importes = 0;
@@ -938,7 +985,7 @@ Deno.serve(async (req: Request) => {
       }
 
       let completes = 0;
-      for (const { id, patch } of patchs) {
+      for (const { id, patch } of [...patchs, ...patchsProvisoire]) {
         const majRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${id}`, {
           method: "PATCH",
           headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
