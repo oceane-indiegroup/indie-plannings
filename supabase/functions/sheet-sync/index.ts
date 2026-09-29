@@ -773,9 +773,21 @@ Deno.serve(async (req: Request) => {
         const prenomMaj = prenomBrut.toUpperCase();
         if (prenomMaj !== prenomBrut) { data.push({ range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(5)}${ligneNo}`, values: [[prenomMaj]] }); touchee = true; }
 
+        // On recalcule TOUJOURS ces 4 colonnes (jamais de "si déjà rempli, on saute") :
+        // un ancien passage bugué a pu y laisser une valeur figée/fausse, qui ne serait
+        // alors plus jamais corrigée. On compare avant écriture pour ne pas re-déclencher
+        // inutilement une écriture identique (touchee reste basé sur une vraie différence).
         const surHeuresOrigine = normaliser(r[9] || "").startsWith("oui");
-        const tauxBrutActuel = (r[10] || "").trim();
-        if (!surHeuresOrigine && !tauxBrutActuel) {
+        const colTauxBrut = 10, colPrimeNet = 11, colPrimeBrute = 12, colPrimeCoutTotal = 13;
+        if (surHeuresOrigine) {
+          // Extra fait sur ses propres heures d'origine : ces 4 colonnes doivent rester vides.
+          for (const c of [colTauxBrut, colPrimeNet, colPrimeBrute, colPrimeCoutTotal]) {
+            if ((r[c] || "").trim() !== "") {
+              data.push({ range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(c)}${ligneNo}`, values: [[""]] });
+              touchee = true;
+            }
+          }
+        } else {
           const heures = Number(String(r[7] || "").replace(",", ".")) || 0;
           const tauxNet = Number(String(r[8] || "").replace(",", ".")) || 0;
           if (heures > 0 && tauxNet > 0) {
@@ -783,13 +795,18 @@ Deno.serve(async (req: Request) => {
             const primeNet = heures * tauxNet;
             const primeBrute = heures * tauxBrut;
             const primeCoutTotal = tauxBrut * EXTRA_BRUT_VERS_COUT_TOTAL * heures;
-            data.push(
-              { range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(10)}${ligneNo}`, values: [[String(arrondi(tauxBrut))]] },
-              { range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(11)}${ligneNo}`, values: [[String(arrondi(primeNet))]] },
-              { range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(12)}${ligneNo}`, values: [[String(arrondi(primeBrute))]] },
-              { range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(13)}${ligneNo}`, values: [[String(arrondi(primeCoutTotal))]] },
-            );
-            touchee = true;
+            const valeurs: [number, number][] = [
+              [colTauxBrut, arrondi(tauxBrut)],
+              [colPrimeNet, arrondi(primeNet)],
+              [colPrimeBrute, arrondi(primeBrute)],
+              [colPrimeCoutTotal, arrondi(primeCoutTotal)],
+            ];
+            for (const [c, v] of valeurs) {
+              if ((r[c] || "").trim() !== String(v)) {
+                data.push({ range: `'${SHEET_TAB_EXTRA}'!${indexVersLettre(c)}${ligneNo}`, values: [[String(v)]] });
+                touchee = true;
+              }
+            }
           }
         }
 
