@@ -50,6 +50,11 @@ const SHEET_TAB_EXTRA = (Deno.env.get("SHEET_TAB_EXTRA") ?? "Réponses au formul
 // Le compte de service doit être partagé en édition sur ce Sheet-là aussi.
 const SHEET_ID_PRIME = (Deno.env.get("SHEET_ID_PRIME") ?? "").trim();
 const SHEET_TAB_PRIME = (Deno.env.get("SHEET_TAB_PRIME") ?? "Feuille 1").trim();
+// Google Sheet "Notes de frais" d'Océane (encore différent des trois ci-dessus) : reçoit les
+// réponses du Form de notes de frais du staff. Le compte de service doit être partagé en
+// édition sur ce Sheet-là aussi.
+const SHEET_ID_NOTES_FRAIS = (Deno.env.get("SHEET_ID_NOTES_FRAIS") ?? "").trim();
+const SHEET_TAB_NOTES_FRAIS = (Deno.env.get("SHEET_TAB_NOTES_FRAIS") ?? "Form_Responses1").trim();
 const FORM_WEBHOOK_SECRET = (Deno.env.get("FORM_WEBHOOK_SECRET") ?? "").trim();
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").trim();
 const SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
@@ -949,6 +954,72 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({ requests: requetes }),
       });
       if (!fmtRes.ok) return json({ error: "sheet_formatage_echec", detail: await fmtRes.text(), majuscules: corrigees }, 500);
+
+      return json({ ok: true, corrigees });
+    }
+
+    // ---- Rattrapage de mise en forme pour le Sheet "Notes de frais" (SHEET_ID_NOTES_FRAIS) :
+    // même principe qu'"onboardingCompleterTout" ci-dessus (NOM forcé en majuscule + centrage
+    // de toute la ligne), mais accepte AUSSI le secret Apps Script comme "extraCompleterTout"
+    // (déclencheur horaire possible) puisque ce Sheet reçoit des réponses en continu via son
+    // propre Form, contrairement à l'onboarding où ce rattrapage est un geste ponctuel. Les
+    // colonnes NOM/PRENOM sont retrouvées PAR LEUR TEXTE (colonneIndex), pas par position fixe.
+    if (action === "notesFraisCompleterTout") {
+      const viaSecret = !!FORM_WEBHOOK_SECRET && corps.secret === FORM_WEBHOOK_SECRET;
+      if (!viaSecret) {
+        const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+        if (!appelant) return json({ error: "non_authentifie" }, 401);
+        if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      }
+      if (!SHEET_ID_NOTES_FRAIS) return json({ error: "sheet_notes_frais_non_configure" }, 500);
+
+      const jeton = await jetonAcces();
+      const grille = await lireFeuille(jeton, SHEET_ID_NOTES_FRAIS, SHEET_TAB_NOTES_FRAIS);
+      if (grille.length < 2) return json({ ok: true, corrigees: 0 });
+      const colIndex = colonneIndex(grille[0]);
+      const colNom = colIndex["nom"];
+
+      const data: { range: string; values: string[][] }[] = [];
+      let corrigees = 0;
+      if (colNom !== undefined) {
+        for (let i = 1; i < grille.length; i++) {
+          const nomBrut = grille[i][colNom] || "";
+          if (!nomBrut.trim()) continue;
+          const nomMaj = nomBrut.toUpperCase();
+          if (nomMaj !== nomBrut) {
+            data.push({ range: `'${SHEET_TAB_NOTES_FRAIS}'!${indexVersLettre(colNom)}${i + 1}`, values: [[nomMaj]] });
+            corrigees++;
+          }
+        }
+      }
+      if (data.length > 0) await ecrireCellules(jeton, data, SHEET_ID_NOTES_FRAIS);
+
+      const gid = await idOnglet(jeton, SHEET_ID_NOTES_FRAIS, SHEET_TAB_NOTES_FRAIS);
+      const nbColonnes = grille[0].length;
+      const requetes: unknown[] = [
+        {
+          repeatCell: {
+            range: { sheetId: gid, startRowIndex: 1, endRowIndex: grille.length, startColumnIndex: 0, endColumnIndex: Math.max(nbColonnes, 1) },
+            cell: { userEnteredFormat: { horizontalAlignment: "CENTER" } },
+            fields: "userEnteredFormat.horizontalAlignment",
+          },
+        },
+      ];
+      if (colNom !== undefined) {
+        requetes.push({
+          repeatCell: {
+            range: { sheetId: gid, startRowIndex: 1, endRowIndex: grille.length, startColumnIndex: colNom, endColumnIndex: colNom + 1 },
+            cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { fontSize: 14 } } },
+            fields: "userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize",
+          },
+        });
+      }
+      const fmtRes2 = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID_NOTES_FRAIS}:batchUpdate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${jeton}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ requests: requetes }),
+      });
+      if (!fmtRes2.ok) return json({ error: "sheet_formatage_echec", detail: await fmtRes2.text(), majuscules: corrigees }, 500);
 
       return json({ ok: true, corrigees });
     }

@@ -522,6 +522,18 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Rattrapage en un clic pour le Sheet "Notes de frais" : même principe que "completerOnboarding"
+  // (NOM en majuscule + centrage de toute la ligne). Réservé au superviseur.
+  async completerNotesFrais() {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "notesFraisCompleterTout" } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
   // Rattrapage en un clic pour le Sheet "Extra" : corrige toutes les lignes qui en ont besoin
   // (majuscule NOM/PRENOM, calculs Taux Brut/Prime Net/Prime Brute/Prime Coût Total, Mois/
   // Année) — utile car le déclencheur Google ("Lors de l'envoi du formulaire") censé le faire
@@ -5870,6 +5882,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   const [importMsg, setImportMsg] = useState("");
   const [formatBusy, setFormatBusy] = useState(false);
   const [formatMsg, setFormatMsg] = useState("");
+  const [formatFraisBusy, setFormatFraisBusy] = useState(false);
+  const [formatFraisMsg, setFormatFraisMsg] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [compteursRH, setCompteursRH] = useState({}); // effectif réel par établissement (rh_salaries)
   // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
@@ -5928,14 +5942,26 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     setFormatMsg(r.corrigees > 0 ? `${r.corrigees} ligne${r.corrigees>1?'s':''} corrigée${r.corrigees>1?'s':''} (majuscule/mise en forme).` : "Rien à corriger, le Sheet est déjà à jour.");
   }
 
+  // Même rattrapage que ci-dessus mais pour le Sheet "Notes de frais" (Form séparé).
+  async function corrigerFormatageSheetNotesFrais() {
+    if (formatFraisBusy) return;
+    setFormatFraisBusy(true); setFormatFraisMsg("");
+    const r = await RhSheetSync.completerNotesFrais();
+    setFormatFraisBusy(false);
+    if (!r.ok) { setFormatFraisMsg(`Échec : ${r.erreur || "erreur inconnue"}`); return; }
+    setFormatFraisMsg(r.corrigees > 0 ? `${r.corrigees} ligne${r.corrigees>1?'s':''} corrigée${r.corrigees>1?'s':''} (majuscule/mise en forme).` : "Rien à corriger, le Sheet est déjà à jour.");
+  }
+
   if (estSuperviseur && !restoActif) {
     return (
       <>
-        <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:10,alignItems:'center'}}>
+        <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:10,alignItems:'center',flexWrap:'wrap'}}>
           {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
           {formatMsg && <span className="ig-muted" style={{fontSize:12.5}}>{formatMsg}</span>}
+          {formatFraisMsg && <span className="ig-muted" style={{fontSize:12.5}}>{formatFraisMsg}</span>}
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheet} disabled={formatBusy}>{formatBusy ? "Correction…" : "↻ Corriger la mise en forme"}</button>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheetNotesFrais} disabled={formatFraisBusy}>{formatFraisBusy ? "Correction…" : "↻ Corriger le Sheet Notes de frais"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
         </div>
         <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} />
