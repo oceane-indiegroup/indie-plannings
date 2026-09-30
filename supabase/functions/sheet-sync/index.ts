@@ -395,9 +395,9 @@ async function idOnglet(jeton: string, sheetId: string, tab: string): Promise<nu
 }
 
 // Met en forme une ligne nouvellement créée par l'appli dans le Sheet "onboarding" : toutes
-// ses colonnes centrées horizontalement, et sa colonne NOM en police 14 (demande d'Océane,
-// pour que les fiches créées par l'appli aient exactement le même rendu que celles arrivées
-// par une vraie réponse au Form).
+// ses colonnes centrées horizontalement, et sa colonne NOM en gras + police 14 (demande
+// d'Océane, pour que les fiches créées par l'appli aient exactement le même rendu que celles
+// arrivées par une vraie réponse au Form).
 async function formaterLigneOnboarding(jeton: string, ligne: number, colNom: number | undefined, nbColonnes: number) {
   const gid = await idOnglet(jeton, SHEET_ID, SHEET_TAB);
   const requetes: unknown[] = [
@@ -413,8 +413,8 @@ async function formaterLigneOnboarding(jeton: string, ligne: number, colNom: num
     requetes.push({
       repeatCell: {
         range: { sheetId: gid, startRowIndex: ligne - 1, endRowIndex: ligne, startColumnIndex: colNom, endColumnIndex: colNom + 1 },
-        cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { fontSize: 14 } } },
-        fields: "userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize",
+        cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { fontSize: 14, bold: true } } },
+        fields: "userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize,userEnteredFormat.textFormat.bold",
       },
     });
   }
@@ -437,6 +437,21 @@ async function forcerNomMajuscule(jeton: string, sheetId: string, tab: string, l
   await ecrireCellules(jeton, [{ range: `'${tab}'!${indexVersLettre(colNom)}${ligne}`, values: [[maj]] }], sheetId);
 }
 
+// Une seule majuscule, en tête, le reste en minuscule (demande d'Océane pour le PRENOM :
+// "en minuscule sauf la première lettre") — une vraie réponse au Form garde EXACTEMENT ce
+// que la personne a tapé (parfois tout en majuscule, parfois tout en minuscule), d'où ce
+// forçage explicite, symétrique à "forcerNomMajuscule" ci-dessus pour la colonne NOM.
+function capitaliserPremiereLettre(valeur: string): string {
+  const v = (valeur || "").trim();
+  if (!v) return v;
+  return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+}
+async function forcerPrenomCapitalise(jeton: string, sheetId: string, tab: string, ligne: number, colPrenom: number, valeurActuelle: string) {
+  const capitalise = capitaliserPremiereLettre(valeurActuelle);
+  if (!valeurActuelle || valeurActuelle === capitalise) return;
+  await ecrireCellules(jeton, [{ range: `'${tab}'!${indexVersLettre(colPrenom)}${ligne}`, values: [[capitalise]] }], sheetId);
+}
+
 // Met en forme la DERNIÈRE ligne du Sheet "onboarding" — appelée juste après qu'une vraie
 // réponse au Form vient d'y être ajoutée. Une réponse de Google Form s'ajoute TOUJOURS tout en
 // bas du Sheet, jamais ailleurs : pas besoin de la retrouver par nom/prénom. L'ancienne version
@@ -456,6 +471,9 @@ async function formaterDerniereLigne() {
     const ligne = grille.length;
     if (colIndex["nom"] !== undefined) {
       await forcerNomMajuscule(jeton, SHEET_ID, SHEET_TAB, ligne, colIndex["nom"], grille[ligne - 1][colIndex["nom"]]);
+    }
+    if (colIndex["prenom"] !== undefined) {
+      await forcerPrenomCapitalise(jeton, SHEET_ID, SHEET_TAB, ligne, colIndex["prenom"], grille[ligne - 1][colIndex["prenom"]]);
     }
     await formaterLigneOnboarding(jeton, ligne, colIndex["nom"], grille[0].length);
   } catch (e) {
@@ -896,12 +914,13 @@ Deno.serve(async (req: Request) => {
     // ne met en forme QUE la ligne qui vient d'arriver (juste après une vraie réponse au
     // Form) — les lignes plus anciennes, jamais formatées à l'époque (avant que ce mécanisme
     // n'existe, ou pendant l'incident de synchro du 28/09), restent telles quelles pour
-    // toujours. Cette action relit tout le Sheet, force le NOM en majuscule sur chaque ligne
-    // qui en a besoin, puis applique le centrage + la police 14 (colonne NOM) à TOUTES les
-    // lignes de données en une seule requête de mise en forme groupée (plus rapide qu'un
-    // appel par ligne). Réservé au superviseur, déclenché à la main depuis l'appli (pas de
-    // secret Apps Script ici : contrairement à "extraCompleterTout", pas besoin d'un
-    // déclencheur automatique, c'est un rattrapage ponctuel sur les lignes déjà anciennes).
+    // toujours. Cette action relit tout le Sheet, force le NOM en majuscule et le PRENOM en
+    // casse "Première lettre" sur chaque ligne qui en a besoin, puis applique le centrage +
+    // la police 14/gras (colonne NOM) à TOUTES les lignes de données en une seule requête de
+    // mise en forme groupée (plus rapide qu'un appel par ligne). Réservé au superviseur,
+    // déclenché à la main depuis l'appli (pas de secret Apps Script ici : contrairement à
+    // "extraCompleterTout", pas besoin d'un déclencheur automatique, c'est un rattrapage
+    // ponctuel sur les lignes déjà anciennes).
     if (action === "onboardingCompleterTout") {
       const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
       if (!appelant) return json({ error: "non_authentifie" }, 401);
@@ -912,19 +931,29 @@ Deno.serve(async (req: Request) => {
       if (grille.length < 2) return json({ ok: true, corrigees: 0 });
       const colIndex = colonneIndex(grille[0]);
       const colNom = colIndex["nom"];
+      const colPrenom = colIndex["prenom"];
 
       const data: { range: string; values: string[][] }[] = [];
       let corrigees = 0;
-      if (colNom !== undefined) {
-        for (let i = 1; i < grille.length; i++) {
+      for (let i = 1; i < grille.length; i++) {
+        let touchee = false;
+        if (colNom !== undefined) {
           const nomBrut = grille[i][colNom] || "";
-          if (!nomBrut.trim()) continue;
           const nomMaj = nomBrut.toUpperCase();
-          if (nomMaj !== nomBrut) {
+          if (nomBrut.trim() && nomMaj !== nomBrut) {
             data.push({ range: `'${SHEET_TAB}'!${indexVersLettre(colNom)}${i + 1}`, values: [[nomMaj]] });
-            corrigees++;
+            touchee = true;
           }
         }
+        if (colPrenom !== undefined) {
+          const prenomBrut = grille[i][colPrenom] || "";
+          const prenomCap = capitaliserPremiereLettre(prenomBrut);
+          if (prenomBrut.trim() && prenomCap !== prenomBrut) {
+            data.push({ range: `'${SHEET_TAB}'!${indexVersLettre(colPrenom)}${i + 1}`, values: [[prenomCap]] });
+            touchee = true;
+          }
+        }
+        if (touchee) corrigees++;
       }
       if (data.length > 0) await ecrireCellules(jeton, data);
 
@@ -943,8 +972,8 @@ Deno.serve(async (req: Request) => {
         requetes.push({
           repeatCell: {
             range: { sheetId: gid, startRowIndex: 1, endRowIndex: grille.length, startColumnIndex: colNom, endColumnIndex: colNom + 1 },
-            cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { fontSize: 14 } } },
-            fields: "userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize",
+            cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { fontSize: 14, bold: true } } },
+            fields: "userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.fontSize,userEnteredFormat.textFormat.bold",
           },
         });
       }
