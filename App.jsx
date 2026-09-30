@@ -2908,6 +2908,11 @@ function ManagerView({ resto, onBack, superviseur }) {
                           <div>
                             <div className="nm">{e.p} {e.n}{e._ajout && <span className="ig-badge" style={{marginLeft:6}}>nouveau</span>}</div>
                             <div className="po">{e.po} · <b>{e.h}h</b></div>
+                            {/* Diagnostic temporaire (bug Manager/RH qui affichent des horaires différents pour
+                                la même personne) : affiche la clé technique de stockage utilisée pour ce salarié,
+                                pour comparer entre les deux accès et voir si elle diverge. À retirer une fois
+                                la cause confirmée. */}
+                            <div className="ig-noprint" style={{fontSize:9,color:'#b8a888',fontFamily:'monospace'}}>#{idSalarie(e)}</div>
                             <div className="ig-noprint" style={{display:'flex',gap:8,marginTop:2}}>
                               {!pl && <button className="ig-editbtn" onClick={()=>genererUn(e)}>générer</button>}
                               <button className="ig-editbtn" onClick={()=>setGestion(e)}>gestion</button>
