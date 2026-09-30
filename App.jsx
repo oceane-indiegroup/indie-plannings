@@ -442,10 +442,15 @@ const Store = {
     if (error) { console.error("Store.get:", key, error.message); return null; }
     return data ? data.value : null;
   },
+  // Retourne true/false (succès de l'écriture) : "validerPlanning" et "devaliderPlanning"
+  // en dépendent pour ne JAMAIS afficher "Planning validé" si l'écriture a en fait échoué
+  // en silence (session manager expirée, coupure réseau...) — critique puisque la validation
+  // conditionne la répercussion des CP en variable de paie.
   async set(key, value) {
     const { error } = await supabase
       .from("kv").upsert({ key, value }, { onConflict: "key" });
-    if (error) console.error("Store.set:", key, error.message);
+    if (error) { console.error("Store.set:", key, error.message); return false; }
+    return true;
   },
   async remove(key) {
     const { error } = await supabase.from("kv").delete().eq("key", key);
@@ -2431,22 +2436,45 @@ function ManagerView({ resto, onBack, superviseur }) {
     return () => { on = false; };
   }, [resto, roster]);
 
+  // Applique tout de suite en local (écran réactif) mais vérifie ensuite que l'écriture a
+  // réellement pris côté serveur : un échec silencieux ici (session expirée, coupure réseau)
+  // laissait croire qu'un horaire/CP saisi était enregistré alors qu'il ne l'était pas —
+  // invisible jusqu'à ce que quelqu'un recharge la page et le découvre "disparu".
   function persistPlanning(next) {
     setPlanning(next);
-    Store.set(kPlanning(resto, sem), next);
+    Store.set(kPlanning(resto, sem), next).then((ok) => {
+      if (!ok) montrerFlash("⚠ Échec de l'enregistrement de ce créneau (problème de connexion). Rechargez la page et ressaisissez-le.");
+    });
   }
   function persistRoster(next) {
     setRoster(next);
-    Store.set(kRoster(resto), next);
+    Store.set(kRoster(resto), next).then((ok) => {
+      if (!ok) montrerFlash("⚠ Échec de l'enregistrement de l'effectif (problème de connexion). Rechargez la page et réessayez.");
+    });
   }
-  function validerPlanning() {
+  // Attend la confirmation d'écriture AVANT d'afficher "validé" — un fire-and-forget ici
+  // pouvait faire croire au manager que la validation avait pris (message affiché tout de
+  // suite, en local) alors que l'écriture avait échoué en silence côté serveur (session
+  // expirée, coupure réseau...), avec un impact direct sur la paie (CP jamais répercutés).
+  async function validerPlanning() {
     setValide(true);
-    Store.set(kValidation(resto, sem), true);
+    montrerFlash("Validation en cours…");
+    const ok = await Store.set(kValidation(resto, sem), true);
+    if (!ok) {
+      setValide(false);
+      montrerFlash("⚠ Échec de la validation (problème de connexion). Réessayez — le planning n'est PAS encore validé.");
+      return;
+    }
     montrerFlash("Planning validé : les salariés voient désormais leur planning et peuvent pointer. Vos modifications resteront visibles immédiatement.");
   }
-  function devaliderPlanning() {
+  async function devaliderPlanning() {
     setValide(false);
-    Store.set(kValidation(resto, sem), false);
+    const ok = await Store.set(kValidation(resto, sem), false);
+    if (!ok) {
+      setValide(true);
+      montrerFlash("⚠ Échec de l'annulation de validation (problème de connexion). Réessayez.");
+      return;
+    }
     montrerFlash("Planning repassé en préparation : les salariés ne le voient plus.");
   }
 
