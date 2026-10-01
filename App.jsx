@@ -2927,11 +2927,21 @@ function ManagerView({ resto, onBack, superviseur }) {
                           </div>
                         </div>
                       </td>
-                      {JOURS.map((j,i)=>(
-                        <td key={i}>
-                          <PlanningCell p={pl?pl[i]:null} editable onClick={()=>setEdit({emp:e,jour:i})} />
-                        </td>
-                      ))}
+                      {JOURS.map((j,i)=>{
+                        const jourP = pl ? pl[i] : null;
+                        // Jour avant le début de contrat (ex: contrat qui démarre un jeudi, lundi-mercredi
+                        // grisés "hors contrat" au lieu d'un "OFF" qui laisserait croire à un repos choisi).
+                        // Ne s'applique que si rien n'a été saisi explicitement sur ce jour (une saisie
+                        // volontaire — ex: journée de formation avant l'embauche officielle — reste visible).
+                        const debutContrat = e._rhDebut || e._debut;
+                        const dateJour = dateISOLocale(ajouterJours(lundi, i));
+                        const avantContrat = !jourP && debutContrat && dateJour < debutContrat;
+                        return (
+                          <td key={i}>
+                            <PlanningCell p={avantContrat ? { statut: STATUTS.FIN } : jourP} editable onClick={()=>setEdit({emp:e,jour:i})} />
+                          </td>
+                        );
+                      })}
                       <td>
                         <div className="ig-tot" style={{color: tot>e.h+0.1?'var(--coral-d)':'var(--ink)'}}>
                           {fmtHeures(tot)}
