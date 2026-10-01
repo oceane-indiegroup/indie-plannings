@@ -2326,8 +2326,15 @@ function ManagerView({ resto, onBack, superviseur }) {
     // documenté sur cleSemaine() — bon pour une clé de stockage (compatibilité historique),
     // mais faux pour comparer une vraie date de contrat : un salarié dont le contrat commence
     // PILE le lundi affiché se retrouvait exclu (sem < date_debut à tort, sem étant calée sur
-    // le dimanche). "semReelle" est la vraie date calendaire du lundi, sans ce décalage.
+    // le dimanche). "semReelle"/"finSemaineReelle" sont les vraies dates calendaires du lundi
+    // et du dimanche de la semaine affichée, sans ce décalage.
     const semReelle = dateISOLocale(lundiDeLaSemaine(semDate));
+    // Comparée au DIMANCHE (fin de semaine), pas au lundi, pour la date de DÉBUT : un contrat
+    // qui démarre en milieu de semaine (ex: jeudi) doit faire apparaître le salarié cette
+    // semaine-là (à charge pour le manager de laisser OFF les jours avant son arrivée), pas le
+    // masquer entièrement jusqu'à la semaine suivante — constaté sur Vincent Urtis (contrat
+    // démarrant un jeudi, absent du Planning toute la semaine alors que son premier jour y était).
+    const finSemaineReelle = dateISOLocale(ajouterJours(lundiDeLaSemaine(semDate), 6));
     const base = EMPLOYEES.filter((e) => e.r === resto);
     const ajouts = roster.ajouts || [];
     // Comparaison de la même personne entre ajout manuel / fiche RH / fichier tolérante à la
@@ -2342,7 +2349,7 @@ function ManagerView({ resto, onBack, superviseur }) {
     // ses heures/poste dans Planning sans attendre une mise à jour de la fiche RH).
     const rhActifs = rhTeam.filter((e) => {
       if (ajoutIds.has(idNorm(e))) return false;
-      if (e._rhDebut && semReelle < e._rhDebut) return false; // contrat pas encore commencé cette semaine
+      if (e._rhDebut && finSemaineReelle < e._rhDebut) return false; // contrat pas encore commencé, pas même un jour cette semaine
       if (e._rhFin && semReelle > e._rhFin) return false; // contrat terminé avant cette semaine
       return true;
     });
@@ -2353,7 +2360,7 @@ function ManagerView({ resto, onBack, superviseur }) {
     const supprimes = new Set(roster.supprimes || []);
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
-      if (e._debut && semReelle < e._debut) return false; // ajout manuel : contrat pas encore commencé cette semaine
+      if (e._debut && finSemaineReelle < e._debut) return false; // ajout manuel : contrat pas encore commencé, pas même un jour cette semaine
       const fin = (roster.departs || {})[idSalarie(e)];
       // fin = date de fin de contrat (AAAA-MM-JJ). Visible tant que le lundi de la
       // semaine affichée est <= date de fin ; masqué pour les semaines entièrement après.
