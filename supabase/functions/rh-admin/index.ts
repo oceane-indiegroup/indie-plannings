@@ -115,8 +115,13 @@ Deno.serve(async (req) => {
       const anneeActuelle = String(new Date().getFullYear());
       const aujourdHui = new Date().toISOString().slice(0, 10);
       const qEnc = encodeURIComponent(q);
+      // "provisoire" (fiche créée par un directeur, pas encore confirmée par le vrai Form
+      // d'onboarding) n'est PLUS exclu ici : quelqu'un peut très bien déjà travailler (et
+      // avoir besoin d'un extra/d'une prime) avant d'avoir fini son onboarding administratif.
+      // L'exclure rendait la personne introuvable dans les deux recherches (Extras et Primes)
+      // tant que son onboarding réel n'était pas fait — constaté sur José Menis.
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/rh_salaries?and=(saison.eq.${anneeActuelle},provisoire.is.false,or(date_fin.is.null,date_fin.gte.${aujourdHui}),or(nom.ilike.*${qEnc}*,prenom.ilike.*${qEnc}*))&select=id,nom,prenom,resto,unite,poste&order=nom.asc&limit=8`,
+        `${SUPABASE_URL}/rest/v1/rh_salaries?and=(saison.eq.${anneeActuelle},or(date_fin.is.null,date_fin.gte.${aujourdHui}),or(nom.ilike.*${qEnc}*,prenom.ilike.*${qEnc}*))&select=id,nom,prenom,resto,unite,poste&order=nom.asc&limit=8`,
         { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
       );
       if (!res.ok) return json({ error: "recherche_echouee", detail: await res.text() }, 500);
