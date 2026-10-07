@@ -917,7 +917,7 @@ const kEtablissementsJuridique = "etablissements_juridique";
 //            locomotion, bagages, remarque, maj }
 const kArrivee = (resto, id) => `arrivee:${slugKey(resto)}:${slugKey(id)}`;
 const PREFIXE_ARRIVEE = "arrivee:";
-const ETABLISSEMENTS_SBH = ["PABLO SAINT BARTH", "CREAM"];
+const ETABLISSEMENTS_SBH = ["PABLO SAINT BARTH", "CREAM SAINT BARTH"];
 function estEtablissementSBH(resto) {
   const r = normTxt(resto);
   if (!r) return false;
