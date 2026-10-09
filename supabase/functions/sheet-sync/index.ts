@@ -911,20 +911,22 @@ Deno.serve(async (req: Request) => {
     }
 
     // ---- Rattrapage de mise en forme pour le Sheet "onboarding" : "formaterDerniereLigne"
-    // ne met en forme QUE la ligne qui vient d'arriver (juste après une vraie réponse au
-    // Form) — les lignes plus anciennes, jamais formatées à l'époque (avant que ce mécanisme
-    // n'existe, ou pendant l'incident de synchro du 28/09), restent telles quelles pour
-    // toujours. Cette action relit tout le Sheet, force le NOM en majuscule et le PRENOM en
-    // casse "Première lettre" sur chaque ligne qui en a besoin, puis applique le centrage +
-    // la police 14/gras (colonne NOM) à TOUTES les lignes de données en une seule requête de
-    // mise en forme groupée (plus rapide qu'un appel par ligne). Réservé au superviseur,
-    // déclenché à la main depuis l'appli (pas de secret Apps Script ici : contrairement à
-    // "extraCompleterTout", pas besoin d'un déclencheur automatique, c'est un rattrapage
-    // ponctuel sur les lignes déjà anciennes).
+    // ne met en forme QUE la ligne qui vient d'arriver, juste après une vraie réponse au Form
+    // — et s'est révélé, comme pour l'Extra avant lui, peu fiable à chaque déclenchement
+    // (certaines réponses formatées, d'autres non, sans erreur visible). Cette action relit
+    // tout le Sheet, force le NOM en majuscule et le PRENOM en casse "Première lettre" sur
+    // chaque ligne qui en a besoin, puis applique le centrage + la police 14/gras (colonne
+    // NOM) à TOUTES les lignes de données en une seule requête de mise en forme groupée.
+    // Accepte maintenant AUSSI le secret Apps Script (comme "extraCompleterTout") pour un
+    // déclencheur horaire de rattrapage automatique, en plus du bouton manuel côté appli
+    // (superviseur) et du bouton "Corriger la mise en forme" de l'Espace RH.
     if (action === "onboardingCompleterTout") {
-      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
-      if (!appelant) return json({ error: "non_authentifie" }, 401);
-      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      const viaSecret = !!FORM_WEBHOOK_SECRET && corps.secret === FORM_WEBHOOK_SECRET;
+      if (!viaSecret) {
+        const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+        if (!appelant) return json({ error: "non_authentifie" }, 401);
+        if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      }
 
       const jeton = await jetonAcces();
       const grille = await lireFeuille(jeton);
