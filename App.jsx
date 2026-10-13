@@ -656,20 +656,32 @@ const RhSalaries = {
   async creer(row) {
     const { data, error } = await supabase.from("rh_salaries").insert(row).select().single();
     if (error) { console.error("RhSalaries.creer:", error.message); return null; }
-    // Fire-and-forget (une fiche se crée même si le Sheet est indisponible), mais on
-    // mémorise quand même la ligne dès qu'on la connaît, pour verrouiller les prochaines
-    // synchros de cette fiche dessus (voir RhSheetSync.upsert).
-    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data }).then((r) => {
-      if (r?.ok && r.ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", data.id).then(() => {});
-    });
+    // Jamais de recopie vers le Sheet pour une fiche "provisoire" (créée à la main, avant le
+    // vrai onboarding) : elle n'a encore que nom/prénom/établissement, ça créait une ligne
+    // quasi vide au milieu du Sheet "onboarding" (censé ne contenir que les vraies réponses
+    // au Form) à chaque création manuelle — très déroutant ("ça se met tout seul"). La vraie
+    // réponse au Form, elle, créera/compétera sa propre ligne normalement (voir "formSubmit").
+    if (!data.provisoire) {
+      // Fire-and-forget (une fiche se crée même si le Sheet est indisponible), mais on
+      // mémorise quand même la ligne dès qu'on la connaît, pour verrouiller les prochaines
+      // synchros de cette fiche dessus (voir RhSheetSync.upsert).
+      RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data }).then((r) => {
+        if (r?.ok && r.ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", data.id).then(() => {});
+      });
+    }
     return data;
   },
   async maj(id, patch) {
     const { data, error } = await supabase.from("rh_salaries").update(patch).eq("id", id).select().single();
     if (error) { console.error("RhSalaries.maj:", error.message); return null; }
-    RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch, ligneCible: data.sheet_ligne || undefined }).then((r) => {
-      if (r?.ok && r.ligne && r.ligne !== data.sheet_ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", id).then(() => {});
-    });
+    // Même raison qu'en création ci-dessus : une fiche encore provisoire ne doit jamais
+    // écrire dans le Sheet (même à sa première modification), sous peine d'y faire apparaître
+    // la même ligne quasi vide, juste décalée de la création à la première édition.
+    if (!data.provisoire) {
+      RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch, ligneCible: data.sheet_ligne || undefined }).then((r) => {
+        if (r?.ok && r.ligne && r.ligne !== data.sheet_ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", id).then(() => {});
+      });
+    }
     return data;
   },
   // Effectif réel par établissement (saison la plus récente de chaque établissement),
