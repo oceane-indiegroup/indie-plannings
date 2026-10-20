@@ -285,8 +285,10 @@ function nomFichierEmargement(resto, lundi) {
   return `Emargement_${slug}_${dateISOLocale(lundi)}.pdf`;
 }
 
-// Construit le document HTML complet, auto-imprimable.
-function construireDocument(titre, corpsHTML, styles) {
+// Construit le document HTML complet, auto-imprimable. "apercu" (utilisé par DocumentRHModal
+// pour l'aperçu dans une <iframe>, avant envoi) retire le bouton/l'impression automatique :
+// un simple rendu passif, identique visuellement au document final.
+function construireDocument(titre, corpsHTML, styles, { apercu = false } = {}) {
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>${esc(titre)}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -297,10 +299,10 @@ function construireDocument(titre, corpsHTML, styles) {
   ${styles}
   @media print { body { margin:10mm; } .noprint { display:none; } }
 </style></head><body>${corpsHTML}
-<div class="noprint" style="text-align:center;margin-top:20px">
+${apercu ? "" : `<div class="noprint" style="text-align:center;margin-top:20px">
   <button onclick="window.print()" style="padding:10px 18px;font-size:14px;border:none;border-radius:8px;background:#E5604D;color:#fff;font-weight:600;cursor:pointer">Imprimer / Enregistrer en PDF</button>
 </div>
-<script>window.onload=function(){setTimeout(function(){window.print();},500);};</script>
+<script>window.onload=function(){setTimeout(function(){window.print();},500);};</script>`}
 </body></html>`;
 }
 
@@ -1675,10 +1677,6 @@ function genererDocumentsExtra(extra, etabsJ) {
   return { contratHTML, contratGenereAt: dateGeneration.toISOString() };
 }
 
-// Lieu de signature figurant sur les promesses d'embauche : celui du siège du groupe,
-// indépendant de l'établissement concerné par l'offre (modifiable ici si besoin).
-const LIEU_SIGNATURE_PROMESSE = "Ramatuelle";
-
 // Style dédié à la promesse d'embauche, calqué sur la mise en page exacte du modèle fourni
 // par Océane : logo centré en haut, bloc société aligné à gauche (raison sociale en style
 // manuscrit, comme le "cherry" du modèle), titre centré souligné, date alignée à droite,
@@ -1727,7 +1725,7 @@ function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
       Code NAF : ${valEtab(etabJ,'ape')}
     </div>
     <h1 style="text-align:center">PROMESSE D'EMBAUCHE</h1>
-    <div class="date-lieu">À ${esc(LIEU_SIGNATURE_PROMESSE)}, le ${dateFr}</div>
+    <div class="date-lieu">À ${valEtab(etabJ,'ville')}, le ${dateFr}</div>
     <p>${civilite ? esc(civilite) + " " : ""}${esc((salarie.nom || "").toUpperCase())} ${esc(salarie.prenom || "")}</p>
     <p>Nous avons le plaisir de vous confirmer par la présente notre volonté de vous intégrer au sein de notre équipe en qualité de <b>${esc(salarie.poste || "")}</b> de <b>${esc(salarie.resto || "")}</b>, à compter du <b>${dateDebutFr}</b> en ${typeContratTxt}.</p>
     <p>La rémunération mensuelle associée à ce poste sera de <b>${salaire}</b>.</p>
@@ -1760,7 +1758,7 @@ function construireAttestationHebergementHTML({ etabJ, salarie, valeurs }) {
       Code NAF : ${valEtab(etabJ,'ape')}
     </div>
     <h1 style="text-align:center">ATTESTATION D'HÉBERGEMENT</h1>
-    <div class="date-lieu">À ${esc(LIEU_SIGNATURE_PROMESSE)}, le ${dateFr}</div>
+    <div class="date-lieu">À ${valEtab(etabJ,'ville')}, le ${dateFr}</div>
     <p>Objet : Attestation d'hébergement à titre gratuit.</p>
     <p>Je soussigné Mme DOMENGE Océane, responsable des ressources humaines de la société ${valEtab(etabJ,'raisonSociale')}, atteste par la présente héberger :</p>
     <p><b>${civilite ? esc(civilite) + " " : ""}${esc((salarie.nom || "").toUpperCase())} ${esc(salarie.prenom || "")}</b></p>
@@ -4346,20 +4344,26 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
 // ---------- Modale générique de génération/envoi d'un document RH (voir DOCUMENTS_RH) :
 // champs éventuels à saisir, puis "Télécharger" (impression) ou "Envoyer par email" (PDF en
 // pièce jointe) — mêmes deux actions qu'avait la promesse d'embauche, pour tous les documents.
+// Deux étapes : "champs" (saisie des infos manquantes, ex: adresse du logement — sautée
+// d'emblée si le document n'en a aucune, comme la promesse d'embauche) puis "apercu" (le
+// document réellement rendu dans une <iframe>, avant de s'engager). La saisie ("valeurs")
+// reste en mémoire tant que la modale est ouverte : télécharger ne la ferme plus, pour
+// pouvoir ensuite envoyer par email SANS tout retaper (ce qui arrivait avant).
 function DocumentRHModal({ doc, salarie, resto, etabJ, onClose, montrerFlash, montrerErreur }) {
+  const [etape, setEtape] = useState(doc.champs.length > 0 ? "champs" : "apercu");
   const [valeurs, setValeurs] = useState(() => Object.fromEntries(doc.champs.map((c) => [c.cle, ""])));
   const [busyTelecharger, setBusyTelecharger] = useState(false);
   const [busyEmail, setBusyEmail] = useState(false);
+  const [envoye, setEnvoye] = useState(false);
   const nom = `${salarie.prenom || ""} ${salarie.nom || ""}`.trim();
   const email = (salarie.email || "").trim();
+  const html = doc.construireHTML({ etabJ, salarie, valeurs });
 
   function telecharger() {
     setBusyTelecharger(true);
     try {
-      const html = doc.construireHTML({ etabJ, salarie, valeurs });
       const ok = imprimerDocument(`${doc.label} ${nom}`, html, STYLE_PROMESSE, doc.nomFichier(resto, salarie));
       if (ok === false) montrerErreur("Impossible de générer le document. Réessayez.");
-      else onClose();
     } finally {
       setBusyTelecharger(false);
     }
@@ -4370,13 +4374,12 @@ function DocumentRHModal({ doc, salarie, resto, etabJ, onClose, montrerFlash, mo
     if (!confirm(`Envoyer "${doc.label}" de ${nom} à ${email} ?`)) return;
     setBusyEmail(true);
     try {
-      const html = doc.construireHTML({ etabJ, salarie, valeurs });
       const pdfBase64 = await genererPDFBase64(html, STYLE_PROMESSE);
       const r = await RhAdmin.envoyerEmail({
         to: email, sujet: doc.sujetEmail(resto), texte: doc.texteEmail(salarie, resto),
         pdfBase64, nomFichier: `${doc.nomFichier(resto, salarie)}.pdf`,
       });
-      if (r.ok) { montrerFlash(`« ${doc.label} » envoyée à ${email} (PDF en pièce jointe).`); onClose(); }
+      if (r.ok) { montrerFlash(`« ${doc.label} » envoyée à ${email} (PDF en pièce jointe).`); setEnvoye(true); }
       else montrerErreur(`Échec de l'envoi : ${r.erreur || "erreur inconnue"}`);
     } finally {
       setBusyEmail(false);
@@ -4385,20 +4388,34 @@ function DocumentRHModal({ doc, salarie, resto, etabJ, onClose, montrerFlash, mo
 
   return (
     <div className="ig-overlay" onClick={onClose}>
-      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:440}}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth: etape === "apercu" ? 620 : 440}}>
         <h3>{doc.emoji} {doc.label}</h3>
         <div className="ig-muted" style={{marginBottom:10}}>{nom} · {resto}</div>
-        {doc.champs.map((c) => (
-          <div className="ig-field" key={c.cle}>
-            <label>{c.label}</label>
-            <input type="text" value={valeurs[c.cle] || ""} onChange={(e)=>setValeurs((v)=>({ ...v, [c.cle]: e.target.value }))} placeholder={c.label} />
-          </div>
-        ))}
-        <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
-          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={telecharger} disabled={busyTelecharger}>{busyTelecharger ? "…" : "Télécharger"}</button>
-          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={envoyer} disabled={busyEmail} title={email ? `Envoyer à ${email}` : "Aucun email enregistré"}>{busyEmail ? "…" : "Envoyer par email"}</button>
-        </div>
+        {etape === "champs" ? (
+          <>
+            {doc.champs.map((c) => (
+              <div className="ig-field" key={c.cle}>
+                <label>{c.label}</label>
+                <input type="text" value={valeurs[c.cle] || ""} onChange={(e)=>setValeurs((v)=>({ ...v, [c.cle]: e.target.value }))} placeholder={c.label} autoFocus />
+              </div>
+            ))}
+            <div style={{display:'flex',gap:10,marginTop:18}}>
+              <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+              <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={()=>setEtape("apercu")}>Aperçu →</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <iframe title={`Aperçu — ${doc.label}`} srcDoc={construireDocument(`${doc.label} ${nom}`, html, STYLE_PROMESSE, { apercu: true })}
+              style={{width:'100%',height:420,border:'1px solid var(--line)',borderRadius:10,background:'#fff'}} />
+            <div style={{display:'flex',gap:10,marginTop:18}}>
+              {doc.champs.length > 0 && <button className="ig-btn ig-btn-ghost" onClick={()=>setEtape("champs")}>← Modifier</button>}
+              <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>{envoye ? "Fermer" : "Annuler"}</button>
+              <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={telecharger} disabled={busyTelecharger}>{busyTelecharger ? "…" : "Télécharger"}</button>
+              <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={envoyer} disabled={busyEmail} title={email ? `Envoyer à ${email}` : "Aucun email enregistré"}>{busyEmail ? "…" : envoye ? "Renvoyer par email" : "Envoyer par email"}</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -4433,6 +4450,44 @@ function PastilleCouleur({ valeur, taille = 20, onClick, titre }) {
       style={{width:taille,height:taille,borderRadius:6,border: valeur ? '1.5px solid var(--line)' : '1.5px dashed var(--line)', background: valeur || '#fff', cursor:'pointer', padding:0, flex:'none'}} />
   );
 }
+// Bouton "Documents" (promesse d'embauche, attestation d'hébergement…) : même principe de
+// popover "sorti du tableau" (portal, position fixed) que SelecteurCouleurLigne juste en
+// dessous, pour ne pas se faire rogner par le défilement du tableau — en remplacement du
+// sélecteur HTML natif, jugé trop austère.
+function MenuDocumentsRH({ onChoisir }) {
+  const [ouvert, setOuvert] = useState(false);
+  const [pos, setPos] = useState(null);
+  const ancre = useRef(null);
+  function ouvrir() {
+    if (ancre.current) {
+      const r = ancre.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 230) });
+    }
+    setOuvert(true);
+  }
+  return (
+    <span style={{position:'relative',display:'inline-block'}} ref={ancre}>
+      <button type="button" className="ig-btn ig-btn-ghost ig-btn-icon" onClick={ouvrir} title="Documents (promesse d'embauche, attestation d'hébergement…)">📑</button>
+      {ouvert && pos && createPortal(
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:200}} onClick={()=>setOuvert(false)} />
+          <div className="ig-card" style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:6,display:'flex',flexDirection:'column',gap:2,minWidth:220,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+            {DOCUMENTS_RH.map((d) => (
+              <button key={d.id} type="button" onClick={()=>{ onChoisir(d); setOuvert(false); }}
+                style={{display:'flex',alignItems:'center',gap:10,padding:'9px 10px',border:'none',background:'transparent',borderRadius:8,cursor:'pointer',fontSize:13.5,fontWeight:600,color:'var(--ink)',textAlign:'left',width:'100%'}}
+                onMouseEnter={(e)=>{ e.currentTarget.style.background='var(--sand-2)'; }}
+                onMouseLeave={(e)=>{ e.currentTarget.style.background='transparent'; }}>
+                <span style={{fontSize:18}}>{d.emoji}</span>{d.label}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
+    </span>
+  );
+}
+
 function SelecteurCouleurLigne({ valeur, onChoisir }) {
   const [ouvert, setOuvert] = useState(false);
   const [pos, setPos] = useState(null);
@@ -4956,13 +5011,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
-                    {superviseur && (
-                      <select className="ig-cell" value="" onChange={(e)=>{ const doc = DOCUMENTS_RH.find((d)=>d.id===e.target.value); if (doc) ouvrirDocument(doc, s); }}
-                        title="Documents (promesse d'embauche, attestation d'hébergement…)" style={{width:28,fontSize:11,padding:0,textAlign:'center',cursor:'pointer'}}>
-                        <option value="">📑</option>
-                        {DOCUMENTS_RH.map((d) => <option key={d.id} value={d.id}>{d.emoji} {d.label}</option>)}
-                      </select>
-                    )}
+                    {superviseur && <MenuDocumentsRH onChoisir={(doc)=>ouvrirDocument(doc, s)} />}
                     {superviseur && (restaurants || []).length > 1 && (
                       <select className="ig-cell" value="" onChange={(e)=>transferer(s, e.target.value)}
                         title="Transférer vers un autre établissement" style={{width:28,fontSize:11,padding:0,textAlign:'center',cursor:'pointer'}}>
