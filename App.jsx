@@ -4450,44 +4450,6 @@ function PastilleCouleur({ valeur, taille = 20, onClick, titre }) {
       style={{width:taille,height:taille,borderRadius:6,border: valeur ? '1.5px solid var(--line)' : '1.5px dashed var(--line)', background: valeur || '#fff', cursor:'pointer', padding:0, flex:'none'}} />
   );
 }
-// Bouton "Documents" (promesse d'embauche, attestation d'hébergement…) : même principe de
-// popover "sorti du tableau" (portal, position fixed) que SelecteurCouleurLigne juste en
-// dessous, pour ne pas se faire rogner par le défilement du tableau — en remplacement du
-// sélecteur HTML natif, jugé trop austère.
-function MenuDocumentsRH({ onChoisir }) {
-  const [ouvert, setOuvert] = useState(false);
-  const [pos, setPos] = useState(null);
-  const ancre = useRef(null);
-  function ouvrir() {
-    if (ancre.current) {
-      const r = ancre.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 230) });
-    }
-    setOuvert(true);
-  }
-  return (
-    <span style={{position:'relative',display:'inline-block'}} ref={ancre}>
-      <button type="button" className="ig-btn ig-btn-ghost ig-btn-icon" onClick={ouvrir} title="Documents (promesse d'embauche, attestation d'hébergement…)">📑</button>
-      {ouvert && pos && createPortal(
-        <>
-          <div style={{position:'fixed',inset:0,zIndex:200}} onClick={()=>setOuvert(false)} />
-          <div className="ig-card" style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:6,display:'flex',flexDirection:'column',gap:2,minWidth:220,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
-            {DOCUMENTS_RH.map((d) => (
-              <button key={d.id} type="button" onClick={()=>{ onChoisir(d); setOuvert(false); }}
-                style={{display:'flex',alignItems:'center',gap:10,padding:'9px 10px',border:'none',background:'transparent',borderRadius:8,cursor:'pointer',fontSize:13.5,fontWeight:600,color:'var(--ink)',textAlign:'left',width:'100%'}}
-                onMouseEnter={(e)=>{ e.currentTarget.style.background='var(--sand-2)'; }}
-                onMouseLeave={(e)=>{ e.currentTarget.style.background='transparent'; }}>
-                <span style={{fontSize:18}}>{d.emoji}</span>{d.label}
-              </button>
-            ))}
-          </div>
-        </>,
-        document.body
-      )}
-    </span>
-  );
-}
-
 function SelecteurCouleurLigne({ valeur, onChoisir }) {
   const [ouvert, setOuvert] = useState(false);
   const [pos, setPos] = useState(null);
@@ -5011,7 +4973,9 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
-                    {superviseur && <MenuDocumentsRH onChoisir={(doc)=>ouvrirDocument(doc, s)} />}
+                    {superviseur && DOCUMENTS_RH.map((d) => (
+                      <button key={d.id} className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>ouvrirDocument(d, s)} title={d.label}>{d.emoji}</button>
+                    ))}
                     {superviseur && (restaurants || []).length > 1 && (
                       <select className="ig-cell" value="" onChange={(e)=>transferer(s, e.target.value)}
                         title="Transférer vers un autre établissement" style={{width:28,fontSize:11,padding:0,textAlign:'center',cursor:'pointer'}}>
