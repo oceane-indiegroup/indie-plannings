@@ -4450,48 +4450,27 @@ function PastilleCouleur({ valeur, taille = 20, onClick, titre }) {
       style={{width:taille,height:taille,borderRadius:6,border: valeur ? '1.5px solid var(--line)' : '1.5px dashed var(--line)', background: valeur || '#fff', cursor:'pointer', padding:0, flex:'none'}} />
   );
 }
-// Bouton "Documents ▾" : un seul point d'entrée, quel que soit le nombre de documents RH
-// disponibles (voir DOCUMENTS_RH) — déroule une liste simple au clic, plutôt qu'une icône
-// par document (devenait illisible dès 2-3 documents) ou qu'un sélecteur HTML natif (jugé
-// trop austère). Même principe de popover "sorti du tableau" (portal, position fixed) que
-// SelecteurCouleurLigne juste en dessous, pour ne pas se faire rogner par le défilement.
-function MenuDocumentsRH({ onChoisir }) {
-  const [ouvert, setOuvert] = useState(false);
-  const [pos, setPos] = useState(null);
-  const ancre = useRef(null);
-  function ouvrir() {
-    if (ancre.current) {
-      const r = ancre.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 6, left: Math.min(r.left, window.innerWidth - 260) });
-    }
-    setOuvert((o) => !o);
-  }
+// Petite fenêtre centrée pour choisir le document à générer (voir DOCUMENTS_RH) — même
+// gabarit que DocumentRHModal juste après (ig-overlay/ig-modal, jamais un portal vers
+// document.body) : contrairement à un popover accroché à la ligne du tableau, elle ne
+// risque jamais de chevaucher la ligne suivante ni d'hériter de couleurs de thème absentes.
+function ChoixDocumentRHModal({ salarie, onChoisir, onClose }) {
+  const nom = `${salarie.prenom || ""} ${salarie.nom || ""}`.trim();
   return (
-    <span style={{position:'relative',display:'inline-block'}} ref={ancre}>
-      <button type="button" className="ig-btn ig-btn-ghost ig-btn-sm" onClick={ouvrir} title="Documents à générer ou envoyer">
-        📑 Documents <span style={{fontSize:10}}>▾</span>
-      </button>
-      {ouvert && pos && createPortal(
-        <>
-          <div style={{position:'fixed',inset:0,zIndex:200}} onClick={()=>setOuvert(false)} />
-          {/* Couleurs en dur (pas var(--...)) : ce bloc est injecté hors de .ig-app (document.body,
-              pour échapper au défilement du tableau), là où les variables CSS du thème n'existent
-              pas — elles y restaient invisibles/transparentes, laissant voir la couleur de la ligne
-              en dessous ("pas lisible, mets un fond blanc derrière"). */}
-          <div style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:8,display:'flex',flexDirection:'column',gap:4,width:250,background:'#FFFDF8',border:'1.5px solid #D8CBB4',borderRadius:16,boxShadow:'0 8px 24px rgba(0,0,0,.25)'}} onClick={(e)=>e.stopPropagation()}>
-            {DOCUMENTS_RH.map((d) => (
-              <button key={d.id} type="button" onClick={()=>{ onChoisir(d); setOuvert(false); }}
-                style={{display:'flex',alignItems:'center',gap:12,padding:'11px 12px',border:'1px solid #D8CBB4',background:'#F3ECE0',borderRadius:9,cursor:'pointer',fontSize:14,fontWeight:700,color:'#15303B',textAlign:'left',width:'100%'}}
-                onMouseEnter={(e)=>{ e.currentTarget.style.background='#E8DDC9'; }}
-                onMouseLeave={(e)=>{ e.currentTarget.style.background='#F3ECE0'; }}>
-                <span style={{fontSize:20}}>{d.emoji}</span>{d.label}
-              </button>
-            ))}
-          </div>
-        </>,
-        document.body
-      )}
-    </span>
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:380}}>
+        <h3>📑 Documents</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>{nom}</div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {DOCUMENTS_RH.map((d) => (
+            <button key={d.id} className="ig-btn ig-btn-ghost" style={{width:'100%',justifyContent:'flex-start',fontSize:14.5}} onClick={()=>onChoisir(d)}>
+              <span style={{fontSize:20}}>{d.emoji}</span>{d.label}
+            </button>
+          ))}
+        </div>
+        <button className="ig-btn ig-btn-ghost" style={{width:'100%',justifyContent:'center',marginTop:16}} onClick={onClose}>Annuler</button>
+      </div>
+    </div>
   );
 }
 
@@ -4685,6 +4664,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   const [selection, setSelection] = useState(new Set());
   const [archiverModal, setArchiverModal] = useState(false);
   const [docDemande, setDocDemande] = useState(null); // { doc, salarie, etabJ } : document RH en cours de génération/envoi (voir DocumentRHModal)
+  const [choixDocPour, setChoixDocPour] = useState(null); // salarié pour qui on choisit quel document générer (voir ChoixDocumentRHModal)
   // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
   // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
   // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
@@ -5018,7 +4998,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
-                    {superviseur && <MenuDocumentsRH onChoisir={(d)=>ouvrirDocument(d, s)} />}
+                    {superviseur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setChoixDocPour(s)} title="Documents à générer ou envoyer">📑 Documents</button>}
                     {superviseur && (restaurants || []).length > 1 && (
                       <select className="ig-cell" value="" onChange={(e)=>transferer(s, e.target.value)}
                         title="Transférer vers un autre établissement" style={{width:28,fontSize:11,padding:0,textAlign:'center',cursor:'pointer'}}>
@@ -5036,6 +5016,10 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
       )}
       {ajout && <RhSalarieModal resto={resto} unite={unite} superviseur={superviseur} onSave={creer} onClose={()=>setAjout(false)} />}
       {edition && <RhSalarieModal resto={resto} unite={unite} salarie={edition} superviseur={superviseur} onSave={modifier} onClose={()=>setEdition(null)} />}
+      {choixDocPour && (
+        <ChoixDocumentRHModal salarie={choixDocPour} onClose={()=>setChoixDocPour(null)}
+          onChoisir={(doc)=>{ const s = choixDocPour; setChoixDocPour(null); ouvrirDocument(doc, s); }} />
+      )}
       {docDemande && (
         <DocumentRHModal doc={docDemande.doc} salarie={docDemande.salarie} resto={resto} etabJ={docDemande.etabJ}
           onClose={()=>setDocDemande(null)} montrerFlash={montrerFlash} montrerErreur={montrerErreur} />
