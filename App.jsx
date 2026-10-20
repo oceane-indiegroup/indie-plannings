@@ -4474,12 +4474,16 @@ function MenuDocumentsRH({ onChoisir }) {
       {ouvert && pos && createPortal(
         <>
           <div style={{position:'fixed',inset:0,zIndex:200}} onClick={()=>setOuvert(false)} />
-          <div className="ig-card" style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:8,display:'flex',flexDirection:'column',gap:4,width:250,background:'var(--white)',boxShadow:'0 8px 24px rgba(0,0,0,.15)'}} onClick={(e)=>e.stopPropagation()}>
+          {/* Couleurs en dur (pas var(--...)) : ce bloc est injecté hors de .ig-app (document.body,
+              pour échapper au défilement du tableau), là où les variables CSS du thème n'existent
+              pas — elles y restaient invisibles/transparentes, laissant voir la couleur de la ligne
+              en dessous ("pas lisible, mets un fond blanc derrière"). */}
+          <div style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:8,display:'flex',flexDirection:'column',gap:4,width:250,background:'#FFFDF8',border:'1.5px solid #D8CBB4',borderRadius:16,boxShadow:'0 8px 24px rgba(0,0,0,.25)'}} onClick={(e)=>e.stopPropagation()}>
             {DOCUMENTS_RH.map((d) => (
               <button key={d.id} type="button" onClick={()=>{ onChoisir(d); setOuvert(false); }}
-                style={{display:'flex',alignItems:'center',gap:12,padding:'11px 12px',border:'1px solid var(--line)',background:'var(--sand)',borderRadius:9,cursor:'pointer',fontSize:14,fontWeight:700,color:'var(--ink)',textAlign:'left',width:'100%'}}
-                onMouseEnter={(e)=>{ e.currentTarget.style.background='var(--sand-2)'; }}
-                onMouseLeave={(e)=>{ e.currentTarget.style.background='var(--sand)'; }}>
+                style={{display:'flex',alignItems:'center',gap:12,padding:'11px 12px',border:'1px solid #D8CBB4',background:'#F3ECE0',borderRadius:9,cursor:'pointer',fontSize:14,fontWeight:700,color:'#15303B',textAlign:'left',width:'100%'}}
+                onMouseEnter={(e)=>{ e.currentTarget.style.background='#E8DDC9'; }}
+                onMouseLeave={(e)=>{ e.currentTarget.style.background='#F3ECE0'; }}>
                 <span style={{fontSize:20}}>{d.emoji}</span>{d.label}
               </button>
             ))}
@@ -4512,7 +4516,7 @@ function SelecteurCouleurLigne({ valeur, onChoisir }) {
       {ouvert && pos && createPortal(
         <>
           <div style={{position:'fixed',inset:0,zIndex:200}} onClick={()=>setOuvert(false)} />
-          <div className="ig-card" style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:8,display:'flex',gap:6,flexWrap:'wrap',width:120,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
+          <div style={{position:'fixed',top:pos.top,left:pos.left,zIndex:201,padding:8,display:'flex',gap:6,flexWrap:'wrap',width:120,background:'#FFFDF8',border:'1.5px solid #D8CBB4',borderRadius:16}} onClick={(e)=>e.stopPropagation()}>
             {RH_PALETTE_COULEURS.map((p) => (
               <PastilleCouleur key={p.valeur || 'aucune'} valeur={p.valeur} titre={p.label} taille={22}
                 onClick={()=>{ onChoisir(p.valeur || null); setOuvert(false); }} />
