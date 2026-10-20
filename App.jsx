@@ -1739,6 +1739,72 @@ function construirePromesseEmbaucheHTML({ etabJ, salarie }) {
   `;
 }
 
+// Construit le corps HTML d'une attestation d'hébergement, sur le modèle du document fourni
+// par Océane (attestation_hebergement_2H_1.docx). "adresseLogement" n'est jamais la même
+// d'un salarié à l'autre et n'est connue qu'au moment de générer le document (aucun champ
+// du Registre ne la stocke) : elle vient donc de "valeurs" (saisie dans DocumentRHModal au
+// moment de la génération), pas de la fiche du salarié. Le signataire ("Mme DOMENGE Océane,
+// responsable des ressources humaines") est volontairement fixe quel que soit l'établissement.
+function construireAttestationHebergementHTML({ etabJ, salarie, valeurs }) {
+  const dateFr = fmtDate(new Date());
+  const civilite = (salarie.civilite || "").trim();
+  const adresseLogement = ((valeurs && valeurs.adresseLogement) || "").trim();
+  return `
+    <div class="entete">
+      <div class="raison-sociale">${valEtab(etabJ,'raisonSociale')}</div>
+      ${valEtab(etabJ,'adresse')}<br>
+      ${valEtab(etabJ,'cp')} ${valEtab(etabJ,'ville')}<br>
+      Au capital de ${valEtab(etabJ,'capital')}<br>
+      RCS ${valEtab(etabJ,'rcs')}<br>
+      SIRET : ${valEtab(etabJ,'siret')}<br>
+      Code NAF : ${valEtab(etabJ,'ape')}
+    </div>
+    <h1 style="text-align:center">ATTESTATION D'HÉBERGEMENT</h1>
+    <div class="date-lieu">À ${esc(LIEU_SIGNATURE_PROMESSE)}, le ${dateFr}</div>
+    <p>Objet : Attestation d'hébergement à titre gratuit.</p>
+    <p>Je soussigné Mme DOMENGE Océane, responsable des ressources humaines de la société ${valEtab(etabJ,'raisonSociale')}, atteste par la présente héberger :</p>
+    <p><b>${civilite ? esc(civilite) + " " : ""}${esc((salarie.nom || "").toUpperCase())} ${esc(salarie.prenom || "")}</b></p>
+    <p>${adresseLogement ? esc(adresseLogement) : '<span class="manque">[adresse du logement à compléter]</span>'}</p>
+    <p>Pour faire valoir ce que de droit.</p>
+    <div class="signature">
+      Le service RH
+      ${etabJ && etabJ.tampon ? `<br><img src="${etabJ.tampon}" alt="Signature" />` : '<div class="manque" style="margin-top:8px">[aucune signature/tampon enregistrée pour cet établissement]</div>'}
+    </div>
+  `;
+}
+
+// ---------- Registre des documents RH générables/envoyables depuis le Registre Embauche
+// (superviseur uniquement) : chaque entrée décrit un type de document, sur le même principe
+// que la promesse d'embauche (génération HTML -> impression OU email avec PDF en pièce
+// jointe). "champs" liste les informations à saisir à la main à CHAQUE génération (ex :
+// l'adresse d'un logement, jamais la même et jamais connue à l'avance) ; vide pour un document
+// entièrement déductible de la fiche, comme la promesse d'embauche — qui garde alors
+// exactement son comportement actuel (un clic, pas d'étape intermédiaire). Ajouter un nouveau
+// document plus tard = une entrée ici + une fonction "construireXxxHTML", sans toucher à
+// l'interface (DocumentRHModal et le sélecteur dans le tableau sont génériques). ----------
+const DOCUMENTS_RH = [
+  {
+    id: "promesse_embauche",
+    label: "Promesse d'embauche",
+    emoji: "📄",
+    champs: [],
+    construireHTML: ({ etabJ, salarie }) => construirePromesseEmbaucheHTML({ etabJ, salarie }),
+    nomFichier: (resto, s) => `Promesse_embauche_${slugKey(resto)}_${slugKey((s.nom||"")+"_"+(s.prenom||""))}`,
+    sujetEmail: (resto) => `Promesse d'embauche — ${resto}`,
+    texteEmail: (s, resto) => `Bonjour,\n\nVeuillez trouver ci-joint votre promesse d'embauche pour le poste de ${s.poste || ""} au sein de ${resto}.\n\nCordialement,\n${resto}`,
+  },
+  {
+    id: "attestation_hebergement",
+    label: "Attestation d'hébergement",
+    emoji: "🏠",
+    champs: [{ cle: "adresseLogement", label: "Adresse du logement" }],
+    construireHTML: ({ etabJ, salarie, valeurs }) => construireAttestationHebergementHTML({ etabJ, salarie, valeurs }),
+    nomFichier: (resto, s) => `Attestation_hebergement_${slugKey(resto)}_${slugKey((s.nom||"")+"_"+(s.prenom||""))}`,
+    sujetEmail: (resto) => `Attestation d'hébergement — ${resto}`,
+    texteEmail: (s, resto) => `Bonjour,\n\nVeuillez trouver ci-joint votre attestation d'hébergement pour ${resto}.\n\nCordialement,\n${resto}`,
+  },
+];
+
 // ---------- Import d'un planning existant depuis Excel ----------
 // Lit un classeur au format "PLANNING N / PLANNING CUISINE N" (une feuille par petit
 // groupe de salariés, tous pour la même semaine en général) : ligne 1 = semaine (dates),
@@ -4277,6 +4343,67 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
   );
 }
 
+// ---------- Modale générique de génération/envoi d'un document RH (voir DOCUMENTS_RH) :
+// champs éventuels à saisir, puis "Télécharger" (impression) ou "Envoyer par email" (PDF en
+// pièce jointe) — mêmes deux actions qu'avait la promesse d'embauche, pour tous les documents.
+function DocumentRHModal({ doc, salarie, resto, etabJ, onClose, montrerFlash, montrerErreur }) {
+  const [valeurs, setValeurs] = useState(() => Object.fromEntries(doc.champs.map((c) => [c.cle, ""])));
+  const [busyTelecharger, setBusyTelecharger] = useState(false);
+  const [busyEmail, setBusyEmail] = useState(false);
+  const nom = `${salarie.prenom || ""} ${salarie.nom || ""}`.trim();
+  const email = (salarie.email || "").trim();
+
+  function telecharger() {
+    setBusyTelecharger(true);
+    try {
+      const html = doc.construireHTML({ etabJ, salarie, valeurs });
+      const ok = imprimerDocument(`${doc.label} ${nom}`, html, STYLE_PROMESSE, doc.nomFichier(resto, salarie));
+      if (ok === false) montrerErreur("Impossible de générer le document. Réessayez.");
+      else onClose();
+    } finally {
+      setBusyTelecharger(false);
+    }
+  }
+
+  async function envoyer() {
+    if (!email) { montrerErreur(`Aucune adresse email enregistrée pour ${nom}. Complétez-la dans le Registre Embauche.`); return; }
+    if (!confirm(`Envoyer "${doc.label}" de ${nom} à ${email} ?`)) return;
+    setBusyEmail(true);
+    try {
+      const html = doc.construireHTML({ etabJ, salarie, valeurs });
+      const pdfBase64 = await genererPDFBase64(html, STYLE_PROMESSE);
+      const r = await RhAdmin.envoyerEmail({
+        to: email, sujet: doc.sujetEmail(resto), texte: doc.texteEmail(salarie, resto),
+        pdfBase64, nomFichier: `${doc.nomFichier(resto, salarie)}.pdf`,
+      });
+      if (r.ok) { montrerFlash(`« ${doc.label} » envoyée à ${email} (PDF en pièce jointe).`); onClose(); }
+      else montrerErreur(`Échec de l'envoi : ${r.erreur || "erreur inconnue"}`);
+    } finally {
+      setBusyEmail(false);
+    }
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:440}}>
+        <h3>{doc.emoji} {doc.label}</h3>
+        <div className="ig-muted" style={{marginBottom:10}}>{nom} · {resto}</div>
+        {doc.champs.map((c) => (
+          <div className="ig-field" key={c.cle}>
+            <label>{c.label}</label>
+            <input type="text" value={valeurs[c.cle] || ""} onChange={(e)=>setValeurs((v)=>({ ...v, [c.cle]: e.target.value }))} placeholder={c.label} />
+          </div>
+        ))}
+        <div style={{display:'flex',gap:10,marginTop:18}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={telecharger} disabled={busyTelecharger}>{busyTelecharger ? "…" : "Télécharger"}</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={envoyer} disabled={busyEmail} title={email ? `Envoyer à ${email}` : "Aucun email enregistré"}>{busyEmail ? "…" : "Envoyer par email"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- Filtre par colonne façon tableur (menu déroulant : tri + case à cocher par valeur) ----------
 const RH_DATE_CHAMPS = new Set(["date_debut", "date_fin", "date_prolongation_fin"]);
 function rhValeurBrute(s, cle) {
@@ -4495,8 +4622,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   const [saisonActive, setSaisonActive] = useState(null);
   const [selection, setSelection] = useState(new Set());
   const [archiverModal, setArchiverModal] = useState(false);
-  const [promesseBusy, setPromesseBusy] = useState(null); // id de la fiche en cours de génération
-  const [emailBusy, setEmailBusy] = useState(null); // id de la fiche dont la promesse est en cours d'envoi par email
+  const [docDemande, setDocDemande] = useState(null); // { doc, salarie, etabJ } : document RH en cours de génération/envoi (voir DocumentRHModal)
   // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
   // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
   // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
@@ -4580,50 +4706,18 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
     if (cree) montrerFlash(`Nouvelle fiche créée pour ${s.prenom || ""} ${s.nom || ""} sur ${nouveauResto}. Pensez à renseigner sa nouvelle date de début de contrat là-bas, et sa date de fin ici sur ${resto}.`);
     else montrerErreur("La création de la nouvelle fiche a échoué (peut-être une fiche existe déjà pour ce nom sur cet établissement). Réessayez.");
   }
-  async function genererPromesse(s) {
-    if (promesseBusy) return;
-    setPromesseBusy(s.id);
-    try {
-      const etabsJ = await EtablissementsJuridique.load();
-      const etabJ = etabsJ[resto] || null;
-      if (!etabJ || !etabJ.tampon) {
-        montrerErreur(`Aucune signature/tampon enregistrée pour ${resto}. Ajoutez-la d'abord dans "Fiche juridique de ${resto}" (Extras).`);
-        return;
-      }
-      const html = construirePromesseEmbaucheHTML({ etabJ, salarie: s });
-      const ok = imprimerDocument(`Promesse d'embauche ${s.prenom || ""} ${s.nom || ""}`, html, STYLE_PROMESSE, `Promesse_embauche_${slugKey(resto)}_${slugKey((s.nom||"")+"_"+(s.prenom||""))}`);
-      if (ok === false) montrerErreur("Impossible de générer le document. Réessayez.");
-    } finally {
-      setPromesseBusy(null);
+  // Ouvre la modale de génération/envoi pour un type de document donné (voir DOCUMENTS_RH) —
+  // remplace les anciennes "genererPromesse"/"envoyerPromesseParEmail", désormais génériques
+  // à tout document RH. La signature/tampon reste vérifiée ici, avant même d'ouvrir la
+  // modale, pour ne jamais faire saisir des champs (ex: adresse du logement) pour rien.
+  async function ouvrirDocument(doc, s) {
+    const etabsJ = await EtablissementsJuridique.load();
+    const etabJ = etabsJ[resto] || null;
+    if (!etabJ || !etabJ.tampon) {
+      montrerErreur(`Aucune signature/tampon enregistrée pour ${resto}. Ajoutez-la d'abord dans "Fiche juridique de ${resto}" (Extras).`);
+      return;
     }
-  }
-  // Envoie la promesse d'embauche par email au salarié, à l'adresse renseignée dans le
-  // Registre Embauche — génère le même document (contenu + mise en page) que le bouton
-  // "Promesse d'embauche" en un vrai PDF, joint directement à l'email (via la fonction
-  // Supabase "rh-admin"), sans étape manuelle d'impression/enregistrement.
-  async function envoyerPromesseParEmail(s) {
-    if (emailBusy) return;
-    const email = (s.email || "").trim();
-    if (!email) { montrerErreur(`Aucune adresse email enregistrée pour ${s.prenom || ""} ${s.nom || ""}. Complétez-la dans le Registre Embauche.`); return; }
-    if (!confirm(`Envoyer la promesse d'embauche de ${s.prenom || ""} ${s.nom || ""} à ${email} ?`)) return;
-    setEmailBusy(s.id);
-    try {
-      const etabsJ = await EtablissementsJuridique.load();
-      const etabJ = etabsJ[resto] || null;
-      if (!etabJ || !etabJ.tampon) {
-        montrerErreur(`Aucune signature/tampon enregistrée pour ${resto}. Ajoutez-la d'abord dans "Fiche juridique de ${resto}" (Extras).`);
-        return;
-      }
-      const corps = construirePromesseEmbaucheHTML({ etabJ, salarie: s });
-      const pdfBase64 = await genererPDFBase64(corps, STYLE_PROMESSE);
-      const nomFichier = `Promesse_embauche_${slugKey(resto)}_${slugKey((s.nom||"")+"_"+(s.prenom||""))}.pdf`;
-      const texte = `Bonjour,\n\nVeuillez trouver ci-joint votre promesse d'embauche pour le poste de ${s.poste || ""} au sein de ${resto}.\n\nCordialement,\n${resto}`;
-      const r = await RhAdmin.envoyerEmail({ to: email, sujet: `Promesse d'embauche — ${resto}`, texte, pdfBase64, nomFichier });
-      if (r.ok) montrerFlash(`Promesse d'embauche envoyée à ${email} (PDF en pièce jointe).`);
-      else montrerErreur(`Échec de l'envoi : ${r.erreur || "erreur inconnue"}`);
-    } finally {
-      setEmailBusy(null);
-    }
+    setDocDemande({ doc, salarie: s, etabJ });
   }
   async function supprimerSelection() {
     if (selection.size === 0) return;
@@ -4863,14 +4957,11 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
                     {superviseur && (
-                      <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>genererPromesse(s)} disabled={promesseBusy===s.id} title="Promesse d'embauche">
-                        {promesseBusy===s.id ? "…" : "📄"}
-                      </button>
-                    )}
-                    {superviseur && (
-                      <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>envoyerPromesseParEmail(s)} disabled={emailBusy===s.id} title={s.email ? `Envoyer par email à ${s.email}` : "Envoyer par email (aucun email enregistré)"}>
-                        {emailBusy===s.id ? "…" : "📧"}
-                      </button>
+                      <select className="ig-cell" value="" onChange={(e)=>{ const doc = DOCUMENTS_RH.find((d)=>d.id===e.target.value); if (doc) ouvrirDocument(doc, s); }}
+                        title="Documents (promesse d'embauche, attestation d'hébergement…)" style={{width:28,fontSize:11,padding:0,textAlign:'center',cursor:'pointer'}}>
+                        <option value="">📑</option>
+                        {DOCUMENTS_RH.map((d) => <option key={d.id} value={d.id}>{d.emoji} {d.label}</option>)}
+                      </select>
                     )}
                     {superviseur && (restaurants || []).length > 1 && (
                       <select className="ig-cell" value="" onChange={(e)=>transferer(s, e.target.value)}
@@ -4889,6 +4980,10 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
       )}
       {ajout && <RhSalarieModal resto={resto} unite={unite} superviseur={superviseur} onSave={creer} onClose={()=>setAjout(false)} />}
       {edition && <RhSalarieModal resto={resto} unite={unite} salarie={edition} superviseur={superviseur} onSave={modifier} onClose={()=>setEdition(null)} />}
+      {docDemande && (
+        <DocumentRHModal doc={docDemande.doc} salarie={docDemande.salarie} resto={resto} etabJ={docDemande.etabJ}
+          onClose={()=>setDocDemande(null)} montrerFlash={montrerFlash} montrerErreur={montrerErreur} />
+      )}
     </div>
   );
 }
