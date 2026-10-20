@@ -191,7 +191,14 @@ begin
   end if;
 end $$;
 alter table public.rh_salaries drop constraint if exists rh_salaries_resto_salarie_id_saison_key;
-alter table public.rh_salaries add constraint rh_salaries_resto_salarie_id_saison_key unique (resto, salarie_id, saison);
+-- (resto, salarie_id, saison) ne suffit pas non plus : un saisonnier qui revient PLUSIEURS
+-- FOIS la MÊME année (ex: CDD mars-août 2026 puis nouveau contrat octobre 2026-mars 2027)
+-- a la même saison "2026" pour ses deux contrats, qui se fusionnaient/s'écrasaient l'un
+-- l'autre au moment du second onboarding réel. "date_debut" distingue les contrats entre eux ;
+-- une fiche encore sans date (provisoire non confirmée) ne bloque jamais rien d'autre, deux
+-- valeurs NULL n'étant jamais considérées égales par une contrainte unique en Postgres.
+alter table public.rh_salaries drop constraint if exists rh_salaries_resto_salarie_id_saison_debut_key;
+alter table public.rh_salaries add constraint rh_salaries_resto_salarie_id_saison_debut_key unique (resto, salarie_id, saison, date_debut);
 -- Couleur de la ligne dans le tableau RH (remplissage façon Excel), ex: '#FBE2DC'. NULL = aucune.
 alter table public.rh_salaries add column if not exists couleur text;
 

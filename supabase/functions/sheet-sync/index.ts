@@ -1055,19 +1055,30 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, corrigees });
     }
 
-    // ---- Rattrapage en un clic : relit tout le Sheet et crée en base les salariés qui
-    // s'y trouvent déjà mais que l'app n'a jamais reçus (onboardés avant que la synchro
-    // automatique ne soit en place). Réservé au superviseur. Les fiches déjà existantes en
-    // base ne sont jamais touchées (ignore-duplicates) : on ne risque donc jamais d'écraser
-    // une modification faite depuis dans l'app. ----
+    // ---- Rattrapage : relit tout le Sheet et crée en base les salariés qui s'y trouvent déjà
+    // mais que l'app n'a jamais reçus. Deux usages, distingués par "ecraser" :
+    //  - bouton manuel "Importer depuis le Sheet" (superviseur) : ecraser=false, ne complète
+    //    QUE les champs encore vides en base (ignore-duplicates) — ne risque jamais d'écraser
+    //    une modification faite depuis dans l'app.
+    //  - déclencheur horaire automatique (secret, toutes les 15-30 min, voir Code.gs) :
+    //    ecraser=true, remplace aussi les champs déjà remplis si le Sheet diffère — c'est la
+    //    seule façon qu'une correction tapée DIRECTEMENT dans le Sheet (ex: Heures CT, type de
+    //    contrat, après la soumission du vrai Form) finisse par arriver dans l'app, puisque
+    //    "formSubmit" ne capture jamais ces champs-là (voir son commentaire) et qu'une simple
+    //    modification de cellule ne déclenche rien côté Google. Une case du Sheet VIDE n'efface
+    //    jamais une valeur déjà en base, dans les deux cas : on ne fait que suivre le Sheet,
+    //    jamais revenir en arrière sur une info qu'il ne contient plus. ----
     if (action === "importerTout") {
-      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
-      if (!appelant) return json({ error: "non_authentifie" }, 401);
-      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      const viaSecret = !!FORM_WEBHOOK_SECRET && corps.secret === FORM_WEBHOOK_SECRET;
+      if (!viaSecret) {
+        const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+        if (!appelant) return json({ error: "non_authentifie" }, 401);
+        if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+      }
 
       // Facultatif : si l'appelant précise un établissement, seules ses lignes sont
       // importées (évite de mélanger l'import avec les autres établissements du Sheet).
-      const { resto: restoDemande } = corps;
+      const { resto: restoDemande, ecraser } = corps;
 
       const jeton = await jetonAcces();
       const grille = await lireFeuille(jeton);
@@ -1202,7 +1213,10 @@ Deno.serve(async (req: Request) => {
         if (existant) {
           const patch: Record<string, unknown> = {};
           for (const c of CHAMPS_COMPLETABLES) {
-            if (existant[c] == null && (ligne as Record<string, unknown>)[c] != null) patch[c] = (ligne as Record<string, unknown>)[c];
+            const vSheet = (ligne as Record<string, unknown>)[c];
+            if (vSheet == null) continue; // case vide du Sheet : n'efface jamais une valeur déjà en base
+            const diff = ecraser ? vSheet !== existant[c] : existant[c] == null;
+            if (diff) patch[c] = vSheet;
           }
           if (Object.keys(patch).length > 0) patchs.push({ id: existant.id, patch });
           continue;
@@ -1232,7 +1246,7 @@ Deno.serve(async (req: Request) => {
 
       let importes = 0;
       if (aInsererFinal.length > 0) {
-        const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison`, {
+        const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison,date_debut`, {
           method: "POST",
           headers: {
             apikey: SERVICE_ROLE_KEY,
@@ -1339,7 +1353,7 @@ Deno.serve(async (req: Request) => {
       // importées) ; seul le nom affiché/enregistré est mis en majuscules.
       const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom, ...champsFormulaire };
 
-      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison`, {
+      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison,date_debut`, {
         method: "POST",
         headers: {
           apikey: SERVICE_ROLE_KEY,
