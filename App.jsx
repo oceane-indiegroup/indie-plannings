@@ -2386,11 +2386,18 @@ function ManagerView({ resto, onBack, superviseur }) {
           ? anneeCourante
           : (saisonsAnnees.length ? saisonsAnnees[saisonsAnnees.length - 1] : anneeCourante);
         setRhTeam(
-          lignes.filter((l) => l.saison === derniere).map((l) => ({
-            n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—", u: l.unite,
-            h: l.heures_contrat || l.heures_semaine || 35,
-            _rhDebut: l.date_debut, _rhFin: l.date_fin,
-          }))
+          lignes
+            // "provisoire" = fiche créée à l'avance par le directeur, en attente du vrai
+            // onboarding (badge "PAS ONBOARDING" dans le Registre) : tant que la personne n'a
+            // pas réellement rempli le Form, elle n'a pas de contrat confirmé — elle ne doit
+            // donc pas apparaître dans le Planning (constaté sur Melinda/Jessica à Pablo Saint
+            // Barth : fiches provisoires, sans date de début, affichées quand même avec 0h).
+            .filter((l) => l.saison === derniere && !l.provisoire)
+            .map((l) => ({
+              n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—", u: l.unite,
+              h: l.heures_contrat || l.heures_semaine || 35,
+              _rhDebut: l.date_debut, _rhFin: l.date_fin,
+            }))
         );
       });
     }
