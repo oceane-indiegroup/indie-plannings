@@ -2370,29 +2370,37 @@ function ManagerView({ resto, onBack, superviseur }) {
   const [rhTeam, setRhTeam] = useState([]);
   useEffect(() => {
     let on = true;
-    RhSalaries.list(resto).then((lignes) => {
-      if (!on) return;
-      if (lignes.length === 0) { setRhTeam([]); return; }
-      // La saison synchronisée dans le planning doit être l'année en cours (contrats actifs),
-      // jamais "Archives" : "Archives" trie après les années dans l'ordre alphabétique
-      // ("A" > "2"), donc prendre "la dernière valeur triée" pouvait synchroniser les fiches
-      // archivées au lieu des salariés réellement sous contrat cette année — plus aucun
-      // nouveau salarié (ni ses heures de contrat) ne remontait alors dans le planning.
-      const anneeCourante = String(new Date().getFullYear());
-      const saisonsDispo = [...new Set(lignes.map((l) => l.saison))].sort();
-      const saisonsAnnees = saisonsDispo.filter((s) => /^\d{4}$/.test(s));
-      const derniere = saisonsDispo.includes(anneeCourante)
-        ? anneeCourante
-        : (saisonsAnnees.length ? saisonsAnnees[saisonsAnnees.length - 1] : anneeCourante);
-      setRhTeam(
-        lignes.filter((l) => l.saison === derniere).map((l) => ({
-          n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—", u: l.unite,
-          h: l.heures_contrat || l.heures_semaine || 35,
-          _rhDebut: l.date_debut, _rhFin: l.date_fin,
-        }))
-      );
-    });
-    return () => { on = false; };
+    function chargerRhTeam() {
+      RhSalaries.list(resto).then((lignes) => {
+        if (!on) return;
+        if (lignes.length === 0) { setRhTeam([]); return; }
+        // La saison synchronisée dans le planning doit être l'année en cours (contrats actifs),
+        // jamais "Archives" : "Archives" trie après les années dans l'ordre alphabétique
+        // ("A" > "2"), donc prendre "la dernière valeur triée" pouvait synchroniser les fiches
+        // archivées au lieu des salariés réellement sous contrat cette année — plus aucun
+        // nouveau salarié (ni ses heures de contrat) ne remontait alors dans le planning.
+        const anneeCourante = String(new Date().getFullYear());
+        const saisonsDispo = [...new Set(lignes.map((l) => l.saison))].sort();
+        const saisonsAnnees = saisonsDispo.filter((s) => /^\d{4}$/.test(s));
+        const derniere = saisonsDispo.includes(anneeCourante)
+          ? anneeCourante
+          : (saisonsAnnees.length ? saisonsAnnees[saisonsAnnees.length - 1] : anneeCourante);
+        setRhTeam(
+          lignes.filter((l) => l.saison === derniere).map((l) => ({
+            n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—", u: l.unite,
+            h: l.heures_contrat || l.heures_semaine || 35,
+            _rhDebut: l.date_debut, _rhFin: l.date_fin,
+          }))
+        );
+      });
+    }
+    chargerRhTeam();
+    // Resynchronise avec le Registre Embauche toutes les 2 minutes tant que la page Planning
+    // reste ouverte — sans ça, une date de fin (ou tout autre champ RH) modifiée pendant qu'un
+    // manager a déjà le Planning ouvert ne s'y répercutait qu'au prochain rechargement complet
+    // de la page (F5), jamais toute seule.
+    const intervalle = setInterval(chargerRhTeam, 2 * 60 * 1000);
+    return () => { on = false; clearInterval(intervalle); };
   }, [resto]);
 
   // Équipe effective : salariés du fichier + ajouts manuels + salariés RH (bornés par leur
