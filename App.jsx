@@ -2420,7 +2420,6 @@ function ManagerView({ resto, onBack, superviseur }) {
     // démarrant un jeudi, absent du Planning toute la semaine alors que son premier jour y était).
     const finSemaineReelle = dateISOLocale(ajouterJours(lundiDeLaSemaine(semDate), 6));
     const base = EMPLOYEES.filter((e) => e.r === resto);
-    const ajouts = roster.ajouts || [];
     // Comparaison de la même personne entre ajout manuel / fiche RH / fichier tolérante à la
     // casse, aux accents (normTxt) ET à la ponctuation (tiret, apostrophe...) : "nicolas
     // BRAULT" / "Nicolas BRAULT", ou "Jean-Baptiste POLO" / "Jean Baptiste POLO", doivent être
@@ -2428,9 +2427,24 @@ function ManagerView({ resto, onBack, superviseur }) {
     // le planning. On ne touche qu'à cette comparaison — jamais à idSalarie() lui-même, qui sert
     // aussi de clé de stockage pour les horaires déjà saisis.
     const idNorm = (e) => normTxt(idSalarie(e)).replace(/[^a-z0-9]+/g, " ").trim();
+    // Un ajout manuel du Planning ("+ Ajouter un salarié", roster.ajouts) n'a jamais eu de
+    // champ "date de fin" à lui : la seule façon de l'arrêter était le bouton "gestion > fin de
+    // contrat" du Planning lui-même (roster.departs), complètement déconnecté du Registre RH.
+    // Résultat : un ajout correspondant à un salarié dont le contrat RH est pourtant terminé
+    // (date_fin passée) restait visible indéfiniment, la fiche RH n'étant jamais consultée pour
+    // lui (observé sur Zidani : fin de contrat le 15/10 dans le Registre, toujours affiché dans
+    // le Planning). Un ajout dont l'identité correspond à une fiche RH hérite donc maintenant de
+    // ses dates (_rhDebut en l'absence de date propre, _rhFin toujours) — il garde seulement la
+    // priorité sur les heures/poste affichés, pas sur les dates, qui restent celles du Registre.
+    const rhParId = new Map(rhTeam.map((e) => [idNorm(e), e]));
+    const ajouts = (roster.ajouts || []).map((a) => {
+      const rh = rhParId.get(idNorm(a));
+      return rh ? { ...a, _debut: a._debut || rh._rhDebut, _rhFin: rh._rhFin } : a;
+    });
     const ajoutIds = new Set(ajouts.map((a) => idNorm(a)));
-    // Un ajout manuel a priorité sur la fiche RH de même identifiant (permet de corriger
-    // ses heures/poste dans Planning sans attendre une mise à jour de la fiche RH).
+    // Un ajout manuel a priorité sur la fiche RH de même identifiant pour l'AFFICHAGE (heures,
+    // poste) sans attendre une mise à jour de la fiche RH — mais plus pour les dates, héritées
+    // ci-dessus.
     const rhActifs = rhTeam.filter((e) => {
       if (ajoutIds.has(idNorm(e))) return false;
       if (e._rhDebut && finSemaineReelle < e._rhDebut) return false; // contrat pas encore commencé, pas même un jour cette semaine
@@ -2454,6 +2468,7 @@ function ManagerView({ resto, onBack, superviseur }) {
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
       if (e._debut && finSemaineReelle < e._debut) return false; // ajout manuel : contrat pas encore commencé, pas même un jour cette semaine
+      if (e._rhFin && semReelle > e._rhFin) return false; // ajout manuel hérité d'une fiche RH dont le contrat est terminé (voir plus haut)
       const fin = (roster.departs || {})[idSalarie(e)];
       // fin = date de fin de contrat (AAAA-MM-JJ). Visible tant que le lundi de la
       // semaine affichée est <= date de fin ; masqué pour les semaines entièrement après.
