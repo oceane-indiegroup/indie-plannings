@@ -462,11 +462,14 @@ async function forcerPrenomCapitalise(jeton: string, sheetId: string, tab: strin
 // l'API Sheets sont rapides, et il vaut mieux garantir que la mise en forme s'applique vraiment
 // plutôt que de la laisser filer sans confirmation. Best-effort : un échec (droits insuffisants...)
 // reste silencieux et ne bloque jamais l'onboarding.
-async function formaterDerniereLigne() {
+// Retourne le numéro de la ligne formatée (utilisé par "formSubmit" pour mémoriser
+// "sheet_ligne" sur la fiche créée/fusionnée — voir son commentaire), ou null si rien à faire
+// ou en cas d'échec.
+async function formaterDerniereLigne(): Promise<number | null> {
   try {
     const jeton = await jetonAcces();
     const grille = await lireFeuille(jeton);
-    if (grille.length < 2) return;
+    if (grille.length < 2) return null;
     const colIndex = colonneIndex(grille[0]);
     const ligne = grille.length;
     if (colIndex["nom"] !== undefined) {
@@ -476,8 +479,10 @@ async function formaterDerniereLigne() {
       await forcerPrenomCapitalise(jeton, SHEET_ID, SHEET_TAB, ligne, colIndex["prenom"], grille[ligne - 1][colIndex["prenom"]]);
     }
     await formaterLigneOnboarding(jeton, ligne, colIndex["nom"], grille[0].length);
+    return ligne;
   } catch (e) {
     console.error("formaterDerniereLigne echouee:", e);
+    return null;
   }
 }
 
@@ -1115,7 +1120,11 @@ Deno.serve(async (req: Request) => {
         // champ est donc toujours présent, avec null si absent du Sheet pour cette personne.
         // salarie_id garde la casse d'origine (identité stable pour les fiches déjà
         // importées) ; seul le nom affiché/enregistré est mis en majuscules.
-        const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom };
+        // "sheet_ligne" (numéro de cette ligne dans le Sheet, 1-indexé) : mémorisé sur la fiche
+        // dès ce rattrapage pour que les PROCHAINS rattrapages puissent la retrouver de façon
+        // fiable, sans dépendre de la date de début — invérifiable tant qu'elle est justement
+        // vide (voir plus bas, "existantsParLigne").
+        const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom, sheet_ligne: i + 1 };
         ["civilite", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence", "type_contrat", "niveau", "echelon"].forEach((cle) => {
           const v = valeurPourLigne(nv, cle);
           ligne[cle] = v || null;
@@ -1167,9 +1176,15 @@ Deno.serve(async (req: Request) => {
       // fusionner à la main, jamais un doublon silencieux).
       const CHAMPS_COMPLETABLES = ["date_debut", "date_fin", "date_fin_periode_essai", "heures_contrat", "heures_sup", "salaire_net", "type_contrat", "niveau", "echelon"];
       const existants: Record<string, Record<string, unknown>> = {};
+      // Fiches déjà rattachées à une ligne précise du Sheet (sheet_ligne) : correspondance
+      // directe et fiable, prioritaire sur la clé par date de début ci-dessus — celle-ci casse
+      // justement quand c'est une date qu'on cherche à importer pour la première fois (observé
+      // sur Soumaila Ed Yamine : sa fiche Café de l'Ormeau, sans date, ne retrouvait jamais sa
+      // ligne du Sheet alors que la date y était bien saisie).
+      const existantsParLigne: Record<number, Record<string, unknown>> = {};
       {
         const filtreResto = restoDemande ? `&resto=eq.${encodeURIComponent(restoDemande)}` : "";
-        const champsExist = ["id", "resto", "salarie_id", "saison", ...CHAMPS_COMPLETABLES].join(",");
+        const champsExist = ["id", "resto", "salarie_id", "saison", "sheet_ligne", ...CHAMPS_COMPLETABLES].join(",");
         const existRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?select=${champsExist}${filtreResto}`, {
           headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
         });
@@ -1177,6 +1192,7 @@ Deno.serve(async (req: Request) => {
           const lignesExist = await existRes.json();
           for (const l of lignesExist) {
             existants[`${l.resto}::${l.salarie_id}::${l.date_debut || ""}`] = l;
+            if (l.sheet_ligne) existantsParLigne[l.sheet_ligne] = l;
           }
         }
       }
@@ -1209,7 +1225,7 @@ Deno.serve(async (req: Request) => {
       const patchsProvisoire: { id: unknown; patch: Record<string, unknown> }[] = [];
       for (const ligne of aInserer) {
         const cleF = `${ligne.resto}::${ligne.salarie_id}::${ligne.date_debut || ""}`;
-        const existant = existants[cleF];
+        const existant = existantsParLigne[ligne.sheet_ligne as number] || existants[cleF];
         if (existant) {
           const patch: Record<string, unknown> = {};
           for (const c of CHAMPS_COMPLETABLES) {
@@ -1218,6 +1234,7 @@ Deno.serve(async (req: Request) => {
             const diff = ecraser ? vSheet !== existant[c] : existant[c] == null;
             if (diff) patch[c] = vSheet;
           }
+          if (!existant.sheet_ligne) patch.sheet_ligne = ligne.sheet_ligne; // rattache cette fiche à sa ligne pour les prochains rattrapages
           if (Object.keys(patch).length > 0) patchs.push({ id: existant.id, patch });
           continue;
         }
@@ -1232,7 +1249,7 @@ Deno.serve(async (req: Request) => {
         // N'agit que si un seul candidat est nettement le meilleur (même règle que "formSubmit").
         if (scores.length === 1 || (scores.length > 1 && scores[0].score < scores[1].score)) {
           const cible = scores[0].p;
-          const patch: Record<string, unknown> = { nom: ligne.nom, prenom: ligne.prenom, provisoire: false };
+          const patch: Record<string, unknown> = { nom: ligne.nom, prenom: ligne.prenom, provisoire: false, sheet_ligne: ligne.sheet_ligne };
           for (const c of TOUS_CHAMPS_IMPORTABLES) {
             if (cible[c] == null && (ligne as Record<string, unknown>)[c] != null) patch[c] = (ligne as Record<string, unknown>)[c];
           }
@@ -1344,7 +1361,19 @@ Deno.serve(async (req: Request) => {
         // forme ne jamais s'appliquer sur deux onboardings réels de suite. Ce sont 2 petits
         // appels API rapides : le risque de retarder Apps Script au point de casser son étape
         // Drive est bien moindre que celui, confirmé, de ne jamais mettre en forme la ligne.
-        await formaterDerniereLigne();
+        const ligneEcrite = await formaterDerniereLigne();
+        // Mémorise le numéro de cette ligne du Sheet sur la fiche tout juste confirmée : sans
+        // ça, un rattrapage ultérieur (ex: une correction tapée à la main dans le Sheet après
+        // coup) ne pouvait retrouver cette fiche qu'en comparant sa date de début — invérifiable
+        // tant que la fiche n'avait justement pas encore de date. Best-effort : un échec ici ne
+        // doit jamais faire échouer l'onboarding lui-même, déjà confirmé au-dessus.
+        if (ligneEcrite) {
+          await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${correspondance.id}`, {
+            method: "PATCH",
+            headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+            body: JSON.stringify({ sheet_ligne: ligneEcrite }),
+          }).catch((e) => console.error("formSubmit sheet_ligne_echoue:", e));
+        }
         return json({ ok: true, fusionne: true });
       }
 
@@ -1359,7 +1388,7 @@ Deno.serve(async (req: Request) => {
           apikey: SERVICE_ROLE_KEY,
           Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
           "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates,return=minimal",
+          Prefer: "resolution=merge-duplicates,return=representation",
         },
         body: JSON.stringify(ligne),
       });
@@ -1374,7 +1403,24 @@ Deno.serve(async (req: Request) => {
       // pour ne jamais produire un dossier en double avec un nom légèrement différent.
 
       // Attendu (voir commentaire équivalent plus haut).
-      await formaterDerniereLigne();
+      const ligneEcrite = await formaterDerniereLigne();
+      // Même mémorisation de "sheet_ligne" que sur le chemin de fusion ci-dessus (voir son
+      // commentaire) — ici l'id vient directement de la réponse de l'insertion elle-même
+      // ("return=representation" plutôt que "return=minimal", pour l'avoir sans requête de plus).
+      if (ligneEcrite) {
+        try {
+          const cree = (await insRes.json())[0];
+          if (cree?.id) {
+            await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${cree.id}`, {
+              method: "PATCH",
+              headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+              body: JSON.stringify({ sheet_ligne: ligneEcrite }),
+            });
+          }
+        } catch (e) {
+          console.error("formSubmit sheet_ligne_echoue:", e);
+        }
+      }
       return json({ ok: true });
     }
 
