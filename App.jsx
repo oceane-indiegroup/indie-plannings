@@ -2429,10 +2429,19 @@ function ManagerView({ resto, onBack, superviseur }) {
       if (e._rhFin && semReelle > e._rhFin) return false; // contrat terminé avant cette semaine
       return true;
     });
-    const rhIds = new Set(rhActifs.map((e) => idNorm(e)));
+    // Dès qu'une personne a une VRAIE fiche RH (Registre Embauche), l'entrée du fichier
+    // statique importé ("base") correspondante ne doit plus jamais réapparaître — y compris
+    // une fois son contrat terminé. Avant ce correctif, "rhIds" ne contenait que les fiches
+    // RH ENCORE actives (rhActifs) : dès que le contrat RH se terminait (ex: date_fin passée),
+    // la fiche RH disparaissait bien de rhActifs, mais l'entrée "base" correspondante, elle,
+    // n'avait jamais été retirée — elle redevenait visible sans AUCUN filtre de date, comme si
+    // la fiche RH n'avait jamais existé (observé sur Zidani : absent du Registre depuis le
+    // 15/10, toujours visible dans le Planning). "rhIdsTous" couvre TOUTE fiche RH, active ou
+    // non, pour que ce soit toujours elle (et ses dates) qui fasse foi, jamais le fichier statique.
+    const rhIdsTous = new Set(rhTeam.map((e) => idNorm(e)));
     // Une fiche "ajoutée" ou RH a priorité sur la fiche du fichier de même identifiant
     // (permet de corriger ses heures / son poste sans créer de doublon).
-    const tous = base.filter((e) => !ajoutIds.has(idNorm(e)) && !rhIds.has(idNorm(e))).concat(ajouts).concat(rhActifs);
+    const tous = base.filter((e) => !ajoutIds.has(idNorm(e)) && !rhIdsTous.has(idNorm(e))).concat(ajouts).concat(rhActifs);
     const supprimes = new Set(roster.supprimes || []);
     return tous.filter((e) => {
       if (supprimes.has(idSalarie(e))) return false; // salarié du fichier supprimé après fin de contrat
