@@ -1060,6 +1060,87 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, corrigees });
     }
 
+    // ---- Confirme UNE SEULE fiche provisoire comme réellement onboardée : cherche SA ligne
+    // dans le Sheet (par nom+prénom+établissement, la plus récente en cas de plusieurs
+    // réponses — voir "formSubmit"), récupère ses infos personnelles (adresse, sécu, IBAN...)
+    // et lève le badge "PAS ONBOARDING". Contrairement à "importerTout" (relit tout le Sheet
+    // d'un coup, risque de toucher/dupliquer d'autres fiches), cette action ne touche JAMAIS
+    // que CETTE fiche précise, choisie à la main dans le Registre — c'est le bouton "Confirmer"
+    // de l'appli, pour les cas où Océane ne veut surtout pas d'un import en masse (doublons déjà
+    // vécus par le passé). Si aucune ligne du Sheet ne correspond, lève quand même le badge
+    // (mieux vaut un badge levé sans infos complémentaires que de rester bloqué). Réservé au
+    // superviseur.
+    if (action === "confirmerFiche") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+      const { id } = corps;
+      if (!id) return json({ error: "champs_manquants" }, 400);
+
+      const ficheRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${id}&select=id,resto,nom,prenom`, {
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+      });
+      if (!ficheRes.ok) return json({ error: "lecture_echouee", detail: await ficheRes.text() }, 500);
+      const fiches = await ficheRes.json();
+      if (fiches.length === 0) return json({ error: "fiche_introuvable" }, 404);
+      const fiche = fiches[0];
+
+      const patch: Record<string, unknown> = { provisoire: false };
+      let trouve = false;
+      try {
+        const jeton = await jetonAcces();
+        const grille = await lireFeuille(jeton);
+        const entetes = grille[0] || [];
+        function valeurPourLigne(nv: Record<string, string>, cle: string): string | null {
+          for (const titre in nv) {
+            const champ = CHAMPS_SHEET.find((c) => c.cle === cle);
+            if (champ && champ.test(normaliser(titre))) return nv[titre] || null;
+          }
+          return null;
+        }
+        const nomN = normaliser(fiche.nom);
+        const prenomN = normaliser(fiche.prenom);
+        let meilleureLigne = -1;
+        for (let i = 1; i < grille.length; i++) {
+          const nv: Record<string, string> = {};
+          entetes.forEach((h, j) => { nv[h] = grille[i][j] ?? ""; });
+          const resto = valeurPourLigne(nv, "resto");
+          const nom = valeurPourLigne(nv, "nom");
+          const prenom = valeurPourLigne(nv, "prenom");
+          if (!resto || !nom || !prenom) continue;
+          if (normaliser(resto) !== normaliser(fiche.resto)) continue;
+          if (normaliser(nom) !== nomN || normaliser(prenom) !== prenomN) continue;
+          meilleureLigne = i; // garde la DERNIÈRE correspondance : le Sheet est chronologique,
+          // donc la plus récente réponse pour cette personne à cet établissement.
+        }
+        if (meilleureLigne !== -1) {
+          trouve = true;
+          const nv: Record<string, string> = {};
+          entetes.forEach((h, j) => { nv[h] = grille[meilleureLigne][j] ?? ""; });
+          ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "iban", "bic", "contact_urgence"].forEach((cle) => {
+            const v = valeurPourLigne(nv, cle);
+            if (v !== null) patch[cle] = cle === "date_naissance" ? versDateISO(v) : v;
+          });
+          const mutuelleVal = valeurPourLigne(nv, "mutuelle");
+          if (mutuelleVal !== null) patch.mutuelle = normaliser(mutuelleVal).startsWith("oui");
+          patch.sheet_ligne = meilleureLigne + 1;
+        }
+      } catch (e) {
+        // Best-effort : la ligne du Sheet est un bonus, jamais un blocage pour confirmer la fiche.
+        console.error("confirmerFiche lecture_sheet_echouee:", e);
+      }
+
+      const majRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${id}`, {
+        method: "PATCH",
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" },
+        body: JSON.stringify(patch),
+      });
+      if (!majRes.ok) return json({ error: "confirmation_echouee", detail: await majRes.text() }, 500);
+      const maj = (await majRes.json())[0];
+      return json({ ok: true, trouve, fiche: maj });
+    }
+
     // ---- Rattrapage : relit tout le Sheet et crée en base les salariés qui s'y trouvent déjà
     // mais que l'app n'a jamais reçus. Deux usages, distingués par "ecraser" :
     //  - bouton manuel "Importer depuis le Sheet" (superviseur) : ecraser=false, ne complète

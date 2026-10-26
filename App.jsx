@@ -515,6 +515,19 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Confirme UNE SEULE fiche provisoire (va chercher sa ligne dans le Sheet pour ses infos
+  // personnelles, sans toucher à aucune autre fiche) — voir "confirmerOnboarding" dans
+  // ManagerView. Réservé au superviseur.
+  async confirmerFiche(id) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "confirmerFiche", id } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
   // Rattrapage en un clic pour le Sheet "onboarding" : force le NOM en majuscule et applique
   // le centrage + la police 14 sur TOUTES les lignes du Sheet qui en ont besoin — utile pour
   // les lignes anciennes, jamais mises en forme (avant la mise en place de "formaterDerniereLigne",
@@ -4771,10 +4784,14 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   // vraie réponse au Form (adresse, sécu, IBAN...) restent à copier à la main dans la fiche
   // complète si besoin — ce bouton ne fait que lever le badge.
   async function confirmerOnboarding(s) {
-    if (!confirm(`Confirmer que ${s.prenom || ""} ${s.nom || ""} a bien réellement onboardé (vraie réponse au Form) ? Le badge "PAS ONBOARDING" sera retiré.`)) return;
-    const maj = await RhSalaries.maj(s.id, { provisoire: false });
-    if (maj) { setListe(liste.map((x) => (x.id === maj.id ? maj : x))); montrerFlash(`Onboarding de ${s.prenom || ""} ${s.nom || ""} confirmé.`); }
-    else montrerErreur("La confirmation a échoué. Réessayez.");
+    if (!confirm(`Confirmer que ${s.prenom || ""} ${s.nom || ""} a bien réellement onboardé (vraie réponse au Form) ? Le badge "PAS ONBOARDING" sera retiré, et ses infos personnelles seront complétées depuis sa ligne du Sheet si elle est retrouvée.`)) return;
+    const r = await RhSheetSync.confirmerFiche(s.id);
+    if (r.ok) {
+      setListe(liste.map((x) => (x.id === r.fiche.id ? r.fiche : x)));
+      montrerFlash(r.trouve
+        ? `Onboarding de ${s.prenom || ""} ${s.nom || ""} confirmé, infos personnelles complétées depuis le Sheet.`
+        : `Onboarding de ${s.prenom || ""} ${s.nom || ""} confirmé (sa ligne n'a pas été retrouvée dans le Sheet, infos personnelles à compléter à la main si besoin).`);
+    } else montrerErreur(`La confirmation a échoué : ${r.erreur || "erreur inconnue"}`);
   }
   // Transfert vers un autre établissement (ex : salarié mal onboardé sur PABLO SAINT BARTH
   // au lieu de CREAM, ou vraie mutation interne) : garde l'historique intact sur l'ancien
