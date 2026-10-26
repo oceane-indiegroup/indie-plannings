@@ -1256,6 +1256,17 @@ Deno.serve(async (req: Request) => {
       // les deux clés valent "" et se traitent alors comme avant — au pire une fiche à
       // fusionner à la main, jamais un doublon silencieux).
       const CHAMPS_COMPLETABLES = ["date_debut", "date_fin", "date_fin_periode_essai", "heures_contrat", "heures_sup", "salaire_net", "type_contrat", "niveau", "echelon"];
+      // Tous les champs "perso" importables depuis le Sheet (civilité, adresse, sécu, IBAN...),
+      // en plus des champs de contrat ci-dessus — définis ICI (avant "existants" ci-dessous, qui
+      // en a besoin) pour pouvoir aussi compléter les infos perso et lever le badge "PAS
+      // ONBOARDING" d'une fiche provisoire déjà appariée par date de début/sheet_ligne, pas
+      // seulement celles retrouvées par ressemblance de nom (voir plus bas).
+      const TOUS_CHAMPS_IMPORTABLES = [
+        "civilite", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu",
+        "telephone", "email", "poste", "iban", "bic", "contact_urgence", "type_contrat", "niveau",
+        "echelon", "date_naissance", "date_debut", "date_fin", "date_fin_periode_essai",
+        "heures_contrat", "heures_sup", "salaire_net", "mutuelle",
+      ];
       const existants: Record<string, Record<string, unknown>> = {};
       // Fiches déjà rattachées à une ligne précise du Sheet (sheet_ligne) : correspondance
       // directe et fiable, prioritaire sur la clé par date de début ci-dessus — celle-ci casse
@@ -1263,9 +1274,18 @@ Deno.serve(async (req: Request) => {
       // sur Soumaila Ed Yamine : sa fiche Café de l'Ormeau, sans date, ne retrouvait jamais sa
       // ligne du Sheet alors que la date y était bien saisie).
       const existantsParLigne: Record<number, Record<string, unknown>> = {};
+      // "provisoire" + tous les champs importables (pas juste CHAMPS_COMPLETABLES) : une fiche
+      // déjà créée à l'avance par un directeur peut correspondre EXACTEMENT à sa ligne du Sheet
+      // (même date de début saisie des deux côtés, ou déjà rattachée via sheet_ligne lors d'un
+      // rattrapage précédent) sans jamais passer par la comparaison floue nom/prénom ci-dessous
+      // (réservée aux NOUVELLES correspondances) — dans ce cas le badge "PAS ONBOARDING" ne se
+      // levait JAMAIS (seuls les champs de CHAMPS_COMPLETABLES étaient complétés), même en
+      // relançant l'import indéfiniment : ni les infos perso (adresse, sécu, IBAN...) ni le
+      // passage provisoire -> confirmé n'avaient lieu (cas Fernando Saldarriaga : sa fiche
+      // provisoire matchait déjà par date de début, "Rien à importer" alors qu'il restait bloqué).
       {
         const filtreResto = restoDemande ? `&resto=eq.${encodeURIComponent(restoDemande)}` : "";
-        const champsExist = ["id", "resto", "salarie_id", "saison", "sheet_ligne", ...CHAMPS_COMPLETABLES].join(",");
+        const champsExist = ["id", "resto", "salarie_id", "saison", "sheet_ligne", "provisoire", ...CHAMPS_COMPLETABLES, ...TOUS_CHAMPS_IMPORTABLES].join(",");
         const existRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?select=${champsExist}${filtreResto}`, {
           headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
         });
@@ -1285,12 +1305,6 @@ Deno.serve(async (req: Request) => {
       // proches) : si elle correspond, on COMPLÈTE cette fiche au lieu d'en créer une nouvelle à
       // côté. Cette étape manquait à ce rattrapage en masse (contrairement à "formSubmit") —
       // c'est ce qui a créé les doublons Richelme/Roux lors du rattrapage post-incident.
-      const TOUS_CHAMPS_IMPORTABLES = [
-        "civilite", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu",
-        "telephone", "email", "poste", "iban", "bic", "contact_urgence", "type_contrat", "niveau",
-        "echelon", "date_naissance", "date_debut", "date_fin", "date_fin_periode_essai",
-        "heures_contrat", "heures_sup", "salaire_net", "mutuelle",
-      ];
       let provisoires: { id: number; resto: string; unite: string; nom: string; prenom: string; [c: string]: unknown }[] = [];
       {
         const filtreResto = restoDemande ? `&resto=eq.${encodeURIComponent(restoDemande)}` : "";
@@ -1316,6 +1330,21 @@ Deno.serve(async (req: Request) => {
             if (diff) patch[c] = vSheet;
           }
           if (!existant.sheet_ligne) patch.sheet_ligne = ligne.sheet_ligne; // rattache cette fiche à sa ligne pour les prochains rattrapages
+          // Cette ligne du Sheet correspond à une fiche encore provisoire (créée à l'avance par
+          // un directeur, pas par ressemblance de nom comme ci-dessous, mais par correspondance
+          // EXACTE sur resto+salarie_id+date_debut ou sheet_ligne) : elle vient bien de la vraie
+          // soumission du Form, donc on lève le badge "PAS ONBOARDING" ET on complète ses infos
+          // perso (adresse, sécu, IBAN...) encore vides — sans quoi la fiche restait bloquée
+          // indéfiniment, même en relançant cet import autant de fois que voulu (cas Fernando
+          // Saldarriaga, voir le commentaire plus haut sur "existantsParLigne").
+          if (existant.provisoire) {
+            patch.provisoire = false;
+            for (const c of TOUS_CHAMPS_IMPORTABLES) {
+              if (c in patch) continue;
+              const vSheet = (ligne as Record<string, unknown>)[c];
+              if (vSheet != null && existant[c] == null) patch[c] = vSheet;
+            }
+          }
           if (Object.keys(patch).length > 0) patchs.push({ id: existant.id, patch });
           continue;
         }
