@@ -4764,6 +4764,18 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
     if (ok) { setListe(liste.filter((x) => x.id !== s.id)); setSelection((sel) => { const n = new Set(sel); n.delete(s.id); return n; }); montrerFlash("Fiche supprimée."); }
     else montrerErreur("La suppression a échoué. Réessayez.");
   }
+  // Confirme à la main qu'une fiche "provisoire" a bien été réellement onboardée (badge "PAS
+  // ONBOARDING" retiré) — sans passer par "Importer depuis le Sheet", qui relit TOUT le Sheet
+  // d'un coup et peut créer des doublons ailleurs si une autre ligne s'y prête mal. Ici, un seul
+  // champ (provisoire) sur UNE SEULE fiche, rien d'autre ne bouge. Les infos personnelles de la
+  // vraie réponse au Form (adresse, sécu, IBAN...) restent à copier à la main dans la fiche
+  // complète si besoin — ce bouton ne fait que lever le badge.
+  async function confirmerOnboarding(s) {
+    if (!confirm(`Confirmer que ${s.prenom || ""} ${s.nom || ""} a bien réellement onboardé (vraie réponse au Form) ? Le badge "PAS ONBOARDING" sera retiré.`)) return;
+    const maj = await RhSalaries.maj(s.id, { provisoire: false });
+    if (maj) { setListe(liste.map((x) => (x.id === maj.id ? maj : x))); montrerFlash(`Onboarding de ${s.prenom || ""} ${s.nom || ""} confirmé.`); }
+    else montrerErreur("La confirmation a échoué. Réessayez.");
+  }
   // Transfert vers un autre établissement (ex : salarié mal onboardé sur PABLO SAINT BARTH
   // au lieu de CREAM, ou vraie mutation interne) : garde l'historique intact sur l'ancien
   // établissement (la fiche ici n'est jamais touchée — c'est à Océane d'y renseigner la date
@@ -5037,6 +5049,9 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
+                    {superviseur && s.provisoire && (
+                      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>confirmerOnboarding(s)} title="Confirmer que cette personne a réellement rempli le vrai Form">✓ Confirmer</button>
+                    )}
                     {superviseur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setChoixDocPour(s)} title="Documents à générer ou envoyer">📑 Documents</button>}
                     {superviseur && (restaurants || []).length > 1 && (
                       <select className="ig-cell" value="" onChange={(e)=>transferer(s, e.target.value)}
