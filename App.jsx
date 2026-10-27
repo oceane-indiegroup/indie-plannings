@@ -4777,21 +4777,25 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
     if (ok) { setListe(liste.filter((x) => x.id !== s.id)); setSelection((sel) => { const n = new Set(sel); n.delete(s.id); return n; }); montrerFlash("Fiche supprimée."); }
     else montrerErreur("La suppression a échoué. Réessayez.");
   }
-  // Confirme à la main qu'une fiche "provisoire" a bien été réellement onboardée (badge "PAS
-  // ONBOARDING" retiré) — sans passer par "Importer depuis le Sheet", qui relit TOUT le Sheet
-  // d'un coup et peut créer des doublons ailleurs si une autre ligne s'y prête mal. Ici, un seul
-  // champ (provisoire) sur UNE SEULE fiche, rien d'autre ne bouge. Les infos personnelles de la
-  // vraie réponse au Form (adresse, sécu, IBAN...) restent à copier à la main dans la fiche
-  // complète si besoin — ce bouton ne fait que lever le badge.
+  // Cherche la ligne du Sheet de CETTE fiche précise et recopie ses infos personnelles
+  // (adresse, sécu, IBAN, email...) dessus — sans passer par "Importer depuis le Sheet", qui
+  // relit TOUT le Sheet d'un coup et peut créer des doublons ailleurs si une autre ligne s'y
+  // prête mal. Marche aussi bien sur une fiche encore "provisoire" (lève alors le badge "PAS
+  // ONBOARDING" en plus) que sur une fiche déjà confirmée dont un champ serait resté vide (ex:
+  // Vito Riccardi — badge déjà levé via un rattrapage en masse, mais email jamais recopié,
+  // sans bouton "Confirmer" pour s'en sortir puisqu'il n'était plus provisoire).
   async function confirmerOnboarding(s) {
-    if (!confirm(`Confirmer que ${s.prenom || ""} ${s.nom || ""} a bien réellement onboardé (vraie réponse au Form) ? Le badge "PAS ONBOARDING" sera retiré, et ses infos personnelles seront complétées depuis sa ligne du Sheet si elle est retrouvée.`)) return;
+    const message = s.provisoire
+      ? `Confirmer que ${s.prenom || ""} ${s.nom || ""} a bien réellement onboardé (vraie réponse au Form) ? Le badge "PAS ONBOARDING" sera retiré, et ses infos personnelles seront complétées depuis sa ligne du Sheet si elle est retrouvée.`
+      : `Recopier les infos personnelles de ${s.prenom || ""} ${s.nom || ""} depuis sa ligne du Sheet (adresse, sécu, IBAN, email...) ?`;
+    if (!confirm(message)) return;
     const r = await RhSheetSync.confirmerFiche(s.id);
     if (r.ok) {
       setListe(liste.map((x) => (x.id === r.fiche.id ? r.fiche : x)));
       montrerFlash(r.trouve
-        ? `Onboarding de ${s.prenom || ""} ${s.nom || ""} confirmé, infos personnelles complétées depuis le Sheet.`
-        : `Onboarding de ${s.prenom || ""} ${s.nom || ""} confirmé (sa ligne n'a pas été retrouvée dans le Sheet, infos personnelles à compléter à la main si besoin).`);
-    } else montrerErreur(`La confirmation a échoué : ${r.erreur || "erreur inconnue"}`);
+        ? `Infos de ${s.prenom || ""} ${s.nom || ""} recopiées depuis le Sheet.`
+        : `Sa ligne n'a pas été retrouvée dans le Sheet — infos personnelles à compléter à la main si besoin.`);
+    } else montrerErreur(`La resynchronisation a échoué : ${r.erreur || "erreur inconnue"}`);
   }
   // Transfert vers un autre établissement (ex : salarié mal onboardé sur PABLO SAINT BARTH
   // au lieu de CREAM, ou vraie mutation interne) : garde l'historique intact sur l'ancien
@@ -5066,8 +5070,10 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
-                    {superviseur && s.provisoire && (
-                      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>confirmerOnboarding(s)} title="Confirmer que cette personne a réellement rempli le vrai Form">✓ Confirmer</button>
+                    {superviseur && (
+                      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>confirmerOnboarding(s)} title={s.provisoire ? "Confirmer que cette personne a réellement rempli le vrai Form" : "Recopier ses infos personnelles depuis le Sheet"}>
+                        {s.provisoire ? "✓ Confirmer" : "🔄 Resync Sheet"}
+                      </button>
                     )}
                     {superviseur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setChoixDocPour(s)} title="Documents à générer ou envoyer">📑 Documents</button>}
                     {superviseur && (restaurants || []).length > 1 && (
