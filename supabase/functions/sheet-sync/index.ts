@@ -1414,10 +1414,34 @@ Deno.serve(async (req: Request) => {
         }
         return null;
       }
-      const resto = valeurPour("resto");
-      const unite = valeurPour("unite");
-      const nom = valeurPour("nom");
-      const prenom = valeurPour("prenom");
+      let resto = valeurPour("resto");
+      let unite = valeurPour("unite");
+      let nom = valeurPour("nom");
+      let prenom = valeurPour("prenom");
+      // Filet de sécurité : si un de ces 4 champs obligatoires n'a pas été reconnu dans
+      // "namedValues" (le texte exact d'une question du Form tel que vu par ce webhook précis
+      // ne correspondant à aucun test de CHAMPS_SHEET — ex: formulation légèrement différente
+      // sur une branche du Form), on va relire directement la DERNIÈRE ligne du Sheet : Google
+      // Forms y a de toute façon déjà écrit la réponse, avec les mêmes en-têtes de colonnes que
+      // "colonneIndex" reconnaît déjà de façon fiable ailleurs (importerTout, upsertRow...).
+      // Observé sur l'onboarding de Vito Riccardi (26/10/2026, 16h06) : "champs_manquants" alors
+      // que sa ligne du Sheet avait bien établissement/unité/nom/prénom remplis.
+      if (!resto || !unite || !nom || !prenom) {
+        try {
+          const jeton = await jetonAcces();
+          const grille = await lireFeuille(jeton);
+          if (grille.length >= 2) {
+            const colIndex = colonneIndex(grille[0]);
+            const derniere = grille[grille.length - 1];
+            if (!resto && colIndex["resto"] !== undefined) resto = derniere[colIndex["resto"]] || null;
+            if (!unite && colIndex["unite"] !== undefined) unite = derniere[colIndex["unite"]] || null;
+            if (!nom && colIndex["nom"] !== undefined) nom = derniere[colIndex["nom"]] || null;
+            if (!prenom && colIndex["prenom"] !== undefined) prenom = derniere[colIndex["prenom"]] || null;
+          }
+        } catch (e) {
+          console.error("formSubmit filet_securite_echoue:", e);
+        }
+      }
       if (!resto || !unite || !nom || !prenom) return json({ error: "champs_manquants" }, 400);
 
       const uniteMaj = unite.trim().toUpperCase();
