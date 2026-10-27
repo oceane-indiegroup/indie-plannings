@@ -1255,10 +1255,9 @@ Deno.serve(async (req: Request) => {
       // saison, tout en distinguant bien deux contrats différents (même sans date exploitable,
       // les deux clés valent "" et se traitent alors comme avant — au pire une fiche à
       // fusionner à la main, jamais un doublon silencieux).
-      const CHAMPS_COMPLETABLES = ["date_debut", "date_fin", "date_fin_periode_essai", "heures_contrat", "heures_sup", "salaire_net", "type_contrat", "niveau", "echelon"];
-      // Tous les champs "perso" importables depuis le Sheet (civilité, adresse, sécu, IBAN...),
-      // en plus des champs de contrat ci-dessus — définis ICI (avant "existants" ci-dessous, qui
-      // en a besoin) pour pouvoir aussi compléter les infos perso et lever le badge "PAS
+      // Tous les champs importables depuis le Sheet (contrat ET infos perso : civilité,
+      // adresse, sécu, IBAN...) — définis ICI (avant "existants" ci-dessous, qui en a besoin)
+      // pour pouvoir compléter n'importe quel champ encore vide et lever le badge "PAS
       // ONBOARDING" d'une fiche provisoire déjà appariée par date de début/sheet_ligne, pas
       // seulement celles retrouvées par ressemblance de nom (voir plus bas).
       const TOUS_CHAMPS_IMPORTABLES = [
@@ -1274,18 +1273,16 @@ Deno.serve(async (req: Request) => {
       // sur Soumaila Ed Yamine : sa fiche Café de l'Ormeau, sans date, ne retrouvait jamais sa
       // ligne du Sheet alors que la date y était bien saisie).
       const existantsParLigne: Record<number, Record<string, unknown>> = {};
-      // "provisoire" + tous les champs importables (pas juste CHAMPS_COMPLETABLES) : une fiche
-      // déjà créée à l'avance par un directeur peut correspondre EXACTEMENT à sa ligne du Sheet
-      // (même date de début saisie des deux côtés, ou déjà rattachée via sheet_ligne lors d'un
-      // rattrapage précédent) sans jamais passer par la comparaison floue nom/prénom ci-dessous
-      // (réservée aux NOUVELLES correspondances) — dans ce cas le badge "PAS ONBOARDING" ne se
-      // levait JAMAIS (seuls les champs de CHAMPS_COMPLETABLES étaient complétés), même en
-      // relançant l'import indéfiniment : ni les infos perso (adresse, sécu, IBAN...) ni le
-      // passage provisoire -> confirmé n'avaient lieu (cas Fernando Saldarriaga : sa fiche
-      // provisoire matchait déjà par date de début, "Rien à importer" alors qu'il restait bloqué).
+      // "provisoire" + tous les champs importables : une fiche déjà créée à l'avance par un
+      // directeur peut correspondre EXACTEMENT à sa ligne du Sheet (même date de début saisie
+      // des deux côtés, ou déjà rattachée via sheet_ligne lors d'un rattrapage précédent) sans
+      // jamais passer par la comparaison floue nom/prénom ci-dessous (réservée aux NOUVELLES
+      // correspondances) — dans ce cas le badge "PAS ONBOARDING" ne se levait JAMAIS, même en
+      // relançant l'import indéfiniment (cas Fernando Saldarriaga : sa fiche provisoire matchait
+      // déjà par date de début, "Rien à importer" alors qu'il restait bloqué).
       {
         const filtreResto = restoDemande ? `&resto=eq.${encodeURIComponent(restoDemande)}` : "";
-        const champsExist = ["id", "resto", "salarie_id", "saison", "sheet_ligne", "provisoire", ...CHAMPS_COMPLETABLES, ...TOUS_CHAMPS_IMPORTABLES].join(",");
+        const champsExist = ["id", "resto", "salarie_id", "saison", "sheet_ligne", "provisoire", ...TOUS_CHAMPS_IMPORTABLES].join(",");
         const existRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?select=${champsExist}${filtreResto}`, {
           headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
         });
@@ -1323,7 +1320,14 @@ Deno.serve(async (req: Request) => {
         const existant = existantsParLigne[ligne.sheet_ligne as number] || existants[cleF];
         if (existant) {
           const patch: Record<string, unknown> = {};
-          for (const c of CHAMPS_COMPLETABLES) {
+          // Complète TOUS les champs importables (contrat ET infos perso : email, adresse,
+          // sécu, IBAN...) sur TOUTE fiche déjà appariée à sa ligne du Sheet — provisoire ou
+          // déjà confirmée. Limiter ça aux seules fiches encore provisoires (version
+          // précédente) laissait une fiche déjà confirmée avec des champs restés vides pour
+          // toujours, sans qu'aucun rattrapage ultérieur ne vienne jamais les compléter (cas
+          // Vito Riccardi : badge levé, mais email jamais rempli depuis — rien ne le
+          // recomplétait une fois "provisoire" passé à false).
+          for (const c of TOUS_CHAMPS_IMPORTABLES) {
             const vSheet = (ligne as Record<string, unknown>)[c];
             if (vSheet == null) continue; // case vide du Sheet : n'efface jamais une valeur déjà en base
             const diff = ecraser ? vSheet !== existant[c] : existant[c] == null;
@@ -1333,18 +1337,9 @@ Deno.serve(async (req: Request) => {
           // Cette ligne du Sheet correspond à une fiche encore provisoire (créée à l'avance par
           // un directeur, pas par ressemblance de nom comme ci-dessous, mais par correspondance
           // EXACTE sur resto+salarie_id+date_debut ou sheet_ligne) : elle vient bien de la vraie
-          // soumission du Form, donc on lève le badge "PAS ONBOARDING" ET on complète ses infos
-          // perso (adresse, sécu, IBAN...) encore vides — sans quoi la fiche restait bloquée
-          // indéfiniment, même en relançant cet import autant de fois que voulu (cas Fernando
+          // soumission du Form, donc on lève le badge "PAS ONBOARDING" (cas Fernando
           // Saldarriaga, voir le commentaire plus haut sur "existantsParLigne").
-          if (existant.provisoire) {
-            patch.provisoire = false;
-            for (const c of TOUS_CHAMPS_IMPORTABLES) {
-              if (c in patch) continue;
-              const vSheet = (ligne as Record<string, unknown>)[c];
-              if (vSheet != null && existant[c] == null) patch[c] = vSheet;
-            }
-          }
+          if (existant.provisoire) patch.provisoire = false;
           if (Object.keys(patch).length > 0) patchs.push({ id: existant.id, patch });
           continue;
         }
