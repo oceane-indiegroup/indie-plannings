@@ -1118,7 +1118,7 @@ Deno.serve(async (req: Request) => {
           trouve = true;
           const nv: Record<string, string> = {};
           entetes.forEach((h, j) => { nv[h] = grille[meilleureLigne][j] ?? ""; });
-          ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "iban", "bic", "contact_urgence"].forEach((cle) => {
+          ["civilite", "date_naissance", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence"].forEach((cle) => {
             const v = valeurPourLigne(nv, cle);
             if (v !== null) patch[cle] = cle === "date_naissance" ? versDateISO(v) : v;
           });
