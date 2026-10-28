@@ -9,7 +9,7 @@ Les cases marquées **(Océane)** sont des actions à faire par Océane elle-mê
 
 1. [ ] 🧹 Réparer les ~80 fiches dont l'email/poste a été mélangé avec celui d'une autre personne — *Qualité des données*
 2. [ ] 🔄 Ralentir le déclencheur Apps Script `synchroniserOnboardingDepuisSheet` (~1 min → 30-60 min) **(Océane)** — *Synchro Sheets*
-3. [ ] 🔧 Redéployer `sheet-sync` dans Supabase pour activer le bouton « Vérifier les lignes Sheet mélangées » **(Océane)** — *Technique & infra*
+3. [ ] 🔧 Redéployer `sheet-sync` dans Supabase **(Océane)** — *Technique & infra*. Vérifié le 28/10 : la version en ligne date de 15h17 (UTC), AVANT deux corrections importantes : l'import en masse à correspondance exacte (sans elle, l'import en ligne rapproche encore les noms « à peu près ») et le bouton « Vérifier les lignes Sheet mélangées ».
 
 ## ⛔ Points bloquants
 
@@ -25,8 +25,10 @@ Les cases marquées **(Océane)** sont des actions à faire par Océane elle-mê
 
 ## 🔧 Technique & infra
 - [ ] Redéployer `sheet-sync` (voir priorité 3) **(Océane)**
-- [ ] Vérifier que le SQL de la contrainte unique `rh_salaries (resto, salarie_id, saison, date_debut)` est bien en place (il a été exécuté le 28/10)
-- [ ] Faire le ménage : fichier `packagelock.json` en double de `package-lock.json`
+- [ ] Redéployer `rh-admin` **(Océane)** : la version en ligne date du 24/09 et n'a pas la correction du 02/10 (les fiches « provisoire » introuvables dans la recherche Extras/Primes, cas José Menis)
+- [ ] Sécurité Supabase (faible priorité) : activer « Leaked password protection » (Authentication → Policies) **(Océane)** ; fixer le `search_path` des 6 fonctions `*_touch` (SQL à fournir)
+- [x] Contrainte unique `rh_salaries (resto, salarie_id, saison, date_debut)` bien en place dans la base (vérifié le 28/10, c'est la seule contrainte unique de la table)
+- [x] Ménage : suppression de `packagelock.json`, vieille copie incomplète de `package-lock.json` (28/10)
 - [ ] Étudier un découpage progressif d'`App.jsx` (6 600 lignes) pour réduire les risques — à arbitrer en Pilotage
 
 ## 🔄 Synchro Google Sheets & Forms
