@@ -20,14 +20,14 @@ Les cases marquées **(Océane)** sont des actions à faire par Océane elle-mê
 
 ## 🧭 Pilotage général
 - [ ] Créer les 9 conversations et les ranger dans le dossier « Indie App » **(Océane)**
-- [ ] Ajouter les liens des conversations dans `CLAUDE.md` (carte des conversations)
+- [ ] Ajouter les liens des conversations dans `CLAUDE.md` (carte des conversations) — 🔧 Technique ajouté le 28/10, les autres restent à faire
 - [ ] Valider le principe de l'écran « Mes tâches » (voir proposition plus bas)
 
 ## 🔧 Technique & infra
 - [ ] Redéployer `sheet-sync` (voir priorité 3) **(Océane)**
 - [ ] Redéployer `rh-admin` **(Océane)** : la version en ligne date du 24/09 et n'a pas la correction du 02/10 (les fiches « provisoire » introuvables dans la recherche Extras/Primes, cas José Menis)
 - [ ] Sécurité Supabase (faible priorité) : activer « Leaked password protection » (Authentication → Policies) **(Océane)** ; fixer le `search_path` des 6 fonctions `*_touch` (SQL à fournir)
-- [x] Contrainte unique `rh_salaries (resto, salarie_id, saison, date_debut)` bien en place dans la base (vérifié le 28/10, c'est la seule contrainte unique de la table)
+- [x] Contrainte unique `rh_salaries (resto, salarie_id, saison, date_debut)` bien en place dans la base (vérifié deux fois le 28/10 via le connecteur Supabase : c'est la seule contrainte unique de la table, en plus de l'identifiant)
 - [x] Ménage : suppression de `packagelock.json`, vieille copie incomplète de `package-lock.json` (28/10)
 - [ ] Étudier un découpage progressif d'`App.jsx` (6 600 lignes) pour réduire les risques — à arbitrer en Pilotage
 

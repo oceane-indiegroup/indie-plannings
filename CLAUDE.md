@@ -23,7 +23,8 @@ quoi copier-coller). Pas de jargon sans explication.
 | 👤 | Espace salarié | « Qui suis-je ? », vue salarié, Notes de frais, Arrivées Saint-Barth. |
 | 🎨 | Design & ergonomie | Aspect visuel, lisibilité mobile, confort d'usage des écrans. |
 
-Liens vers les conversations : à compléter ici par Océane une fois créées.
+Liens vers les conversations (à compléter au fur et à mesure) :
+- 🔧 Technique & infra : https://claude.ai/code/session_01TLkGdvAijSnaqzMfT1o3Qx
 
 ## Règle d'AIGUILLAGE
 
