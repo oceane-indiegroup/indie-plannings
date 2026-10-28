@@ -4109,6 +4109,7 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
   const [vide, setVide] = useState(false);
   const [ajoutesResto, setAjoutesResto] = useState([]); // salariés ajoutés actifs du resto choisi
   const [exclusResto, setExclusResto] = useState(new Set()); // ids supprimés / fin de contrat passée
+  const [rhResto, setRhResto] = useState([]); // salariés onboardés via le Registre RH du resto choisi
 
   // Charge les salariés ajoutés du restaurant choisi (hors contrats terminés)
   // et la liste des exclusions (supprimés ou fin de contrat dépassée).
@@ -4133,6 +4134,26 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
     return () => { on = false; };
   }, [resto]);
 
+  // Charge aussi les salariés du Registre RH de ce resto (onboardés via le vrai système RH,
+  // pas forcément ajoutés à la main dans le Planning) : sans ça, "Qui suis-je ?" ne cherchait
+  // QUE dans EMPLOYEES (liste statique figée) + les ajouts manuels du Planning, et un salarié
+  // onboardé uniquement via le Registre RH (le cas normal aujourd'hui) ne se retrouvait jamais
+  // (cas Vincent Urtis : bien présent dans le Registre et le Planning, introuvable ici).
+  useEffect(() => {
+    if (!resto) { setRhResto([]); return; }
+    let on = true;
+    const aujourdHui = dateISOLocale(new Date());
+    RhSalaries.list(resto).then((lignes) => {
+      if (!on) return;
+      setRhResto(
+        lignes
+          .filter((l) => !l.provisoire && (!l.date_fin || l.date_fin >= aujourdHui))
+          .map((l) => ({ n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—" }))
+      );
+    });
+    return () => { on = false; };
+  }, [resto]);
+
   function valider() {
     setVide(false);
     setSuggestions(null);
@@ -4144,11 +4165,12 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
       setVide(true);
       return;
     }
-    const e = trouverSalarie(prenom, nom, resto, ajoutesResto, exclusResto);
+    const pool = ajoutesResto.concat(rhResto);
+    const e = trouverSalarie(prenom, nom, resto, pool, exclusResto);
     if (e) {
       onFound(e);
     } else {
-      setSuggestions(suggererSalaries(prenom, nom, resto, ajoutesResto, exclusResto));
+      setSuggestions(suggererSalaries(prenom, nom, resto, pool, exclusResto));
     }
   }
   function onKey(ev) { if (ev.key === "Enter") valider(); }
