@@ -4376,6 +4376,10 @@ const RH_CHAMPS_BASE = [
   { cle: "date_prolongation_fin", label: "Date de prolongation de fin de contrat", type: "date" },
   { cle: "loge", label: "Logement" },
   { cle: "vehicule", label: "Véhicule" },
+  // Ajouté en fin de liste (jamais inséré au milieu) : les colonnes du tableau ci-dessous sont
+  // affichées par INDEX (RH_CHAMPS_BASE[0], [1]...), pas par clé — insérer ce champ ailleurs
+  // décalerait tous les index suivants et casserait l'affichage des colonnes existantes.
+  { cle: "date_fin_periode_essai", label: "Date de fin de période d'essai", type: "date" },
 ];
 const RH_CHAMPS_SENSIBLES = [
   { cle: "staff_party", label: "Staff Party", type: "bool" },
@@ -4541,7 +4545,7 @@ function DocumentRHModal({ doc, salarie, resto, etabJ, onClose, montrerFlash, mo
 }
 
 // ---------- Filtre par colonne façon tableur (menu déroulant : tri + case à cocher par valeur) ----------
-const RH_DATE_CHAMPS = new Set(["date_debut", "date_fin", "date_prolongation_fin"]);
+const RH_DATE_CHAMPS = new Set(["date_debut", "date_fin", "date_prolongation_fin", "date_fin_periode_essai"]);
 function rhValeurBrute(s, cle) {
   if (cle === "staff_party") return s.staff_party ? "Oui" : "Non";
   const v = s[cle];
@@ -5108,6 +5112,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                 {entete(RH_CHAMPS_BASE[10], 90)}
                 {entete(RH_CHAMPS_BASE[9], 125)}
                 {entete(RH_CHAMPS_BASE[11], 70)}
+                {entete(RH_CHAMPS_BASE[12], 150)}
                 <th style={{padding:'14px 10px',textAlign:'center',minWidth:100,fontSize:14,fontWeight:800,textTransform:'uppercase',letterSpacing:'.4px'}}>Couleur</th>
               </tr>
             </thead>
@@ -5134,6 +5139,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.loge || ""} style={{width:90,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:125,textAlign:'center'}} onChange={(e)=>sauverCellule(s.id,'date_prolongation_fin', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:70,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_fin_periode_essai || ""} style={{width:150,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>sauverCellule(s.id,'date_fin_periode_essai', e.target.value || null)} /></td>
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
