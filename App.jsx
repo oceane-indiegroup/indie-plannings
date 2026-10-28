@@ -112,6 +112,18 @@ function cleSemaine(d) {
 function idSalarie(e) {
   return (e.n + "_" + e.p).replace(/\s+/g, "_");
 }
+// Nettoie un nom ou un prénom AVANT tout enregistrement. L'identifiant d'un salarié est
+// construit à partir du nom et du prénom bruts (voir idSalarie juste au-dessus) : c'est lui
+// qui relie une personne à son planning, à ses pointages et à ses extras. Un espace en trop
+// au bout du nom, un double espace au milieu ou une minuscule suffisent donc à créer un
+// SECOND salarié invisible, dont le planning déjà saisi se détache (cas « Ed Yamine » et
+// « Manon » du 28/10/2026). Tout ce qui entre doit passer par ici.
+function nettoyerNom(v) {
+  return (v || "").toString().replace(/[,;]/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+}
+function nettoyerPrenom(v) {
+  return (v || "").toString().replace(/[,;]/g, " ").replace(/\s+/g, " ").trim();
+}
 // Normalise un texte pour comparaison tolérante : minuscules, sans accents, sans espaces superflus.
 function normTxt(s) {
   return (s || "")
@@ -4797,18 +4809,21 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   }
 
   async function creer(patch) {
-    const nomMaj = (patch.nom || "").toUpperCase();
-    const salarieId = idSalarie({ n: nomMaj, p: patch.prenom });
+    const nomMaj = nettoyerNom(patch.nom);
+    const prenomPropre = nettoyerPrenom(patch.prenom);
+    const salarieId = idSalarie({ n: nomMaj, p: prenomPropre });
     // provisoire=true : cette fiche est créée à l'avance par le directeur/chef (salaire,
     // dates, tél déjà connus). Quand la personne remplira le vrai Google Form, l'app la
     // reconnaîtra (nom approchant + même établissement) et complétera cette même fiche —
     // au lieu d'en créer une nouvelle — en corrigeant nom/prénom avec ceux du Form.
-    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, saison: saisonActive, provisoire: true, ...patch, nom: nomMaj });
+    const cree = await RhSalaries.creer({ resto, unite, salarie_id: salarieId, saison: saisonActive, provisoire: true, ...patch, nom: nomMaj, prenom: prenomPropre });
     if (cree) { setListe([...(liste || []), cree]); setAjout(false); montrerFlash("Salarié ajouté (marqué « à confirmer » jusqu'à son onboarding réel)."); }
     else montrerErreur("Impossible d'ajouter ce salarié (peut-être une fiche existe déjà pour ce nom). Vérifiez et réessayez.");
   }
   async function modifier(patch) {
-    const majPatch = patch.nom != null ? { ...patch, nom: patch.nom.toUpperCase() } : patch;
+    const majPatch = { ...patch };
+    if (majPatch.nom != null) majPatch.nom = nettoyerNom(majPatch.nom);
+    if (majPatch.prenom != null) majPatch.prenom = nettoyerPrenom(majPatch.prenom);
     const maj = await RhSalaries.maj(edition.id, majPatch, (erreurSync) => {
       montrerErreur(`Fiche enregistrée dans l'appli, mais la copie vers le Google Sheet a échoué (${erreurSync || "erreur inconnue"}). Le Sheet n'est pas à jour pour cette fiche — réessayez une petite modification, ou corrigez directement la ligne dans le Sheet.`);
     });
@@ -4913,7 +4928,8 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
     setListe(liste.map((s) => (s.id === id ? { ...s, [cle]: valeur } : s)));
   }
   async function sauverCellule(id, cle, valeur) {
-    if (cle === 'nom' && typeof valeur === 'string') valeur = valeur.toUpperCase();
+    if (cle === 'nom' && typeof valeur === 'string') valeur = nettoyerNom(valeur);
+    if (cle === 'prenom' && typeof valeur === 'string') valeur = nettoyerPrenom(valeur);
     majCellule(id, cle, valeur);
     const maj = await RhSalaries.maj(id, { [cle]: valeur }, (erreurSync) => {
       montrerErreur(`Case enregistrée dans l'appli, mais la copie vers le Google Sheet a échoué (${erreurSync || "erreur inconnue"}). Le Sheet n'est pas à jour pour cette case — réessayez, ou corrigez directement dans le Sheet.`);

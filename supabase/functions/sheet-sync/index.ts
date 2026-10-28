@@ -84,6 +84,20 @@ function decodeJwt(token: string): { sub?: string; email?: string } | null {
   }
 }
 
+// Nettoyage du nom/prénom AVANT enregistrement en base. Côté appli, l'identité d'un salarié
+// dans le planning et les pointages est construite à partir de ces deux champs : un espace en
+// trop, un double espace ou une virgule y créent un second salarié fantôme, dont le planning
+// déjà saisi se détache. Les réponses du Form arrivent régulièrement avec ces scories.
+// Volontairement appliqué au nom/prénom ENREGISTRÉS seulement, jamais à "salarie_id", qui
+// garde sa forme d'origine : c'est la clé de rapprochement avec le Sheet, la changer
+// recréerait des doublons à chaque import.
+function nettoyerNomBase(s: string): string {
+  return (s || "").toString().replace(/[,;]/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+}
+function nettoyerPrenomBase(s: string): string {
+  return (s || "").toString().replace(/[,;]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function normaliser(s: string): string {
   return (s || "")
     .toString()
@@ -1348,7 +1362,7 @@ Deno.serve(async (req: Request) => {
         // dès ce rattrapage pour que les PROCHAINS rattrapages puissent la retrouver de façon
         // fiable, sans dépendre de la date de début — invérifiable tant qu'elle est justement
         // vide (voir plus bas, "existantsParLigne").
-        const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom, sheet_ligne: i + 1 };
+        const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nettoyerNomBase(nom), prenom: nettoyerPrenomBase(prenom), sheet_ligne: i + 1 };
         ["civilite", "lieu_naissance", "nationalite", "adresse", "code_postal", "ville", "secu", "telephone", "email", "poste", "iban", "bic", "contact_urgence", "type_contrat", "niveau", "echelon"].forEach((cle) => {
           const v = valeurPourLigne(nv, cle);
           ligne[cle] = v || null;
@@ -1506,7 +1520,7 @@ Deno.serve(async (req: Request) => {
         // N'agit que si un seul candidat est nettement le meilleur (même règle que "formSubmit").
         if (scores.length === 1 || (scores.length > 1 && scores[0].score < scores[1].score)) {
           const cible = scores[0].p;
-          const patch: Record<string, unknown> = { nom: ligne.nom, prenom: ligne.prenom, provisoire: false, sheet_ligne: ligne.sheet_ligne };
+          const patch: Record<string, unknown> = { nom: nettoyerNomBase(ligne.nom as string), prenom: nettoyerPrenomBase(ligne.prenom as string), provisoire: false, sheet_ligne: ligne.sheet_ligne };
           for (const c of TOUS_CHAMPS_IMPORTABLES) {
             if (cible[c] == null && (ligne as Record<string, unknown>)[c] != null) patch[c] = (ligne as Record<string, unknown>)[c];
           }
@@ -1625,7 +1639,7 @@ Deno.serve(async (req: Request) => {
       }
 
       if (correspondance) {
-        const patch = { ...champsFormulaire, nom: nom.toUpperCase(), prenom, provisoire: false };
+        const patch = { ...champsFormulaire, nom: nettoyerNomBase(nom), prenom: nettoyerPrenomBase(prenom), provisoire: false };
         const majRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${correspondance.id}`, {
           method: "PATCH",
           headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
@@ -1661,7 +1675,7 @@ Deno.serve(async (req: Request) => {
       // Aucune fiche provisoire correspondante : nouvelle fiche, comme avant.
       // salarie_id garde la casse d'origine (identité stable pour les fiches déjà
       // importées) ; seul le nom affiché/enregistré est mis en majuscules.
-      const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nom.toUpperCase(), prenom, ...champsFormulaire };
+      const ligne: Record<string, unknown> = { resto, unite: uniteMaj, salarie_id: `${nom}_${prenom}`.replace(/\s+/g, "_"), nom: nettoyerNomBase(nom), prenom: nettoyerPrenomBase(prenom), ...champsFormulaire };
 
       const insRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?on_conflict=resto,salarie_id,saison,date_debut`, {
         method: "POST",
