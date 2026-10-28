@@ -1098,6 +1098,61 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, doublons });
     }
 
+    // ---- Repère, tous établissements confondus, toute fiche dont "sheet_ligne" (le numéro
+    // de ligne du Sheet sur laquelle elle écrit directement, sans recherche, à chaque
+    // modification) pointe en réalité sur la ligne d'une AUTRE personne — signature exacte du
+    // bug qui a mal associé poste/email entre certaines fiches (Bourseaud/Le Porze...) : une
+    // fiche se met à écrire silencieusement sur la ligne de quelqu'un d'autre sans que rien ne
+    // le signale, jusqu'à ce que les deux Sheet et fiches se mélangent au fil des sauvegardes.
+    // Compare nom+prénom (normalisés) de la fiche à ceux réellement écrits sur sa "sheet_ligne" :
+    // si ça ne correspond pas, c'est que cette ligne appartient à quelqu'un d'autre. Ne corrige
+    // rien automatiquement — seule une vraie personne peut vérifier/réparer les champs déjà
+    // mélangés ; l'action se contente de lister tous les cas d'un coup (pas un par un).
+    // Réservé au superviseur.
+    if (action === "sheetLigneIncoherents") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+      const jeton = await jetonAcces();
+      const grille = await lireFeuille(jeton);
+      if (grille.length < 2) return json({ ok: true, incoherents: [] });
+      const entetes = grille[0];
+      const colIndex = colonneIndex(entetes);
+      const colNom = colIndex["nom"];
+      const colPrenom = colIndex["prenom"];
+      if (colNom === undefined || colPrenom === undefined) return json({ error: "colonnes_nom_prenom_introuvables" }, 500);
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?sheet_ligne=not.is.null&select=id,resto,nom,prenom,email,poste,saison,sheet_ligne`, {
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+      });
+      if (!res.ok) return json({ error: "lecture_echouee", detail: await res.text() }, 500);
+      const fiches: { id: number; resto: string; nom: string; prenom: string; email: string | null; poste: string | null; saison: string; sheet_ligne: number }[] = await res.json();
+
+      const incoherents = [];
+      for (const f of fiches) {
+        const i = f.sheet_ligne - 1; // sheet_ligne est 1-indexé (voir "importerTout"/"formSubmit")
+        const ligneSheet = grille[i];
+        if (!ligneSheet) {
+          // La ligne n'existe même plus dans le Sheet (supprimée/décalée) : signalé à part,
+          // pas comme une simple incohérence de nom.
+          incoherents.push({ id: f.id, resto: f.resto, nom: f.nom, prenom: f.prenom, email: f.email, poste: f.poste, saison: f.saison, sheet_ligne: f.sheet_ligne, probleme: "ligne_introuvable" });
+          continue;
+        }
+        const nomSheet = normaliser(ligneSheet[colNom] || "");
+        const prenomSheet = normaliser(ligneSheet[colPrenom] || "");
+        if (nomSheet !== normaliser(f.nom) || prenomSheet !== normaliser(f.prenom)) {
+          incoherents.push({
+            id: f.id, resto: f.resto, nom: f.nom, prenom: f.prenom, email: f.email, poste: f.poste, saison: f.saison, sheet_ligne: f.sheet_ligne,
+            probleme: "mauvaise_ligne",
+            nomSheetReel: ligneSheet[colNom] || "", prenomSheetReel: ligneSheet[colPrenom] || "",
+          });
+        }
+      }
+
+      return json({ ok: true, incoherents });
+    }
+
     // ---- Liste minimale (nom/prénom/poste/email) des salariés actifs d'un établissement, à
     // l'usage de l'écran public "Qui suis-je ?" (avant connexion, aucune session). La table
     // rh_salaries est protégée par RLS (lecture réservée aux comptes manager/superviseur

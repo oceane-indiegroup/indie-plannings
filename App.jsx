@@ -559,6 +559,19 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Repère, tous établissements confondus, toute fiche dont la "sheet_ligne" mémorisée pointe
+  // en réalité sur la ligne d'une AUTRE personne dans le Sheet — la signature exacte du bug
+  // qui a mal associé poste/email entre certaines fiches. Réservé au superviseur.
+  async sheetLigneIncoherents() {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "sheetLigneIncoherents" } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
   // Rattrapage en un clic pour le Sheet "onboarding" : force le NOM en majuscule et applique
   // le centrage + la police 14 sur TOUTES les lignes du Sheet qui en ont besoin — utile pour
   // les lignes anciennes, jamais mises en forme (avant la mise en place de "formaterDerniereLigne",
@@ -6256,6 +6269,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   const [formatFraisMsg, setFormatFraisMsg] = useState("");
   const [doublonsBusy, setDoublonsBusy] = useState(false);
   const [doublonsEmail, setDoublonsEmail] = useState(null); // null = pas encore cherché
+  const [lignesBusy, setLignesBusy] = useState(false);
+  const [lignesIncoherentes, setLignesIncoherentes] = useState(null); // null = pas encore cherché
   const [refreshKey, setRefreshKey] = useState(0);
   const [compteursRH, setCompteursRH] = useState({}); // effectif réel par établissement (rh_salaries)
   // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
@@ -6338,6 +6353,18 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     setDoublonsEmail({ liste: r.doublons || [] });
   }
 
+  // Détection en un clic des fiches dont "sheet_ligne" pointe sur la ligne d'une autre
+  // personne — la cause racine du mélange poste/email, repérée d'un coup plutôt qu'en
+  // comparant chaque salarié un par un dans l'historique du Sheet.
+  async function verifierLignesIncoherentes() {
+    if (lignesBusy) return;
+    setLignesBusy(true);
+    const r = await RhSheetSync.sheetLigneIncoherents();
+    setLignesBusy(false);
+    if (!r.ok) { setLignesIncoherentes({ erreur: r.erreur || "erreur inconnue" }); return; }
+    setLignesIncoherentes({ liste: r.incoherents || [] });
+  }
+
   if (estSuperviseur && !restoActif) {
     return (
       <>
@@ -6349,6 +6376,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheet} disabled={formatBusy}>{formatBusy ? "Correction…" : "↻ Corriger la mise en forme"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheetNotesFrais} disabled={formatFraisBusy}>{formatFraisBusy ? "Correction…" : "↻ Corriger le Sheet Notes de frais"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={verifierDoublonsEmail} disabled={doublonsBusy}>{doublonsBusy ? "Vérification…" : "🔍 Vérifier les emails en double"}</button>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={verifierLignesIncoherentes} disabled={lignesBusy}>{lignesBusy ? "Vérification…" : "🔍 Vérifier les lignes Sheet mélangées"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
         </div>
         <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} />
@@ -6377,6 +6405,32 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
                 </>
               )}
               <button className="ig-btn ig-btn-ghost" style={{marginTop:14}} onClick={()=>setDoublonsEmail(null)}>Fermer</button>
+            </div>
+          </div>
+        )}
+        {lignesIncoherentes && (
+          <div className="ig-overlay" onClick={()=>setLignesIncoherentes(null)}>
+            <div className="ig-modal" style={{maxWidth:720}} onClick={(e)=>e.stopPropagation()}>
+              <h3 style={{marginTop:0}}>Lignes Sheet mélangées</h3>
+              {lignesIncoherentes.erreur && <div style={{color:'var(--coral-d)',fontWeight:600}}>Échec : {lignesIncoherentes.erreur}</div>}
+              {lignesIncoherentes.liste && lignesIncoherentes.liste.length === 0 && (
+                <div className="ig-muted">Aucune fiche ne pointe sur la ligne d'une autre personne dans le Sheet. Rien à corriger de ce côté.</div>
+              )}
+              {lignesIncoherentes.liste && lignesIncoherentes.liste.length > 0 && (
+                <>
+                  <p className="ig-muted" style={{marginTop:0}}>{lignesIncoherentes.liste.length} fiche{lignesIncoherentes.liste.length>1?'s':''} dont la ligne mémorisée dans le Sheet appartient en réalité à quelqu'un d'autre — c'est ce qui a fait atterrir le mauvais email/poste sur ces fiches. À corriger à la main (rouvrez chaque fiche, vérifiez/corrigez l'email et le poste) :</p>
+                  <div style={{maxHeight:420,overflowY:'auto',display:'flex',flexDirection:'column',gap:12}}>
+                    {lignesIncoherentes.liste.map((l, i) => (
+                      <div key={i} style={{border:'1px solid var(--sand-2)',borderRadius:10,padding:'10px 12px'}}>
+                        <div style={{fontWeight:700,marginBottom:4}}>{l.prenom} {l.nom} — {l.resto} (saison {l.saison})</div>
+                        <div className="ig-muted" style={{fontSize:13}}>Email actuel : {l.email || "—"} · Poste actuel : {l.poste || "—"}</div>
+                        <div className="ig-muted" style={{fontSize:13}}>Ligne Sheet n°{l.sheet_ligne} : {l.probleme === "ligne_introuvable" ? "introuvable dans le Sheet" : `appartient en réalité à ${l.prenomSheetReel} ${l.nomSheetReel}`}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              <button className="ig-btn ig-btn-ghost" style={{marginTop:14}} onClick={()=>setLignesIncoherentes(null)}>Fermer</button>
             </div>
           </div>
         )}
