@@ -13,6 +13,8 @@ Les cases marquées **(Océane)** sont des actions à faire par Océane elle-mê
 
 ## ⛔ Points bloquants
 
+- 🔥 (constaté le 28/10 à 17h45) Le déclencheur Apps Script tourne toutes les 5 min et RECRÉE à chaque passage une fiche « MOLANO RIOS Leslie tatiana » (28 copies). Cause technique : `sheet-sync` ne lit que les 1 000 premières fiches de la base (plafond Supabase) alors qu'il y en a ~1 200 → les fiches au-delà sont « invisibles » pour l'import et pour les outils de diagnostic (qui sous-comptent : 76 emails en double affichés, 90 en réalité). Correction à faire dans `sheet-sync` (🔧).
+
 - Tant que le déclencheur (priorité 2) tourne chaque minute, les fiches en double supprimées dans l'appli réapparaissent → bloque le nettoyage (priorité 1).
 
 ---
@@ -24,6 +26,8 @@ Les cases marquées **(Océane)** sont des actions à faire par Océane elle-mê
 
 ## 🔧 Technique & infra
 - [x] Redéployer `sheet-sync` (voir priorité 3) **(Océane)** — 28/10
+- [ ] 🔥 `sheet-sync` : lire TOUTES les fiches (par paquets de 1 000) dans l'import en masse, « emails en double » et « lignes Sheet mélangées » — puis redéployer **(Océane)**
+- [ ] Vérifier `App.jsx` : mêmes lectures plafonnées à 1 000 lignes possibles (listes RH, archives…)
 - [ ] Redéployer `rh-admin` **(Océane)** : la version en ligne date du 24/09 et n'a pas la correction du 02/10 (les fiches « provisoire » introuvables dans la recherche Extras/Primes, cas José Menis)
 - [ ] Sécurité Supabase (faible priorité) : activer « Leaked password protection » (Authentication → Policies) **(Océane)** ; fixer le `search_path` des 6 fonctions `*_touch` (SQL à fournir)
 - [x] Contrainte unique `rh_salaries (resto, salarie_id, saison, date_debut)` bien en place dans la base (vérifié deux fois le 28/10 via le connecteur Supabase : c'est la seule contrainte unique de la table, en plus de l'identifiant)
@@ -38,6 +42,8 @@ Les cases marquées **(Océane)** sont des actions à faire par Océane elle-mê
 ## 🧹 Qualité des données
 - [ ] Lancer « 🔍 Vérifier les lignes Sheet mélangées » et traiter la liste
 - [ ] Lancer « 🔍 Vérifier les emails en double » et traiter la liste
+- [ ] Supprimer les copies en trop de « MOLANO RIOS Leslie tatiana » (après correction du plafond 1 000)
+- Info 🔧 (28/10) : les emails mélangés viennent de l'import en masse du 28/10 vers 15h46 (heure de Paris), ~630 fiches touchées en 2 min, avec l'ANCIENNE version (rapprochement approximatif). Pas de sauvegarde Supabase restaurable (offre gratuite). Source fiable : les réponses du Google Form lui-même (onglet Réponses du Form), le Sheet ayant pu être réécrit par l'appli.
 - [ ] Décider d'une méthode de réparation pour les fiches touchées (correction à la main, ou outil qui vide la mauvaise ligne + réimport propre)
 - [ ] Supprimer les fiches en double une fois le déclencheur ralenti
 - [x] Import en masse : rapprochement des noms exact uniquement (28/10)
