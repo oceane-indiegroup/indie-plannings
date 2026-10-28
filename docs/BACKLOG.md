@@ -53,7 +53,15 @@ Les cases marquées **(Océane)** sont des actions à faire par Océane elle-mê
 - [ ] Retirer le diagnostic temporaire « clé de stockage sous chaque salarié » s'il est encore affiché (ajouté le 30/09)
 
 ## 💶 Paie : extras, primes, repos hebdo
-- [ ] (rien en attente connu — à compléter par la conversation dédiée)
+Risques repérés au point de démarrage (28/10), du plus urgent au moins urgent :
+- [ ] Repos hebdo : cliquer deux fois sur « Exporter vers le Sheet Extra » ajoute deux fois les mêmes lignes (risque de double paiement) → retenir ce qui a déjà été exporté
+- [ ] Extras et Primes : supprimer dans l'appli ne retire pas la ligne du Sheet (la ligne peut quand même partir en paie) → au minimum, marquer la ligne « SUPPRIMÉ » dans le Sheet
+- [ ] Extras et Primes : le numéro de ligne Sheet mémorisé devient faux si on trie / supprime des lignes dans le Sheet → l'appli peut alors écrire sur la ligne de quelqu'un d'autre (même mécanisme que le mélange onboarding) → vérifier nom + date avant d'écrire
+- [ ] Extras : si la copie vers le Sheet échoue à la création, l'extra n'y arrive jamais (pas de nouvel essai, contrairement aux Primes)
+- [ ] Repos hebdo : la case « repos non pris » enregistre à chaque frappe → enregistrer à la sortie de la case
+- [ ] Extras : impossible de corriger un extra une fois « heures validées »
+- [ ] Mes tâches : faire remonter extras « à valider », mois sans repos hebdo exporté, échecs de copie vers les Sheets
+- [ ] À confirmer avec Océane : taux journalier repos hebdo = salaire net ÷ 30 ; repères de taux extras (15 € / 15 € / 18 €)
 
 ## 👤 Espace salarié
 - [ ] Tester « Qui suis-je ? » avec nom + prénom + email sur plusieurs salariés réels
