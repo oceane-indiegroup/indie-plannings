@@ -58,6 +58,13 @@ const SHEET_TAB_NOTES_FRAIS = (Deno.env.get("SHEET_TAB_NOTES_FRAIS") ?? "Form_Re
 const FORM_WEBHOOK_SECRET = (Deno.env.get("FORM_WEBHOOK_SECRET") ?? "").trim();
 const SUPABASE_URL = (Deno.env.get("SUPABASE_URL") ?? "").trim();
 const SERVICE_ROLE_KEY = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+// Clé publique de l'appli (la même que celle utilisée par le site, "anon"/"publishable").
+// Sert de jeton minimal sur "salariesActifs" : voir "appelAutorise" plus bas.
+// Plusieurs valeurs possibles, séparées par des virgules (l'ancienne clé "anon" et la
+// nouvelle clé "publishable" coexistent chez Supabase : accepter les deux évite de casser
+// l'écran « Qui suis-je ? » si le site bascule de l'une à l'autre).
+const APP_ANON_KEYS = (Deno.env.get("APP_ANON_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "")
+  .split(",").map((k) => k.trim()).filter(Boolean);
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -260,6 +267,21 @@ async function utilisateurAuthentifie(authHeader: string): Promise<{ id: string 
   if (!res.ok) return null;
   const data = await res.json();
   return data?.id ? { id: data.id } : null;
+}
+// Jeton d'appel minimal, exigé sur les actions ouvertes aux écrans publics de l'appli
+// ("salariesActifs", utilisé par « Qui suis-je ? » avant toute connexion). Accepte soit un
+// vrai compte connecté, soit la clé publique de l'appli (APP_ANON_KEY, la même que celle du
+// site). Un appel sans aucun jeton — un curl lancé par quelqu'un qui connaît juste l'adresse
+// de la fonction — est désormais refusé.
+// Limite assumée : cette clé publique est, par nature, présente dans le code du site, donc
+// quelqu'un qui le lit peut la réutiliser. Ce contrôle ferme l'accès au tout-venant, pas à
+// un curieux déterminé. La vraie fermeture (plus d'emails renvoyés en clair) relève de la
+// refonte de « Qui suis-je ? ».
+async function appelAutorise(authHeader: string): Promise<boolean> {
+  const brut = (authHeader || "").replace(/^Bearer\s+/i, "").trim();
+  if (!brut) return false;
+  if (APP_ANON_KEYS.includes(brut)) return true;
+  return (await utilisateurAuthentifie(authHeader)) !== null;
 }
 async function verifierSuperviseur(userId: string): Promise<boolean> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rh_acces?user_id=eq.${userId}&superviseur=is.true&select=id&limit=1`, {
@@ -1166,6 +1188,9 @@ Deno.serve(async (req: Request) => {
     // l'adresse/sécu/IBAN n'est jamais renvoyé ici. "actif" = pas provisoire et pas de date de
     // fin de contrat déjà dépassée.
     if (action === "salariesActifs") {
+      // Jeton exigé depuis le 28/10/2026 : l'action renvoyait nom, prénom, poste et email des
+      // salariés actifs à n'importe quel appel, sans aucune identification.
+      if (!(await appelAutorise(req.headers.get("Authorization") || ""))) return json({ error: "non_authentifie" }, 401);
       const { resto } = corps;
       if (!resto) return json({ error: "champs_manquants" }, 400);
       const aujourdhui = new Date().toISOString().slice(0, 10);
@@ -1690,17 +1715,20 @@ Deno.serve(async (req: Request) => {
       const { resto, nom, prenom, unite, champs, ligneCible: ligneFournie } = corps;
       if (!resto || !nom || !prenom || !champs) return json({ error: "champs_manquants" }, 400);
 
-      const enTete = req.headers.get("Authorization") || "";
-      const charge = decodeJwt(enTete.replace(/^Bearer\s+/i, ""));
-      if (charge?.sub) {
-        // Appel authentifié (directeur/superviseur) : vérifie son droit sur cet établissement,
-        // avec la même règle que les policies RLS de rh_salaries. "unite" vient toujours de la
-        // ligne réelle en base (pas de "champs", qui peut ne contenir qu'un seul champ modifié) :
-        // sinon un simple changement de date passerait sans aucune vérification de droit.
-        if (!unite || !(await autorise(charge.sub, resto, unite))) return json({ error: "acces_refuse" }, 403);
-      }
-      // Sans jeton "sub" (clé anonyme) : soumission publique d'onboarding, déjà acceptée
-      // au même titre que l'insertion en base (policy anon_onboarding_insert).
+      // Compte connecté EXIGÉ depuis le 28/10/2026. Avant, un appel sans jeton (ou avec un
+      // jeton non vérifié) passait : l'action acceptait d'écrire dans le Sheet onboarding sans
+      // la moindre identification. Le prétexte historique — "soumission publique d'onboarding"
+      // via la policy anon_onboarding_insert — n'existe plus : cette policy a été retirée de
+      // schema.sql, et l'appli n'appelle cette action qu'après une écriture en base déjà
+      // authentifiée (RhSalaries.creer / RhSalaries.maj). Le jeton est maintenant vérifié
+      // auprès de Supabase Auth (signature et expiration contrôlées), plus seulement décodé.
+      const appelantUpsert = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelantUpsert) return json({ error: "non_authentifie" }, 401);
+      // Vérifie son droit sur cet établissement, avec la même règle que les policies RLS de
+      // rh_salaries. "unite" vient toujours de la ligne réelle en base (pas de "champs", qui
+      // peut ne contenir qu'un seul champ modifié) : sinon un simple changement de date
+      // passerait sans aucune vérification de droit.
+      if (!unite || !(await autorise(appelantUpsert.id, resto, unite))) return json({ error: "acces_refuse" }, 403);
 
       const jeton = await jetonAcces();
       const grille = await lireFeuille(jeton);
