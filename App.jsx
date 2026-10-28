@@ -42,14 +42,11 @@ const EMPLOYEES = [{"n":"HASMI","p":"Yacine","r":"LA SAUVAGEONNE","po":"Chef de 
 const PAYFIT_IDS = {"BENECKO_Alin":["69ddf8f996c38711f2319d79",""],"BILLERY_Éléonore":["69b96dd04f1bd92493b0fb3f","00080"],"CHARLES_Alexis":["6a47e143b0bb95dbf583c557",""],"DUJARDIN_Maxime":["69ddfb467730d969e7caa064",""],"GARCIA_Florian":["69b96dcf6cd98826b8c07e70","00073"],"IBRAHIMA_Zidani":["6a15cbe6e1f96ebc1e9ffa8a",""],"LASCHUCK_Ahirton":["69cd1e33344268b7c10b7928",""],"LEAL_OSORIO_Jesus_Enrique":["69cd188940524c383bb031f8",""],"MALO_Julien":["6a01da5dceba57ae8e2df32c",""],"MANGER_MONTALS_Humberto":["69b96dd170200820c2e3e615","00075"],"MSAHAZI_Ousseine":["69c402f594c4c492a667ccef",""],"PERADEL_Nathan":["6a26f4f763522a6eb19701e3",""],"PESTY_Heloise":["69f4bcbe456f4d84484346aa",""],"POLO_Jean-Baptiste":["69ce24a3d066277d69faedca",""],"POLO_Jean_Baptiste":["69ce24a3d066277d69faedca",""],"SOTO_MUNOZ_Lliuvashka":["69f070ea34749ad27aa480bb",""],"VERNAT_Guillaume":["69ddfd66276b617b879dcc79",""],"VILLEDIEU_Romane":["69cd1274fd240200e99dc7db",""],"ALI_MOUSSA_Anziz_Habib":["69f9f722c8d9c25bc1e1d10d",""],"AMODIO_Francesco_Paolo":["69f0aaa47915b3c7e9b2ef47",""],"BARBAS_Charlize":["6a3acaa681f1036696eef3d5",""],"CAILLOL_Margot":["69fb4f58f87cb34f5bff5e4f",""],"COLLINET_Sarah_Marie":["69fb4cbfe79fd721cad85eb2",""],"GALIONE_Giusepe":["6a01df044560f9ec876798b5",""],"HELLER_Emma":["69fb4af2c8d3fe0d0f111ab6",""],"KHERRAZ_Mohamed":["69fb558ce79fd721cad85ebc",""],"LE_PORZE_Nathan":["69fc40a256ccd19564739dba",""],"LEGENDRE_Sacha":["6a1d552f57deece9d155cf50",""],"PERES_Guillaume":["69fb52f24d804c5fb4e3eb6a",""],"RICCARDI_Vito":["69e5e54c752bf002c8d577f2",""],"SANCHEZ-PASTOR_AYLLON_Victoria_Qianlu":["6a1045c2ccc367d1fbd4d4e8",""],"SANTONI_Agathe":["6a1d591ebd8b9f07acfe7195",""],"SARRAT_Paola":["69f9f3dbf0d888dc648da53e",""],"TAGANZA_Yassine":["69fb5751e79fd721cad85ebe",""],"ARANDELOVIC_Sasa":["69c13e3794f947cdcc9c49ee","00090"],"MAHAMADOU_Bathily":["69c13e1ef6505ab1d03c03b8","00007"],"BEGUIN_Naïs":["69c13e371c6f2bc960592dd9","00094"],"BISSOLY_Jordan":["69c13e33728e4baf2624bb21","00085"],"CHICHE_Benjamin":["69c13e1f94f947cdcc9c49ec","00001"],"COLIN_Jeremie":["69c13e33728e4baf2624bb1f","00010"],"COUCHOT_Olivier":["6a4fc3e6b7370f7011261c35",""],"LAVEDER_Laurette":["69e8d95c1fd97f922aa75fd2",""],"PAMBOU_Kimberley":["69c13e345dedacd51c89fad1","00086"],"POINSOT_Eddy":["6a4e04500f1caeaa9e510f34",""],"RAKOTOSAONA_Fitia":["69c13e37e6032e3165cb7681","00097"],"ROMANO_Mattia":["69c13e374d13a29eb26f1079","00096"],"ROSANO_Emma":["69e8d604bed25bc8b1883e8f",""],"SOMAN_Saha":["69c2631df3baaacfbe39c065",""],"SOUMARE_Yaya":["69c13e1e885e7ea80a4e1488","00070"],"THOMAS_Sarah":["69c18ab20ea22fa6b1af8e1b",""],"AIRO_Andrea":["69c2a8a3aad38037c1e78ca3",""],"ANGLES_Louis":["69c2b408aad38037c1e78ca5",""],"ATHOUMANI_Azali":["69f2f1e6645d4b5f5c9d7e5f",""],"BAKAR_Yanisse":["69f0868e52275daea5c2aac3",""],"BALBI_SABARROS_Noelia":["6a2003e4e42c557c874adb36",""],"BARNA_Yan":["69fafee974e9fd91cacb6af0",""],"BELL_Nathan":["69c2b6062e4a4ca7d0faa5dd",""],"BENAT_Alexia":["69dcb4e9485f68696e8b45f8",""],"BENHADJ_Kamil":["69f08a23787fab7a88bba3da",""],"BERNARD_Camille":["69f07eae8f81955dd9e8ea8f",""],"BIANCHI_Augusto":["69dce29718207ba172840afa",""],"BONNEVIE_Cynthia":["69e760c45a9d0dc821cffe0f",""],"BOURGOIS_Gael":["69e5e4bec382f66debb700a8","00029"],"BRAULT_Nicolas":["6a219339670d3d09e009243f",""],"CALTAGIRONE_Clement":["69dcf94a0ff431172ebdb11a",""],"CANTERA_MORALES_Magaly":["69c2b0e97eb1a6cbf2ed00a3",""],"CARDONA_DE_MARINIS_Camille":["69dcdfc6327fd5278b7c09d4",""],"CARRIER_Jules":["6a31755fa83520ef6cc480a7",""],"CELIA_Federico":["69dceeec5ba4233f4a3aca85",""],"COMBEAU_Vincent":["69dcba5ed66455c514ebd424",""],"DAOUPHARS_Mathieu":["69cceadd84af2040c254b5e1",""],"DE_PADOVA_Marcio":["69dcf3b715fb83517c95ca73",""],"DENIS_Adrian":["69dcb0cfca2a18163e8f241e",""],"DIAFAT_Selim":["69dcf6d063a558f2ea24308d",""],"DORSO_Marie-Cécile":["69c274fdc50b52d2e63912ec","00002"],"DOUX_Clemence":["69dcbc9690c3b810058622ab",""],"DUBOYS_DE_LABARRE_Andreas":["6a461d008e4a8486c86bca2b",""],"DUFOUR_Alexandre":["69dca485f00063ef68f62b01",""],"DUPERTHUY_Jean":["69dcf16263a558f2ea243081",""],"DUPON_Romain":["69ca479bdc229c07e2500004",""],"ESTEVE_Guillaume":["6a326703d135a9b454ac2886",""],"FERNANDEZ_GOMEZ_Agustin":["69faf3f0ee0c0f55b5b7cf8b",""],"FOGTMAN_Ayrton":["6a317b122bc3257e6efd4942",""],"FRANCO_MENDES_Tiago":["6a2196bd803dbde9c4891d72",""],"FRANCO_MENDES_Ricardo":["6a454cfbef404bb879537a97",""],"FROMMHERZ_Tristan":["69dca1c40b8557695082a57e",""],"GARAVAGLIA_Gloria":["6a32644cba050b69d8bd13d0",""],"GOBIN_Mathis":["6a2185753a612dd78a34c8de",""],"GOMES_Angelique":["6a32608d02446fe84977a07c",""],"GOMEZ_Cristian":["69f4afedd8248ed77dfc7195",""],"GRANET_Romain":["69dcac5e8bc0e04e01054a29",""],"HORVILLE_Brice":["69f085288c3a48756ce6ad05",""],"JEAN_PIERRE_Maëlle":["69dcdc55fd65dfcee6438758",""],"KOSCIAREK_Nicolas":["69dc9d6f5e165ff5ff4e0542",""],"LAFRANCE_Guillaume":["6a219f6e3fbbf8387394c536",""],"LAURENT_Margaux":["69dce5e2a21942035527750d",""],"LE_TOUX_Aéla":["69e627ce7d69770b510b9f6b",""],"LE_TRIONNAIRE_Leo":["6a218c8065c01d77ff774ace",""],"LEGER_Ella":["6a3cd7ab927ccacc00691629",""],"LESELLIER_Marine":["69f080fd7cd1a96d7b549380",""],"MAILLARD_Jules":["6a21899663c7f3ac995b6bf7",""],"MANENT_Maëna":["69de39c480b9a9a243bdfaf7",""],"MARTINEZ_VASQUEZ_Francisco_Leonel":["69dce8fc15fb83517c95ca63",""],"MAURETTE_Lucas":["6a3eacc87065694052ed73b2",""],"MOLANO_RIOS_Leslie_Tatiana":["69f20f3fc171d45b6d2ee0d4",""],"MOUIGNI_Kassim":["69f092eb5e0c66bf8e93dcb5",""],"NIBEAUDEAU_Solenne":["69e5f5cefdda543d227b8c3e",""],"PANES_Stanislas":["69dcb23c588136f092095176",""],"PORRE_Lorin":["69dcaa1d669fa0d6ecec65e6",""],"RALLO_Alexandre":["6a267f28e7915e3b61cf4dea",""],"RENAUX_Tom":["6a219b49803dbde9c4891d78",""],"RIBE_Oceane":["69dca65b80f883d1a91d1c21",""],"ROUX_Ange":["69dcaf40452ff1b882298572",""],"SAID_Faielledine_Ben":["69f0835586fd327d5a0735e7",""],"SEIBANE_Silvana":["69faf9bb9691a103a283a6f2",""],"SOULAIMANA_Said":["69dced0515fb83517c95ca69",""],"TCHOUPE_Lenny":["69de3ef83fe03cd459e792a4",""],"TELMAT_Marine":["6a31725c2bc3257e6efd493e",""],"THERY_Elias":["69e778fe0dd2d9caf229c94e",""],"VILLAMOR_Victor":["69de37bfe455e8d35ae183c7",""],"VIRET_Kevin":["69f303a835ebf4bfddc8fc4b",""],"NASSERDINE_Ahamed":["69faef625e78c9363305e8f4",""],"ANDRE_Lisa":["6a3e4881f34e0a719f364a5b",""],"ARNAL_Noe":["6a05a9fdb81eb5a78be145fd",""],"BASTERRICA_Camila_Aylen":["69f9ea649b25888e71033a77",""],"BEEDASSY_Mathea":["69fcd818584065644e8186fd",""],"BERNAT_Emma":["69fb0e4402ab77ed4922f443",""],"BLANC_Thomas":["6a058f949a637a82ea031703",""],"BOEUF_Etienne":["69fb1344543aa93764ea7c9c",""],"COMBE_Baptiste":["69fb3794b59ad97ea6da97e0",""],"DE_VINCENTI_MENNA_Franco":["6a4f53b592c7e308cc7fdad7",""],"DESMEDT_Guillaume":["6a058af82ea2f600e02941cf",""],"FABRE_Mathis":["69fb1156543aa93764ea7c9a",""],"FERRAND_Anthony":["6a22df5cf82c8c248496d457",""],"GALIBERT_Rudy":["69d679f089e480f6d4bed419","00010"],"HASMI_Yacine":["6a219d147dece8adf93acdfc",""],"IBANEZ_Guilhem":["6a3501c4f8b1c0ddc58df8cc",""],"IDRISSI_Khalid":["6a05ad0a2ea2f600e029436f",""],"INNELLA_Camila":["69faf1ba3305a7468c3457fa",""],"JARDSON_GESMAR_Junior_Frederico":["69fcd591b78bfffcaf80ab17",""],"KAYA_Axel":["69f204a9c5aae073daacf561",""],"LANGLOIS_Arthur":["69fcd9fc584065644e8186ff",""],"LE_VERGE—SERANDOUR_Ewenn":["69f9ebf627fe56360944e8cd",""],"LEBARILLIER_Juliette":["6a3eb94aeb4c6331ea1af549",""],"ORIGET_Anais":["69fcdb7b3dd60f0e880f9e4b",""],"ORIGET_Anaïs":["69fcdb7b3dd60f0e880f9e4b",""],"PETIT_Fiona":["6a3c0e0d182be8cbda8fcc62",""],"REY_Benjamin":["69d679c889e480f6d4bed40a","00054"],"SANTINI_Yael":["6a34f6540e10774034de4da8",""],"ABOU_Ismail":["6a4e03512e59cd77d54c6e11",""],"BIGORGNE_Adrien":["6a3a35d58e38e4680a047884",""],"BOUAZZA_Sâra":["69fb06ee4c03d0b2d424c93e",""],"CARNEIRO_Mélinda":["69d60fde6183229051839155",""],"COURIAUD_Yanis":["69cf7994a45bb5ed933b2d84",""],"CUARTERO_Emmanuel":["69cbe080fb80ae03e49fe964",""],"DENIS_Alexis":["69cbf3109d8597729b0e6645",""],"DUFOUR_Maxence":["69cbfb8fec52f309a24cbfaa",""],"DUMAS_PELLECHIA_Quentin":["69d651dccf0ca8f097c9874c",""],"ELSENSOHN_Jade":["69f33a9cf2c73307e34c14bb",""],"FAZIO_Luca":["69cbdd74a56429f5c1d3efd0",""],"GNEBEHI_Maellie":["69cd0f6e7456ec9ffd5ecb5e",""],"GUELI_Estefanía":["69cb99bf6e8ce0e7f044b0f2","00003"],"GÜELI_Estefania":["69cb99bf6e8ce0e7f044b0f2","00003"],"GUILLET_Valentin":["6a1f19a6666714aca097e574",""],"HANTZ_Loane":["6a22f27c8db4ee7b00b5155b",""],"KOGLER_Theo":["69d67a0c89e480f6d4bed440","00031"],"KOKA_Victoria":["69cbde42a889af796cca0d49",""],"LANCON_Romain":["69d64ba422f4bb1c7ce568c9",""],"LE_BORGNE_Maxime":["69cce048e99ff5587b4fb134",""],"LLOBERES_Manon":["69cbfdbbec52f309a24cbfac",""],"LOUSSOUARN_Ahès":["69cbf9b64ca72c6e6b819483",""],"MEROLLE_Sophie":["6a28136d4149e24c87c8f9af",""],"MONNIER_Sebastien":["69cbee4b88ecb0bc735f5ae6",""],"NEVES_Jessica":["69cc01c8ae583d3d96c23897",""],"PEZZULLI_Gianni":["69fb094c329eac6b8395fd14",""],"RASZKOWSKI_Noah":["69cbfec77caca61878ab2313",""],"SOMNARD_Thomas":["69d63476b54f66e38c62224e",""],"TANG_Chhunhay":["69dcb5058bc0e04e01054a4b",""],"TRAMBAUD_Maxence":["69cd0a9a7456ec9ffd5ecb54",""],"VALEMBOIS_Ange":["69cfc27f352962ef4a856990","00041"],"BAL_Sébastien":["69f077cda44f82607d13372c",""],"BALLUET_Arthur":["6a4550201d7edc1d4e4048ac",""],"BENOIT_Joffrey":["69e9fae673580c69666366bc",""],"BRANDO_RUBIANO_Maria_Camila":["69de0de5bf971ddd694e83c4",""],"CELESTINE_Adrien":["69fcdd9d7ea9e0ad9bd8d9b8",""],"CHARLOT_Alexandre":["69e9f25bc9429fa210148855",""],"CHIQUET_Manon":["69f1db421d013865f6f16a31",""],"FERRAH_Claire":["69ce2c02ecf0e3f23000ea54",""],"HARDUIN_Romane":["69f1decf7699f10b6be1027d",""],"ID_HADDOUCH_Réda":["6a3eb6718123160944c2df0b",""],"ID_HADDOUCH_Reda":["6a3eb6718123160944c2df0b",""],"LAMY_Hugo":["69e9ec08d387da8032e9f57d",""],"LANNOY_Aurélien":["69c2d60e636888b8086f462e",""],"LOPIS_Adrien":["6a454ea7ef4796c81dbacb3c",""],"MACCHINI_David":["6a1d53c4c1cc415beb5154b2",""],"MALLEK_Hadj":["69c3be36f6ace19a6b46817b",""],"MOREL_Sébastien":["69de0c4810de02a059e89a34",""],"MOREL_Sebastien":["69de0c4810de02a059e89a34",""],"MOUZON_Justin":["69ea027a28f461d47ec0ee03",""],"RADJABOU_Soule":["69c3fc6e9610163e8e646321",""],"RIET_Antoine":["6a2842584bf828c1b1054ec8",""],"RIVET_Maurine":["69c2c9c509bb2972ae72aee1",""],"ROUSSEL_Fabien":["69c2d323213731a3d13bb46c",""],"SALAS_Mickaël":["69c2d879994d4af05350dbff",""],"SOULAT_Geoffrey":["69c2d17ce78bdf02867270a7",""],"THOMAS_Lou":["6a28443ddb73a3f32b038e2b",""],"TITEUX_Dylan":["6a01dbe97b7e87c2eeee62a9",""],"MENDEZ_Yojan_Alexander":["69c26913e1b760aa383d5947",""],"MORENO_LOPEZ_Ricardo_Israel":["69c13e1de6032e3165cb767d","00068"],"OLAZ_Johana_Nerea_Eugenia":["69c13e1b02493cfe810a4a88","00072"],"CARRILLO_RAMIREZ_Victor_Hugo":["69c2bafc4bd1ca56e2075e26","00054"],"DUARTE_Dwayne_Lloyd":["69cbf53efb80ae03e49fe975",""],"RAMIREZ_PLATA_Franyuly_Maritza":["69d65c35e9d20709aafd563f",""]};
 
 // ---------- Constantes métier ----------
-// Accès manager par CODE simple. Le code est vérifié dans l'app, puis l'app se connecte
-// à UN compte Supabase partagé (identifiants ci-dessous) : la base reste ainsi protégée
-// en écriture (seuls les utilisateurs connectés peuvent écrire). Le manager ne tape que le code.
-// -> Créez ce compte dans Supabase (Authentication → Users) avec EXACTEMENT cet e-mail et ce mot de passe.
-const CODE_MANAGER = "1942";                       // code tapé par le manager (modifiable ici)
-const CODE_SUPERVISEUR = "1608";                   // code superviseur (accès étendu, à réserver à Océane) — modifiable ici
-const MANAGER_EMAIL = "manager@indiegroup.fr";     // compte partagé (à créer dans Supabase)
-const MANAGER_SECRET = "IndieGroup-Manager-2026";  // mot de passe du compte partagé (>= 6 caractères)
+// L'accès manager par code partagé et le compte Supabase partagé associé ont été
+// retirés le 28/10/2026 : chaque directeur ou chef a
+// désormais son propre compte nominatif via l'Espace RH, qui contient le Planning et
+// l'Émargement. Le niveau superviseur ne vient plus d'un code tapé sur l'appareil mais
+// de la colonne rh_acces.superviseur, donc de la personne connectée.
 const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const JOURS_COURT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const MOIS_NOMS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
@@ -4302,53 +4299,7 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
   );
 }
 
-// ---------- Écran de saisie du code manager ----------
-// Le manager tape un code court. En coulisses, l'app se connecte au compte Supabase
-// partagé (MANAGER_EMAIL / MANAGER_SECRET) : la base reste verrouillée en écriture.
-function CodeGate({ onOk, onCancel }) {
-  const [code, setCode] = useState("");
-  const [erreur, setErreur] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function valider() {
-    if (busy) return;
-    const estSuperviseur = code === CODE_SUPERVISEUR;
-    if (!estSuperviseur && code !== CODE_MANAGER) { setErreur("Code incorrect. Réessayez."); setCode(""); return; }
-    setErreur("");
-    setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: MANAGER_EMAIL, password: MANAGER_SECRET });
-    setBusy(false);
-    if (error) { setErreur("Compte manager non configuré dans Supabase (voir la doc)."); return; }
-    onOk(estSuperviseur);
-  }
-  function onKey(e) { if (e.key === "Enter") valider(); }
-
-  return (
-    <div className="ig-hero" style={{maxWidth:420}}>
-      <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onCancel} style={{marginBottom:20}}><Icon.Back/> Retour</button>
-      <div className="ig-ic" style={{background:'var(--ink)',color:'var(--sand)',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16}}><Icon.Shield/></div>
-      <h1 className="ig-display" style={{fontSize:32,marginBottom:8}}>Espace manager</h1>
-      <p style={{marginBottom:20}}>Saisissez le code d'accès pour gérer les plannings et l'émargement.</p>
-      <div className="ig-field">
-        <label>Code d'accès</label>
-        <input
-          type="password"
-          inputMode="numeric"
-          value={code}
-          autoFocus
-          onChange={(e)=>{ setCode(e.target.value); setErreur(""); }}
-          onKeyDown={onKey}
-          placeholder="••••"
-          style={{letterSpacing:'4px',fontSize:18,textAlign:'center',maxWidth:200}}
-        />
-        {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:8,fontWeight:600}}>{erreur}</div>}
-      </div>
-      <button className="ig-btn ig-btn-primary" onClick={valider} disabled={busy} style={{marginTop:6}}>{busy ? "Connexion…" : "Accéder à l'espace manager"}</button>
-    </div>
-  );
-}
-
-// ---------- Connexion Espace RH (compte individuel, séparé du code manager) ----------
+// ---------- Connexion Espace RH (compte individuel et nominatif) ----------
 function RHLoginForm({ onOk, onCancel }) {
   const [email, setEmail] = useState("");
   const [motDePasse, setMotDePasse] = useState("");
@@ -6522,30 +6473,18 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
 // ---------- Application principale ----------
 export default function App() {
   const [role, setRole] = useState(MODE_SALARIE ? 'salarie' : null);
-  useEffect(() => { if (MODE_SALARIE) document.title = "Indie Group · Espace salarié"; }, []);     // 'manager' | 'salarie' | 'rh'
-  const [askCode, setAskCode] = useState(false);
+  useEffect(() => { if (MODE_SALARIE) document.title = "Indie Group · Espace salarié"; }, []);     // 'salarie' | 'rh'
   const [askRH, setAskRH] = useState(false);
   const [rhAcces, setRhAcces] = useState(null); // droits RH de la personne connectée
   const [resto, setResto] = useState(null);
   const [emp, setEmp] = useState(null);
   const [moduleSalarie, setModuleSalarie] = useState(null); // null (accueil) | 'arrivee' | 'presence'
   const [etabsAjoutes, setEtabsAjoutes] = useState([]);
-  const [session, setSession] = useState(null); // session manager (Supabase Auth)
-  // Accès étendu (export PayFit, validations à la place du salarié, forcer le modèle...),
-  // réservé à Océane. Mémorisé sur cet appareil pour ne pas retaper le code à chaque visite.
-  const [superviseur, setSuperviseur] = useState(() => localStorage.getItem("ig_superviseur") === "1");
 
   useEffect(() => {
     let on = true;
     Store.get(kEtablissements).then((v) => { if (on && Array.isArray(v)) setEtabsAjoutes(v); });
     return () => { on = false; };
-  }, []);
-
-  // Suit l'état de connexion manager (persisté par Supabase entre les visites).
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: authSub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
-    return () => { authSub.subscription.unsubscribe(); };
   }, []);
 
   // Liste complète : restaurants du fichier + établissements ajoutés (sans doublon).
@@ -6564,28 +6503,14 @@ export default function App() {
     setEtabsAjoutes(next);
     Store.set(kEtablissements, next);
   }
-  function reset() { setRole(MODE_SALARIE ? 'salarie' : null); setAskCode(false); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); setModuleSalarie(null); }
-  async function deconnexion() {
-    await supabase.auth.signOut();
-    localStorage.removeItem("ig_superviseur");
-    setSuperviseur(false);
-    reset();
-  }
+  function reset() { setRole(MODE_SALARIE ? 'salarie' : null); setAskRH(false); setRhAcces(null); setResto(null); setEmp(null); setModuleSalarie(null); }
   async function deconnexionRH() {
     await supabase.auth.signOut();
     reset();
   }
 
   let content;
-  if (askCode) {
-    content = <CodeGate onOk={(estSuperviseur)=>{
-      setAskCode(false);
-      setRole('manager');
-      setSuperviseur(estSuperviseur);
-      if (estSuperviseur) localStorage.setItem("ig_superviseur", "1");
-      else localStorage.removeItem("ig_superviseur");
-    }} onCancel={()=>setAskCode(false)} />;
-  } else if (askRH) {
+  if (askRH) {
     content = <RHLoginForm onOk={(acces)=>{ setAskRH(false); setRole('rh'); setRhAcces(acces); }} onCancel={()=>setAskRH(false)} />;
   } else if (!role) {
     content = (
@@ -6598,10 +6523,6 @@ export default function App() {
           <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontWeight:700,fontSize:30,letterSpacing:'-.5px',color:'#fff'}}>Indie Group RH</div>
         </div>
         <div className="ig-roles" style={{width:'100%',maxWidth:720,margin:0}}>
-          <button className="ig-role" onClick={()=> session ? setRole('manager') : setAskCode(true)} style={{textAlign:'center'}}>
-            <div className="ig-ic" style={{background:'var(--ink)',color:'var(--sand)',margin:'0 auto 16px'}}><Icon.Shield/></div>
-            <h3 style={{margin:0}}>Je suis manager</h3>
-          </button>
           <button className="ig-role" onClick={()=>setRole('salarie')} style={{textAlign:'center'}}>
             <div className="ig-ic" style={{background:'var(--coral)',color:'#fff',margin:'0 auto 16px'}}><Icon.User/></div>
             <h3 style={{margin:0}}>Je suis salarié</h3>
@@ -6613,10 +6534,6 @@ export default function App() {
         </div>
       </div>
     );
-  } else if (role === "manager" && !resto) {
-    content = <RestoPicker restaurants={restaurants} onPick={setResto} onAdd={ajouterEtablissement} />;
-  } else if (role === "manager") {
-    content = <ManagerView resto={resto} onBack={()=>setResto(null)} superviseur={superviseur} />;
   } else if (role === "rh") {
     content = <EspaceRH acces={rhAcces} restaurants={restaurants} onAjouterEtablissement={ajouterEtablissement} onBack={reset} onDeconnexion={deconnexionRH} />;
   } else if (!moduleSalarie) {
@@ -6641,11 +6558,8 @@ export default function App() {
           </button>
           {role && (
             <div className="ig-tag">
-              <span className="ig-pill">{role==='manager'?<Icon.Shield width={15} height={15}/>:role==='rh'?<Icon.Shield width={15} height={15}/>:<Icon.User width={15} height={15}/>}{role==='manager'?'Manager':role==='rh'?'Espace RH':'Salarié'}</span>
+              <span className="ig-pill">{role==='rh'?<Icon.Shield width={15} height={15}/>:<Icon.User width={15} height={15}/>}{role==='rh'?'Espace RH':'Salarié'}</span>
               {resto && <span className="ig-pill">{resto}</span>}
-              {role==='manager' && (
-                <button onClick={deconnexion} style={{background:'rgba(243,236,224,.12)',color:'var(--sand)',border:'none',padding:'6px 12px',borderRadius:999,cursor:'pointer',fontSize:13,fontFamily:'Inter',fontWeight:600}}>Déconnexion</button>
-              )}
               {role==='rh' && (
                 <button onClick={deconnexionRH} style={{background:'rgba(243,236,224,.12)',color:'var(--sand)',border:'none',padding:'6px 12px',borderRadius:999,cursor:'pointer',fontSize:13,fontFamily:'Inter',fontWeight:600}}>Déconnexion</button>
               )}
