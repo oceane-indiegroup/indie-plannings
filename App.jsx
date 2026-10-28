@@ -125,13 +125,21 @@ function normTxt(s) {
     .replace(/\s+/g, " ")
     .trim();
 }
-// Cherche un salarié par prénom + nom + restaurant (tolérant).
-function trouverSalarie(prenom, nom, resto, extra = [], exclure = new Set()) {
-  const p = normTxt(prenom), n = normTxt(nom), r = normTxt(resto);
+// Cherche un salarié par prénom + nom + restaurant (tolérant). Vérifie AUSSI l'adresse mail
+// quand la fiche trouvée en a une enregistrée (cas normal pour tout salarié onboardé via le
+// Registre RH, voir "salariesActifs") — demandé par Océane pour que deux collègues ne puissent
+// pas se retrouver dans l'espace l'un de l'autre juste en connaissant le nom (indiferent à la
+// casse/espaces, comme le reste). Les entrées sans email enregistré (liste statique historique,
+// ajouts manuels du Planning) restent vérifiées sur nom+prénom seulement, comme avant.
+function trouverSalarie(prenom, nom, email, resto, extra = [], exclure = new Set()) {
+  const p = normTxt(prenom), n = normTxt(nom), r = normTxt(resto), em = normTxt(email);
   const tous = EMPLOYEES.concat(extra);
-  return tous.find((e) =>
-    normTxt(e.p) === p && normTxt(e.n) === n && normTxt(e.r) === r && !exclure.has(idSalarie(e))
-  ) || null;
+  return tous.find((e) => {
+    if (normTxt(e.p) !== p || normTxt(e.n) !== n || normTxt(e.r) !== r) return false;
+    if (exclure.has(idSalarie(e))) return false;
+    if (e.em) return normTxt(e.em) === em;
+    return true;
+  }) || null;
 }
 // Distance de Levenshtein (tolérance aux fautes de frappe).
 function lev(a, b) {
@@ -4113,9 +4121,11 @@ function RestoPicker({ restaurants, onPick, onAdd, compteurs }) {
 function EmployeeIdentify({ restaurants, onFound, onBack }) {
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
+  const [email, setEmail] = useState("");
   const [resto, setResto] = useState("");
   const [suggestions, setSuggestions] = useState(null); // null = pas encore cherché
   const [vide, setVide] = useState(false);
+  const [erreurEmail, setErreurEmail] = useState(false); // nom/prénom ok mais email ne correspond pas
   const [ajoutesResto, setAjoutesResto] = useState([]); // salariés ajoutés actifs du resto choisi
   const [exclusResto, setExclusResto] = useState(new Set()); // ids supprimés / fin de contrat passée
   const [rhResto, setRhResto] = useState([]); // salariés onboardés via le Registre RH du resto choisi
@@ -4156,39 +4166,62 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
     let on = true;
     RhSheetSync.salariesActifs(resto).then((lignes) => {
       if (!on) return;
-      setRhResto(lignes.map((l) => ({ n: l.nom, p: l.prenom, r: resto, po: l.poste || "—" })));
+      setRhResto(lignes.map((l) => ({ n: l.nom, p: l.prenom, em: l.email || "", r: resto, po: l.poste || "—" })));
     });
     return () => { on = false; };
   }, [resto]);
 
+  // Choisit une personne (match direct ou clic sur une suggestion) seulement si son email
+  // enregistré correspond à celui saisi (quand la fiche en a un) — sans ce contrôle, cliquer
+  // une suggestion donnait accès à l'espace de n'importe quel collègue juste en connaissant
+  // son nom, ce que ce champ email est justement censé empêcher.
+  function choisir(e) {
+    if (e.em && normTxt(e.em) !== normTxt(email)) {
+      setSuggestions(null);
+      setErreurEmail(true);
+      return;
+    }
+    onFound(e);
+  }
   function valider() {
     setVide(false);
+    setErreurEmail(false);
     setSuggestions(null);
     if (!prenom.trim() && !nom.trim()) {
       setVide(true);
       return;
     }
-    if (!resto) {
+    if (!resto || !email.trim()) {
       setVide(true);
       return;
     }
     const pool = ajoutesResto.concat(rhResto);
-    const e = trouverSalarie(prenom, nom, resto, pool, exclusResto);
+    const e = trouverSalarie(prenom, nom, email, resto, pool, exclusResto);
     if (e) {
       onFound(e);
+      return;
+    }
+    // Un candidat existe par nom+prénom+resto mais avec un email différent de la saisie :
+    // message dédié, plutôt que de proposer la liste des suggestions (qui reviendrait à
+    // révéler son identité sans jamais vérifier l'email).
+    const candidatSansEmail = EMPLOYEES.concat(pool).find((c) =>
+      normTxt(c.p) === normTxt(prenom) && normTxt(c.n) === normTxt(nom) && normTxt(c.r) === normTxt(resto) && !exclusResto.has(idSalarie(c))
+    );
+    if (candidatSansEmail && candidatSansEmail.em) {
+      setErreurEmail(true);
     } else {
       setSuggestions(suggererSalaries(prenom, nom, resto, pool, exclusResto));
     }
   }
   function onKey(ev) { if (ev.key === "Enter") valider(); }
-  function resetReco() { setSuggestions(null); setVide(false); }
+  function resetReco() { setSuggestions(null); setVide(false); setErreurEmail(false); }
 
   return (
     <div className="ig-hero" style={{maxWidth:440}}>
       {onBack && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack} style={{marginBottom:20}}><Icon.Back/> Retour</button>}
       <div className="ig-ic" style={{background:'var(--coral)',color:'#fff',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16}}><Icon.User/></div>
       <h1 className="ig-display" style={{fontFamily:"'Inter', system-ui, sans-serif",fontWeight:700,letterSpacing:'-.4px',fontSize:32,marginBottom:8}}>Qui suis-je ?</h1>
-      <p style={{marginBottom:20}}>Indiquez votre prénom, votre nom et votre restaurant pour accéder à votre espace.</p>
+      <p style={{marginBottom:20}}>Indiquez votre prénom, votre nom, votre adresse mail et votre restaurant pour accéder à votre espace.</p>
       <div className="ig-field">
         <label>Prénom</label>
         <input value={prenom} autoFocus onChange={(e)=>{ setPrenom(e.target.value); resetReco(); }} onKeyDown={onKey} placeholder="Votre prénom" />
@@ -4198,6 +4231,10 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
         <input value={nom} onChange={(e)=>{ setNom(e.target.value); resetReco(); }} onKeyDown={onKey} placeholder="Votre nom" />
       </div>
       <div className="ig-field">
+        <label>Adresse mail</label>
+        <input type="email" value={email} onChange={(e)=>{ setEmail(e.target.value); resetReco(); }} onKeyDown={onKey} placeholder="Votre adresse mail" />
+      </div>
+      <div className="ig-field">
         <label>Restaurant</label>
         <select value={resto} onChange={(e)=>{ setResto(e.target.value); resetReco(); }}>
           <option value="">— Choisir —</option>
@@ -4205,14 +4242,15 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
         </select>
       </div>
 
-      {vide && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:12,fontWeight:600}}>Renseignez votre nom et votre restaurant.</div>}
+      {vide && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:12,fontWeight:600}}>Renseignez votre nom, votre adresse mail et votre restaurant.</div>}
+      {erreurEmail && <div style={{color:'var(--coral-d)',fontSize:13,marginBottom:12,fontWeight:600}}>Cette adresse mail ne correspond pas à celle enregistrée pour ce nom dans ce restaurant.</div>}
 
       {suggestions && suggestions.length > 0 && (
         <div style={{marginBottom:14}}>
           <div className="ig-muted" style={{marginBottom:8}}>Est-ce l'une de ces personnes ?</div>
           <div className="ig-emp-list">
             {suggestions.map((e)=>(
-              <button key={idSalarie(e)} className="ig-emp-row" onClick={()=>onFound(e)}>
+              <button key={idSalarie(e)} className="ig-emp-row" onClick={()=>choisir(e)}>
                 <div>
                   <div className="nm">{e.p} {e.n}</div>
                   <div className="meta">{e.po}</div>
