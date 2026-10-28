@@ -703,7 +703,11 @@ const RhSalaries = {
     }
     return data;
   },
-  async maj(id, patch) {
+  // "onSyncEchec" (facultatif) : la copie vers le Sheet se fait en tâche de fond (jamais
+  // attendue, pour ne jamais ralentir la sauvegarde dans l'appli) — sans ce callback, un échec
+  // restait invisible, consultable seulement via la console du navigateur. Océane découvrait
+  // alors le problème jours plus tard, en remarquant que le Sheet n'avait pas bougé.
+  async maj(id, patch, onSyncEchec) {
     const { data, error } = await supabase.from("rh_salaries").update(patch).eq("id", id).select().single();
     if (error) { console.error("RhSalaries.maj:", error.message); return null; }
     // Même raison qu'en création ci-dessus : une fiche encore provisoire ne doit jamais
@@ -712,6 +716,7 @@ const RhSalaries = {
     if (!data.provisoire) {
       RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch, ligneCible: data.sheet_ligne || undefined }).then((r) => {
         if (r?.ok && r.ligne && r.ligne !== data.sheet_ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", id).then(() => {});
+        if (!r?.ok) { console.error("RhSalaries.maj (sync Sheet):", r?.erreur); if (onSyncEchec) onSyncEchec(r?.erreur); }
       });
     }
     return data;
@@ -4838,7 +4843,9 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   }
   async function modifier(patch) {
     const majPatch = patch.nom != null ? { ...patch, nom: patch.nom.toUpperCase() } : patch;
-    const maj = await RhSalaries.maj(edition.id, majPatch);
+    const maj = await RhSalaries.maj(edition.id, majPatch, (erreurSync) => {
+      montrerErreur(`Fiche enregistrée dans l'appli, mais la copie vers le Google Sheet a échoué (${erreurSync || "erreur inconnue"}). Le Sheet n'est pas à jour pour cette fiche — réessayez une petite modification, ou corrigez directement la ligne dans le Sheet.`);
+    });
     if (maj) { setListe(liste.map((s) => (s.id === maj.id ? maj : s))); setEdition(null); montrerFlash("Fiche mise à jour."); }
     else montrerErreur("La sauvegarde a échoué. Réessayez, ou contactez le support si ça persiste.");
   }
@@ -4942,7 +4949,9 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   async function sauverCellule(id, cle, valeur) {
     if (cle === 'nom' && typeof valeur === 'string') valeur = valeur.toUpperCase();
     majCellule(id, cle, valeur);
-    const maj = await RhSalaries.maj(id, { [cle]: valeur });
+    const maj = await RhSalaries.maj(id, { [cle]: valeur }, (erreurSync) => {
+      montrerErreur(`Case enregistrée dans l'appli, mais la copie vers le Google Sheet a échoué (${erreurSync || "erreur inconnue"}). Le Sheet n'est pas à jour pour cette case — réessayez, ou corrigez directement dans le Sheet.`);
+    });
     if (!maj) montrerErreur("La sauvegarde a échoué pour cette case. Réessayez.");
   }
 
