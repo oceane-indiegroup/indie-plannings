@@ -506,20 +506,8 @@ const RhSheetSync = {
     if (data?.error) { console.error("RhSheetSync.upsert:", data.error); return { ok: false, erreur: data.error }; }
     return { ok: true, ...data };
   },
-  // Rattrapage en un clic : crée en base les salariés déjà présents dans le Sheet mais
-  // jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique).
-  // Ne touche jamais aux fiches déjà existantes. Réservé au superviseur. resto optionnel :
-  // s'il est précisé, seul cet établissement est importé (évite de mélanger avec les autres).
-  async importerTout(resto) {
-    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "importerTout", resto } });
-    if (error) {
-      let detail = error.message;
-      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
-      return { ok: false, erreur: detail };
-    }
-    if (data?.error) return { ok: false, erreur: data.error };
-    return data;
-  },
+  // (L'appel "importerTout" a été retiré de l'appli le 28/10/2026 : plus rien ne relit le
+  // Sheet pour réécrire en base. Voir le commentaire dans EspaceRH.)
   // Confirme UNE SEULE fiche provisoire (va chercher sa ligne dans le Sheet pour ses infos
   // personnelles, sans toucher à aucune autre fiche) — voir "confirmerOnboarding" dans
   // ManagerView. Réservé au superviseur.
@@ -6212,8 +6200,6 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   const [restoActif, setRestoActif] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].resto);
   const [uniteActive, setUniteActive] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].unite);
   const [gestionAcces, setGestionAcces] = useState(false);
-  const [importBusy, setImportBusy] = useState(false);
-  const [importMsg, setImportMsg] = useState("");
   const [formatBusy, setFormatBusy] = useState(false);
   const [formatMsg, setFormatMsg] = useState("");
   const [formatFraisBusy, setFormatFraisBusy] = useState(false);
@@ -6251,22 +6237,10 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     return () => { on = false; };
   }, [refreshKey]);
 
-  // Rattrapage en un clic : va chercher dans le Google Sheet les salariés déjà onboardés
-  // mais jamais reçus par l'app (onboardés avant la mise en place de la synchro automatique),
-  // et les crée en base. Ne touche jamais aux fiches déjà existantes. Scopé sur l'établissement
-  // actif quand on en a choisi un (évite d'importer les autres établissements en même temps).
-  async function importerDepuisSheet() {
-    if (importBusy) return;
-    setImportBusy(true); setImportMsg("");
-    const r = await RhSheetSync.importerTout(restoActif || undefined);
-    setImportBusy(false);
-    if (!r.ok) { setImportMsg(`Échec de l'import : ${r.erreur || "erreur inconnue"}`); return; }
-    const morceaux = [];
-    if (r.importes > 0) morceaux.push(`${r.importes} nouvelle${r.importes>1?'s':''} fiche${r.importes>1?'s':''}`);
-    if (r.completes > 0) morceaux.push(`${r.completes} fiche${r.completes>1?'s':''} complétée${r.completes>1?'s':''} (dates/heures manquantes)`);
-    setImportMsg(morceaux.length > 0 ? `Import terminé : ${morceaux.join(", ")}.` : "Rien à importer : tout est déjà à jour.");
-    setRefreshKey((k) => k + 1);
-  }
+  // Le bouton « Importer depuis le Sheet » a été retiré le 28/10/2026. Relire le Sheet
+  // pour réécrire dans l'appli est ce qui a provoqué l'incident du 28/10 (fiches recopiées
+  // les unes sur les autres, doublons en série). Désormais l'appli écrit vers le Sheet,
+  // jamais l'inverse : ne pas remettre ce bouton.
 
   // Rattrapage en un clic : force la majuscule + le centrage/police 14 sur TOUTES les lignes
   // du Sheet "onboarding" qui en ont besoin — pour les lignes anciennes jamais mises en forme
@@ -6320,10 +6294,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     return (
       <>
         <div className="ig-noprint" style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:10,alignItems:'center',flexWrap:'wrap'}}>
-          {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
           {formatMsg && <span className="ig-muted" style={{fontSize:12.5}}>{formatMsg}</span>}
           {formatFraisMsg && <span className="ig-muted" style={{fontSize:12.5}}>{formatFraisMsg}</span>}
-          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheet} disabled={formatBusy}>{formatBusy ? "Correction…" : "↻ Corriger la mise en forme"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheetNotesFrais} disabled={formatFraisBusy}>{formatFraisBusy ? "Correction…" : "↻ Corriger le Sheet Notes de frais"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={verifierDoublonsEmail} disabled={doublonsBusy}>{doublonsBusy ? "Vérification…" : "🔍 Vérifier les emails en double"}</button>
@@ -6423,8 +6395,6 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
         </div>
         {estSuperviseur && sousSection && sousSection !== "planning" && sousSection !== "primes" && sousSection !== "arrivees" && (
           <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
-            {importMsg && <span className="ig-muted" style={{fontSize:12.5}}>{importMsg}</span>}
-            <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
             <button className={"ig-btn ig-btn-sm "+(uniteActive==='SALLE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('SALLE')}>Salle</button>
             <button className={"ig-btn ig-btn-sm "+(uniteActive==='CUISINE'?'ig-btn-ink':'ig-btn-ghost')} onClick={()=>setUniteActive('CUISINE')}>Cuisine</button>
             <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
