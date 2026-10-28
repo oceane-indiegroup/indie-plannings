@@ -545,6 +545,20 @@ const RhSheetSync = {
     if (error || data?.error || !Array.isArray(data?.salaries)) return [];
     return data.salaries;
   },
+  // Repère, tous établissements confondus, les emails partagés par DEUX personnes
+  // différentes (nom+prénom) dans le Registre RH — signal fiable d'une donnée mal associée
+  // (ex: Bourseaud/Le Porze, Raszkowski/Saldarriaga) sans avoir à chercher ligne par ligne.
+  // Réservé au superviseur.
+  async emailsEnDoublon() {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "emailsEnDoublon" } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
   // Rattrapage en un clic pour le Sheet "onboarding" : force le NOM en majuscule et applique
   // le centrage + la police 14 sur TOUTES les lignes du Sheet qui en ont besoin — utile pour
   // les lignes anciennes, jamais mises en forme (avant la mise en place de "formaterDerniereLigne",
@@ -6240,6 +6254,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   const [formatMsg, setFormatMsg] = useState("");
   const [formatFraisBusy, setFormatFraisBusy] = useState(false);
   const [formatFraisMsg, setFormatFraisMsg] = useState("");
+  const [doublonsBusy, setDoublonsBusy] = useState(false);
+  const [doublonsEmail, setDoublonsEmail] = useState(null); // null = pas encore cherché
   const [refreshKey, setRefreshKey] = useState(0);
   const [compteursRH, setCompteursRH] = useState({}); // effectif réel par établissement (rh_salaries)
   // Sous-parties de l'Espace RH d'un établissement : "registre" (liste des salariés actuelle)
@@ -6308,6 +6324,20 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     setFormatFraisMsg(r.corrigees > 0 ? `${r.corrigees} ligne${r.corrigees>1?'s':''} corrigée${r.corrigees>1?'s':''} (majuscule/mise en forme).` : "Rien à corriger, le Sheet est déjà à jour.");
   }
 
+  // Détection en un clic des emails partagés par deux personnes différentes (tous
+  // établissements confondus) : signal fiable de données mal associées, sans avoir à
+  // chercher ligne par ligne dans le Sheet. Ne corrige rien tout seul — affiche juste la
+  // liste des cas suspects, à vérifier/corriger à la main (seule une vraie personne sait
+  // lequel des deux a réellement cet email).
+  async function verifierDoublonsEmail() {
+    if (doublonsBusy) return;
+    setDoublonsBusy(true);
+    const r = await RhSheetSync.emailsEnDoublon();
+    setDoublonsBusy(false);
+    if (!r.ok) { setDoublonsEmail({ erreur: r.erreur || "erreur inconnue" }); return; }
+    setDoublonsEmail({ liste: r.doublons || [] });
+  }
+
   if (estSuperviseur && !restoActif) {
     return (
       <>
@@ -6318,10 +6348,38 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={importerDepuisSheet} disabled={importBusy}>{importBusy ? "Import…" : "↻ Importer depuis le Sheet"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheet} disabled={formatBusy}>{formatBusy ? "Correction…" : "↻ Corriger la mise en forme"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={corrigerFormatageSheetNotesFrais} disabled={formatFraisBusy}>{formatFraisBusy ? "Correction…" : "↻ Corriger le Sheet Notes de frais"}</button>
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={verifierDoublonsEmail} disabled={doublonsBusy}>{doublonsBusy ? "Vérification…" : "🔍 Vérifier les emails en double"}</button>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setGestionAcces(true)}><Icon.Shield/> Accès RH</button>
         </div>
         <RestoPicker restaurants={restaurants} onPick={(r)=>{ setRestoActif(r); setUniteActive("SALLE"); }} onAdd={onAjouterEtablissement} compteurs={compteursRH} />
         {gestionAcces && <AccesRHModal restaurants={restaurants} onClose={()=>setGestionAcces(false)} />}
+        {doublonsEmail && (
+          <div className="ig-overlay" onClick={()=>setDoublonsEmail(null)}>
+            <div className="ig-modal" style={{maxWidth:640}} onClick={(e)=>e.stopPropagation()}>
+              <h3 style={{marginTop:0}}>Emails en double</h3>
+              {doublonsEmail.erreur && <div style={{color:'var(--coral-d)',fontWeight:600}}>Échec : {doublonsEmail.erreur}</div>}
+              {doublonsEmail.liste && doublonsEmail.liste.length === 0 && (
+                <div className="ig-muted">Aucun email partagé par deux personnes différentes. Rien à corriger de ce côté.</div>
+              )}
+              {doublonsEmail.liste && doublonsEmail.liste.length > 0 && (
+                <>
+                  <p className="ig-muted" style={{marginTop:0}}>{doublonsEmail.liste.length} email{doublonsEmail.liste.length>1?'s':''} partagé{doublonsEmail.liste.length>1?'s':''} par plusieurs personnes différentes — à corriger à la main (ouvrez la fiche de chacun pour voir/corriger son vrai email) :</p>
+                  <div style={{maxHeight:420,overflowY:'auto',display:'flex',flexDirection:'column',gap:12}}>
+                    {doublonsEmail.liste.map((d, i) => (
+                      <div key={i} style={{border:'1px solid var(--sand-2)',borderRadius:10,padding:'10px 12px'}}>
+                        <div style={{fontWeight:700,marginBottom:6,wordBreak:'break-all'}}>{d.email}</div>
+                        {d.salaries.map((s) => (
+                          <div key={s.id} className="ig-muted" style={{fontSize:13}}>{s.prenom} {s.nom} — {s.resto} (saison {s.saison})</div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              <button className="ig-btn ig-btn-ghost" style={{marginTop:14}} onClick={()=>setDoublonsEmail(null)}>Fermer</button>
+            </div>
+          </div>
+        )}
       </>
     );
   }

@@ -1060,6 +1060,44 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, corrigees });
     }
 
+    // ---- Repère, tous établissements confondus, les emails partagés par DEUX personnes
+    // différentes (nom+prénom) dans le Registre RH — signal fiable d'une donnée mal associée
+    // (ex: deux fiches différentes qui ont fini avec le même email suite à une corruption
+    // du Sheet), sans avoir à comparer ligne par ligne. Ne corrige RIEN automatiquement :
+    // seule une vraie personne peut savoir lequel des deux candidats a réellement cet email
+    // — l'action renvoie juste la liste des cas suspects à vérifier à la main. Une même
+    // personne réapparaissant sur plusieurs saisons/contrats n'est jamais signalée (même
+    // nom+prénom = pas une anomalie). Réservé au superviseur.
+    if (action === "emailsEnDoublon") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?email=not.is.null&select=id,resto,nom,prenom,email,saison`, {
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+      });
+      if (!res.ok) return json({ error: "lecture_echouee", detail: await res.text() }, 500);
+      const lignes: { id: number; resto: string; nom: string; prenom: string; email: string; saison: string }[] = await res.json();
+
+      const parEmail: Record<string, typeof lignes> = {};
+      for (const l of lignes) {
+        const cle = normaliser(l.email);
+        if (!cle) continue;
+        (parEmail[cle] ||= []).push(l);
+      }
+      const doublons = Object.values(parEmail)
+        .filter((groupe) => {
+          const personnes = new Set(groupe.map((l) => `${normaliser(l.nom)}::${normaliser(l.prenom)}`));
+          return personnes.size > 1;
+        })
+        .map((groupe) => ({
+          email: groupe[0].email,
+          salaries: groupe.map((l) => ({ id: l.id, resto: l.resto, nom: l.nom, prenom: l.prenom, saison: l.saison })),
+        }));
+
+      return json({ ok: true, doublons });
+    }
+
     // ---- Liste minimale (nom/prénom/poste/email) des salariés actifs d'un établissement, à
     // l'usage de l'écran public "Qui suis-je ?" (avant connexion, aucune session). La table
     // rh_salaries est protégée par RLS (lecture réservée aux comptes manager/superviseur
