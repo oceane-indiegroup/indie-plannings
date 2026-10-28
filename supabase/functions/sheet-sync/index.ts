@@ -1409,10 +1409,19 @@ Deno.serve(async (req: Request) => {
 
         const nomN = normaliser(String(ligne.nom || ""));
         const prenomN = normaliser(String(ligne.prenom || ""));
+        // Correspondance EXACTE uniquement (score 0 : nom+prénom identiques une fois
+        // normalisés — accents/casse/espaces ignorés, mais plus aucune tolérance de faute de
+        // frappe). La tolérance "jusqu'à 3 fautes de frappe cumulées" utilisée ici avant a fini,
+        // appliquée en masse sur tout un Sheet (dizaines de candidats par établissement), par
+        // associer certaines personnes à la MAUVAISE fiche provisoire existante (score le plus
+        // bas mais faux) — collant le poste/email d'une personne sur la fiche d'une autre (cas
+        // Bourseaud/Le Porze, Raszkowski/Saldarriaga). La tolérance aux fautes de frappe reste
+        // utile pour "formSubmit" (UNE SEULE vraie soumission comparée à peu de candidats), où
+        // le risque de collision est bien moindre — seul ce rattrapage en masse est resserré.
         const scores = provisoires
           .filter((p) => p.resto === ligne.resto && p.unite === ligne.unite)
           .map((p) => ({ p, score: lev(nomN, normaliser(p.nom)) + lev(prenomN, normaliser(p.prenom)) }))
-          .filter((s) => s.score <= 3) // tolère 1-2 fautes de frappe réparties sur nom+prénom
+          .filter((s) => s.score === 0)
           .sort((a, b) => a.score - b.score);
         // N'agit que si un seul candidat est nettement le meilleur (même règle que "formSubmit").
         if (scores.length === 1 || (scores.length > 1 && scores[0].score < scores[1].score)) {
