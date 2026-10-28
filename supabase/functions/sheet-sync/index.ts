@@ -1060,6 +1060,28 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, corrigees });
     }
 
+    // ---- Liste minimale (nom/prénom/poste) des salariés actifs d'un établissement, à l'usage
+    // de l'écran public "Qui suis-je ?" (avant connexion, aucune session). La table rh_salaries
+    // est protégée par RLS (lecture réservée aux comptes manager/superviseur authentifiés) : un
+    // salarié onboardé uniquement via le Registre RH (le cas normal) ne pouvait donc jamais s'y
+    // retrouver depuis cet écran public, qui ne cherchait que dans la liste statique EMPLOYEES et
+    // les ajouts manuels du Planning (cas Vincent Urtis). Volontairement SANS authentification —
+    // même niveau d'exposition que EMPLOYEES, déjà public dans le code client (noms/postes/resto,
+    // rien de sensible : jamais d'adresse, sécu, IBAN...). "actif" = pas provisoire et pas de
+    // date de fin de contrat déjà dépassée.
+    if (action === "salariesActifs") {
+      const { resto } = corps;
+      if (!resto) return json({ error: "champs_manquants" }, 400);
+      const aujourdhui = new Date().toISOString().slice(0, 10);
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/rh_salaries?resto=eq.${encodeURIComponent(resto)}&provisoire=is.false&or=(date_fin.is.null,date_fin.gte.${aujourdhui})&select=nom,prenom,poste`,
+        { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
+      );
+      if (!res.ok) return json({ error: "lecture_echouee", detail: await res.text() }, 500);
+      const lignes = await res.json();
+      return json({ ok: true, salaries: lignes });
+    }
+
     // ---- Confirme UNE SEULE fiche provisoire comme réellement onboardée : cherche SA ligne
     // dans le Sheet (par nom+prénom+établissement, la plus récente en cas de plusieurs
     // réponses — voir "formSubmit"), récupère ses infos personnelles (adresse, sécu, IBAN...)

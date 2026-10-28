@@ -528,6 +528,15 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Liste minimale (nom/prénom/poste) des salariés actifs d'un établissement — pour l'écran
+  // public "Qui suis-je ?" (avant connexion, sans accès direct à rh_salaries qui est protégée
+  // par RLS). Pas de gestion d'erreur fine ici : un échec retombe juste sur une liste vide,
+  // ça ne doit jamais bloquer l'identification (la liste statique + Planning restent dispo).
+  async salariesActifs(resto) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "salariesActifs", resto } });
+    if (error || data?.error || !Array.isArray(data?.salaries)) return [];
+    return data.salaries;
+  },
   // Rattrapage en un clic pour le Sheet "onboarding" : force le NOM en majuscule et applique
   // le centrage + la police 14 sur TOUTES les lignes du Sheet qui en ont besoin — utile pour
   // les lignes anciennes, jamais mises en forme (avant la mise en place de "formaterDerniereLigne",
@@ -4138,18 +4147,16 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
   // pas forcément ajoutés à la main dans le Planning) : sans ça, "Qui suis-je ?" ne cherchait
   // QUE dans EMPLOYEES (liste statique figée) + les ajouts manuels du Planning, et un salarié
   // onboardé uniquement via le Registre RH (le cas normal aujourd'hui) ne se retrouvait jamais
-  // (cas Vincent Urtis : bien présent dans le Registre et le Planning, introuvable ici).
+  // (cas Vincent Urtis : bien présent dans le Registre et le Planning, introuvable ici). Passe
+  // par une fonction serveur dédiée ("salariesActifs") plutôt qu'une lecture directe de
+  // rh_salaries : cette table est protégée par RLS (lecture réservée aux comptes manager/
+  // superviseur connectés), inaccessible depuis cet écran public avant toute connexion.
   useEffect(() => {
     if (!resto) { setRhResto([]); return; }
     let on = true;
-    const aujourdHui = dateISOLocale(new Date());
-    RhSalaries.list(resto).then((lignes) => {
+    RhSheetSync.salariesActifs(resto).then((lignes) => {
       if (!on) return;
-      setRhResto(
-        lignes
-          .filter((l) => !l.provisoire && (!l.date_fin || l.date_fin >= aujourdHui))
-          .map((l) => ({ n: l.nom, p: l.prenom, r: l.resto, po: l.poste || "—" }))
-      );
+      setRhResto(lignes.map((l) => ({ n: l.nom, p: l.prenom, r: resto, po: l.poste || "—" })));
     });
     return () => { on = false; };
   }, [resto]);
