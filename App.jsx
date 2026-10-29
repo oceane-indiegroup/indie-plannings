@@ -134,6 +134,16 @@ function normTxt(s) {
     .replace(/\s+/g, " ")
     .trim();
 }
+// Normalise un NOM ou un PRÉNOM pour la seule comparaison : en plus de normTxt (minuscules,
+// sans accents), tout ce qui n'est ni lettre ni chiffre devient un espace. Un salarié qui
+// tape « Jean-Baptiste » retrouve donc la fiche écrite « Jean Baptiste », « gomez-montes »
+// retrouve « GOMEZ MONTES », et « o'brien » retrouve « O BRIEN ». La casse était déjà
+// ignorée ; c'étaient les traits d'union, apostrophes et points qui faisaient échouer
+// l'identification. Réservé aux noms : surtout pas aux e-mails, où la ponctuation distingue
+// deux adresses différentes.
+function normNom(s) {
+  return normTxt(s).replace(/[^a-z0-9]+/g, " ").trim();
+}
 // Cherche un salarié par prénom + nom + restaurant (tolérant). Vérifie AUSSI l'adresse mail
 // quand la fiche trouvée en a une enregistrée (cas normal pour tout salarié onboardé via le
 // Registre RH, voir "salariesActifs") — demandé par Océane pour que deux collègues ne puissent
@@ -141,10 +151,10 @@ function normTxt(s) {
 // casse/espaces, comme le reste). Les entrées sans email enregistré (liste statique historique,
 // ajouts manuels du Planning) restent vérifiées sur nom+prénom seulement, comme avant.
 function trouverSalarie(prenom, nom, email, resto, extra = [], exclure = new Set()) {
-  const p = normTxt(prenom), n = normTxt(nom), r = normTxt(resto), em = normTxt(email);
+  const p = normNom(prenom), n = normNom(nom), r = normTxt(resto), em = normTxt(email);
   const tous = EMPLOYEES.concat(extra);
   return tous.find((e) => {
-    if (normTxt(e.p) !== p || normTxt(e.n) !== n || normTxt(e.r) !== r) return false;
+    if (normNom(e.p) !== p || normNom(e.n) !== n || normTxt(e.r) !== r) return false;
     if (exclure.has(idSalarie(e))) return false;
     if (e.em) return normTxt(e.em) === em;
     return true;
@@ -167,11 +177,11 @@ function lev(a, b) {
 // Propose les salariés proches de la saisie, UNIQUEMENT dans le restaurant choisi.
 // Ne suggère rien tant que la saisie est trop courte (évite de lister tout le monde).
 function suggererSalaries(prenom, nom, resto, extra = [], exclure = new Set()) {
-  const p = normTxt(prenom), n = normTxt(nom);
+  const p = normNom(prenom), n = normNom(nom);
   if (!resto || (p.length < 2 && n.length < 2)) return [];
   const team = EMPLOYEES.concat(extra).filter((e) => normTxt(e.r) === normTxt(resto) && !exclure.has(idSalarie(e)));
   const scored = team.map((e) => {
-    const ep = normTxt(e.p), en = normTxt(e.n);
+    const ep = normNom(e.p), en = normNom(e.n);
     // Score par champ : 0 si vide (n'handicape pas), sinon meilleure de
     // sous-chaîne (0), préfixe, ou distance d'édition.
     function scoreChamp(saisie, cible) {
@@ -4234,7 +4244,7 @@ function EmployeeIdentify({ restaurants, onFound, onBack }) {
     // message dédié, plutôt que de proposer la liste des suggestions (qui reviendrait à
     // révéler son identité sans jamais vérifier l'email).
     const candidatSansEmail = EMPLOYEES.concat(pool).find((c) =>
-      normTxt(c.p) === normTxt(prenom) && normTxt(c.n) === normTxt(nom) && normTxt(c.r) === normTxt(resto) && !exclusResto.has(idSalarie(c))
+      normNom(c.p) === normNom(prenom) && normNom(c.n) === normNom(nom) && normTxt(c.r) === normTxt(resto) && !exclusResto.has(idSalarie(c))
     );
     if (candidatSansEmail && candidatSansEmail.em) {
       setErreurEmail(true);
