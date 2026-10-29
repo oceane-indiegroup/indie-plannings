@@ -4778,6 +4778,22 @@ function ArchiverVersModal({ saisons, onValider, onClose }) {
 }
 
 // ---------- Liste des salariés RH d'un établissement + unité ----------
+// Traduit les erreurs techniques du serveur en une phrase utilisable. Sans ça, Océane
+// recevait le message brut de Postgres (ex: 22P02 "invalid input syntax for type numeric"),
+// illisible et qui ne dit pas quoi faire.
+function messageErreurSheet(brut) {
+  const t = (brut || "").toString();
+  if (t.includes("22P02") || t.includes("invalid input syntax")) {
+    return "Une valeur du Sheet n'a pas le bon format (un nombre écrit avec une virgule, une date incomplète…). Corrigez la ligne dans le Sheet, puis réessayez.";
+  }
+  if (t.includes("ligne_ne_correspond_pas")) {
+    return "Cette ligne du Sheet ne correspond plus à ce salarié (le Sheet a changé entre-temps). Rouvrez la fenêtre pour recharger la liste.";
+  }
+  if (t.includes("acces_refuse")) return "Action réservée au superviseur.";
+  if (t.includes("fiche_introuvable")) return "Cette fiche n'existe plus en base.";
+  return `La resynchronisation a échoué : ${t || "erreur inconnue"}`;
+}
+
 // ---------- Fenêtre « De quel contrat parle-t-on ? » (superviseur) ----------
 // Affiche TOUTES les lignes du Sheet trouvées pour cette personne dans cet établissement,
 // de la plus récente à la plus ancienne, et met en face ce que contient la fiche aujourd'hui.
@@ -5020,7 +5036,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
       montrerFlash(avecContrat
         ? `${s.prenom || ""} ${s.nom || ""} : infos et contrat de la ligne ${ligne} repris depuis le Sheet.`
         : `${s.prenom || ""} ${s.nom || ""} : infos personnelles reprises (ligne ${ligne}). Dates, salaire et heures inchangés.`);
-    } else montrerErreur(`La resynchronisation a échoué : ${r.erreur || "erreur inconnue"}`);
+    } else montrerErreur(messageErreurSheet(r.erreur));
   }
   // Transfert vers un autre établissement (ex : salarié mal onboardé sur PABLO SAINT BARTH
   // au lieu de CREAM, ou vraie mutation interne) : garde l'historique intact sur l'ancien

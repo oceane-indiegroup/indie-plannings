@@ -174,6 +174,9 @@ const CHAMPS_SHEET: { cle: string; test: (h: string) => boolean }[] = [
 // pas d'un contrat à l'autre). Un même salarié a souvent plusieurs contrats — dans l'année,
 // dans la même société ou dans une autre — donc ces champs-là ne doivent jamais être
 // recopiés "au hasard" depuis le Sheet : ils appartiennent à UN contrat précis.
+const CHAMPS_CONTRAT_DATE = ["date_debut", "date_fin", "date_fin_periode_essai", "date_prolongation_fin"];
+// Colonnes NUMERIC/INTEGER en base : le Sheet les contient en texte libre.
+const CHAMPS_CONTRAT_NOMBRE = ["salaire_net", "salaire_brut", "heures_contrat", "heures_sup", "periode_essai_jours"];
 const CHAMPS_CONTRAT = [
   "date_debut", "date_fin", "salaire_net", "salaire_brut", "heures_contrat", "heures_sup",
   "type_contrat", "periode_essai_jours", "date_fin_periode_essai", "date_prolongation_fin",
@@ -1370,12 +1373,23 @@ Deno.serve(async (req: Request) => {
           // un mélange des deux, invisible et faux pour la paie (cas Benjamin Cespites,
           // 29/10/2026).
           if (avecContrat) {
+            // Chaque valeur est convertie selon le TYPE de la colonne en base, jamais
+            // recopiée telle quelle : le Sheet contient des nombres à virgule française
+            // ("2324,78"), des heures écrites "39H" et des dates en JJ/MM/AAAA. Envoyés
+            // bruts, ils font échouer toute la mise à jour avec une erreur Postgres
+            // incompréhensible (22P02, vu le 29/10/2026 sur Benjamin Cespites). Une valeur
+            // illisible est ignorée plutôt que de faire échouer le reste.
             CHAMPS_CONTRAT.forEach((cle) => {
               const v = valeurPourLigne(nv, cle);
-              if (v !== null && v !== "") {
-                patch[cle] = (cle === "date_debut" || cle === "date_fin" || cle === "date_fin_periode_essai" || cle === "date_prolongation_fin")
-                  ? versDateISO(v)
-                  : v;
+              if (v === null || v === "") return;
+              if (CHAMPS_CONTRAT_DATE.includes(cle)) {
+                const d = versDateISOouNull(v);
+                if (d !== null) patch[cle] = d;
+              } else if (CHAMPS_CONTRAT_NOMBRE.includes(cle)) {
+                const n = versNombreOuNull(v);
+                if (n !== null) patch[cle] = cle === "periode_essai_jours" ? Math.round(n) : n;
+              } else {
+                patch[cle] = v;
               }
             });
           }
