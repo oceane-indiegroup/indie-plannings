@@ -170,6 +170,66 @@ const CHAMPS_SHEET: { cle: string; test: (h: string) => boolean }[] = [
   { cle: "contact_urgence", test: (h) => h.includes("contacter") && h.includes("urgence") },
 ];
 
+// Champs qui décrivent LE CONTRAT (par opposition aux infos personnelles, qui ne changent
+// pas d'un contrat à l'autre). Un même salarié a souvent plusieurs contrats — dans l'année,
+// dans la même société ou dans une autre — donc ces champs-là ne doivent jamais être
+// recopiés "au hasard" depuis le Sheet : ils appartiennent à UN contrat précis.
+const CHAMPS_CONTRAT = [
+  "date_debut", "date_fin", "salaire_net", "salaire_brut", "heures_contrat", "heures_sup",
+  "type_contrat", "periode_essai_jours", "date_fin_periode_essai", "date_prolongation_fin",
+  "niveau", "echelon", "loge", "vehicule", "unite",
+];
+
+// Horodateur du Sheet ("05/10/2026 20:49:36") -> nombre comparable. Sert à classer les
+// contrats d'une personne du plus récent au plus ancien, SANS se fier à leur position dans
+// la feuille : les lignes ont été triées/réorganisées par le passé, donc "la dernière ligne
+// trouvée" n'est pas "la plus récente".
+function horodateurVersNombre(v: string): number {
+  const m = (v || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return 0;
+  return Date.UTC(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+}
+
+// Toutes les lignes du Sheet qui concernent CETTE personne dans CET établissement, avec de
+// quoi les distinguer à l'oeil (période, poste, salaire). Classées du contrat le plus récent
+// au plus ancien. C'est ce que l'appli affiche pour qu'Océane choisisse de quel contrat on
+// parle, au lieu que le serveur devine.
+function candidatsSheet(
+  grille: string[][],
+  entetes: string[],
+  fiche: { resto: string; nom: string; prenom: string },
+): { ligne: number; horodateur: string; unite: string; poste: string; date_debut: string; date_fin: string; salaire_net: string; heures_contrat: string; type_contrat: string }[] {
+  const colIndex = colonneIndex(entetes);
+  const val = (r: string[], cle: string): string => {
+    const i = colIndex[cle];
+    return i === undefined ? "" : (r[i] ?? "").toString().trim();
+  };
+  const nomN = normaliser(fiche.nom);
+  const prenomN = normaliser(fiche.prenom);
+  const restoN = normaliser(fiche.resto);
+  const out = [];
+  for (let i = 1; i < grille.length; i++) {
+    const r = grille[i] || [];
+    const resto = val(r, "resto"), nom = val(r, "nom"), prenom = val(r, "prenom");
+    if (!resto || !nom || !prenom) continue;
+    if (normaliser(resto) !== restoN) continue;
+    if (normaliser(nom) !== nomN || normaliser(prenom) !== prenomN) continue;
+    out.push({
+      ligne: i + 1, // 1-indexé, comme sheet_ligne
+      horodateur: val(r, "__horodateur") || (r[0] ?? "").toString().trim(),
+      unite: val(r, "unite"),
+      poste: val(r, "poste"),
+      date_debut: val(r, "date_debut"),
+      date_fin: val(r, "date_fin"),
+      salaire_net: val(r, "salaire_net"),
+      heures_contrat: val(r, "heures_contrat"),
+      type_contrat: val(r, "type_contrat"),
+    });
+  }
+  out.sort((a, b) => horodateurVersNombre(b.horodateur) - horodateurVersNombre(a.horodateur));
+  return out;
+}
+
 function indexVersLettre(i: number): string {
   let s = "";
   let n = i + 1;
@@ -1227,12 +1287,36 @@ Deno.serve(async (req: Request) => {
     // vécus par le passé). Si aucune ligne du Sheet ne correspond, lève quand même le badge
     // (mieux vaut un badge levé sans infos complémentaires que de rester bloqué). Réservé au
     // superviseur.
-    if (action === "confirmerFiche") {
+    // ---- Liste les contrats du Sheet qui correspondent à une fiche, pour qu'Océane
+    // choisisse DUQUEL on parle avant toute recopie. Un salarié saisonnier a couramment
+    // plusieurs contrats sur la même année et parfois dans plusieurs établissements :
+    // deviner à sa place, c'est mélanger un ancien contrat avec un nouveau. Lecture seule. ----
+    if (action === "lignesSheetPour") {
       const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
       if (!appelant) return json({ error: "non_authentifie" }, 401);
       if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
 
       const { id } = corps;
+      if (!id) return json({ error: "champs_manquants" }, 400);
+      const fRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${id}&select=id,resto,nom,prenom`, {
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+      });
+      if (!fRes.ok) return json({ error: "lecture_echouee", detail: await fRes.text() }, 500);
+      const fs = await fRes.json();
+      if (fs.length === 0) return json({ error: "fiche_introuvable" }, 404);
+
+      const jeton = await jetonAcces();
+      const grille = await lireFeuille(jeton);
+      const entetes = grille[0] || [];
+      return json({ ok: true, contrats: candidatsSheet(grille, entetes, fs[0]) });
+    }
+
+    if (action === "confirmerFiche") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      if (!(await verifierSuperviseur(appelant.id))) return json({ error: "acces_refuse" }, 403);
+
+      const { id, ligne: ligneImposee, avecContrat } = corps;
       if (!id) return json({ error: "champs_manquants" }, 400);
 
       const ficheRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${id}&select=id,resto,nom,prenom`, {
@@ -1256,20 +1340,21 @@ Deno.serve(async (req: Request) => {
           }
           return null;
         }
-        const nomN = normaliser(fiche.nom);
-        const prenomN = normaliser(fiche.prenom);
+        // Ligne imposée par Océane (elle a choisi le contrat dans l'appli) : on l'utilise
+        // telle quelle, après avoir vérifié qu'elle concerne bien cette personne — sinon une
+        // ligne saisie par erreur recopierait les infos de quelqu'un d'autre sur la fiche.
+        const candidats = candidatsSheet(grille, entetes, fiche);
         let meilleureLigne = -1;
-        for (let i = 1; i < grille.length; i++) {
-          const nv: Record<string, string> = {};
-          entetes.forEach((h, j) => { nv[h] = grille[i][j] ?? ""; });
-          const resto = valeurPourLigne(nv, "resto");
-          const nom = valeurPourLigne(nv, "nom");
-          const prenom = valeurPourLigne(nv, "prenom");
-          if (!resto || !nom || !prenom) continue;
-          if (normaliser(resto) !== normaliser(fiche.resto)) continue;
-          if (normaliser(nom) !== nomN || normaliser(prenom) !== prenomN) continue;
-          meilleureLigne = i; // garde la DERNIÈRE correspondance : le Sheet est chronologique,
-          // donc la plus récente réponse pour cette personne à cet établissement.
+        if (ligneImposee) {
+          const choisi = candidats.find((c) => c.ligne === ligneImposee);
+          if (!choisi) return json({ error: "ligne_ne_correspond_pas" }, 400);
+          meilleureLigne = ligneImposee - 1;
+        } else if (candidats.length > 0) {
+          // Plus aucun "on prend la dernière ligne du Sheet" : le Sheet n'est PAS toujours
+          // chronologique (lignes triées ou réorganisées), et la dernière correspondance
+          // pouvait donc être le contrat le PLUS ANCIEN de la personne. On classe par
+          // horodateur réel, le plus récent d'abord (voir candidatsSheet).
+          meilleureLigne = candidats[0].ligne - 1;
         }
         if (meilleureLigne !== -1) {
           trouve = true;
@@ -1279,6 +1364,21 @@ Deno.serve(async (req: Request) => {
             const v = valeurPourLigne(nv, cle);
             if (v !== null) patch[cle] = cle === "date_naissance" ? versDateISO(v) : v;
           });
+          // Dates, salaire et heures : recopiés UNIQUEMENT si Océane l'a demandé explicitement
+          // (case cochée dans l'appli). Sans ça, une fiche pouvait se retrouver reliée à la
+          // ligne du NOUVEAU contrat tout en gardant les dates et le salaire de l'ANCIEN —
+          // un mélange des deux, invisible et faux pour la paie (cas Benjamin Cespites,
+          // 29/10/2026).
+          if (avecContrat) {
+            CHAMPS_CONTRAT.forEach((cle) => {
+              const v = valeurPourLigne(nv, cle);
+              if (v !== null && v !== "") {
+                patch[cle] = (cle === "date_debut" || cle === "date_fin" || cle === "date_fin_periode_essai" || cle === "date_prolongation_fin")
+                  ? versDateISO(v)
+                  : v;
+              }
+            });
+          }
           const mutuelleVal = valeurPourLigne(nv, "mutuelle");
           if (mutuelleVal !== null) patch.mutuelle = normaliser(mutuelleVal).startsWith("oui");
           patch.sheet_ligne = meilleureLigne + 1;

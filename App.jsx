@@ -533,8 +533,23 @@ const RhSheetSync = {
   // Confirme UNE SEULE fiche provisoire (va chercher sa ligne dans le Sheet pour ses infos
   // personnelles, sans toucher à aucune autre fiche) — voir "confirmerOnboarding" dans
   // ManagerView. Réservé au superviseur.
-  async confirmerFiche(id) {
-    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "confirmerFiche", id } });
+  async confirmerFiche(id, options = {}) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", {
+      body: { action: "confirmerFiche", id, ligne: options.ligne, avecContrat: !!options.avecContrat },
+    });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
+  // Tous les contrats du Sheet correspondant à une fiche (même personne, même établissement),
+  // du plus récent au plus ancien. Sert à faire CHOISIR le contrat à Océane plutôt qu'à le
+  // deviner : un saisonnier a souvent plusieurs contrats la même année. Réservé au superviseur.
+  async lignesSheetPour(id) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "lignesSheetPour", id } });
     if (error) {
       let detail = error.message;
       try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
@@ -4763,6 +4778,131 @@ function ArchiverVersModal({ saisons, onValider, onClose }) {
 }
 
 // ---------- Liste des salariés RH d'un établissement + unité ----------
+// ---------- Fenêtre « De quel contrat parle-t-on ? » (superviseur) ----------
+// Affiche TOUTES les lignes du Sheet trouvées pour cette personne dans cet établissement,
+// de la plus récente à la plus ancienne, et met en face ce que contient la fiche aujourd'hui.
+// Objectif : qu'il soit impossible de recopier par erreur un ancien contrat sur une fiche
+// qui décrit le nouveau — ou l'inverse.
+function ChoixContratSheetModal({ salarie, contrats, onAppliquer, onClose }) {
+  const [ligne, setLigne] = useState(contrats[0] ? contrats[0].ligne : null);
+  const [avecContrat, setAvecContrat] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const choisi = contrats.find((c) => c.ligne === ligne) || null;
+
+  // Les dates du Sheet sont en JJ/MM/AAAA, celles de la fiche en AAAA-MM-JJ : on compare
+  // toujours au format français, sinon tout paraît différent alors que c'est la même date.
+  function frDate(v) {
+    if (!v) return "—";
+    const t = v.toString().trim();
+    const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+    return t;
+  }
+  const comparaison = choisi ? [
+    { label: "Unité", avant: salarie.unite || "—", apres: choisi.unite || "—", contrat: true },
+    { label: "Poste", avant: salarie.poste || "—", apres: choisi.poste || "—", contrat: false },
+    { label: "Début de contrat", avant: frDate(salarie.date_debut), apres: frDate(choisi.date_debut), contrat: true },
+    { label: "Fin de contrat", avant: frDate(salarie.date_fin), apres: frDate(choisi.date_fin), contrat: true },
+    { label: "Salaire net", avant: salarie.salaire_net || "—", apres: choisi.salaire_net || "—", contrat: true },
+    { label: "Heures/semaine", avant: salarie.heures_contrat || "—", apres: choisi.heures_contrat || "—", contrat: true },
+    { label: "Type de contrat", avant: salarie.type_contrat || "—", apres: choisi.type_contrat || "—", contrat: true },
+  ] : [];
+  // Une fin de contrat antérieure au début = saisie fausse dans le Sheet : on prévient avant
+  // de la recopier en base (et donc avant qu'elle parte dans un contrat ou dans la paie).
+  function incoherent(c) {
+    if (!c || !c.date_debut || !c.date_fin) return false;
+    const toIso = (v) => { const m = v.toString().trim().match(/^(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : v; };
+    return toIso(c.date_fin) < toIso(c.date_debut);
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:780}}>
+        <h3>De quel contrat parle-t-on ?</h3>
+        <div className="ig-muted" style={{marginBottom:12}}>
+          {salarie.prenom} {salarie.nom} — {contrats.length > 1
+            ? `${contrats.length} contrats trouvés dans le Sheet pour cet établissement. Choisissez celui qui correspond à la fiche.`
+            : "Un seul contrat trouvé dans le Sheet. Vérifiez qu'il s'agit bien du bon avant de recopier."}
+        </div>
+
+        <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16,maxHeight:230,overflowY:'auto'}}>
+          {contrats.map((c) => (
+            <label key={c.ligne} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'10px 12px',border:'1.5px solid '+(c.ligne===ligne?'var(--ink)':'var(--line)'),borderRadius:10,cursor:'pointer',background:c.ligne===ligne?'rgba(0,0,0,.03)':'transparent'}}>
+              <input type="radio" name="contrat-sheet" checked={c.ligne===ligne} onChange={()=>setLigne(c.ligne)} style={{marginTop:3}} />
+              <span style={{flex:1}}>
+                <span style={{fontWeight:700,fontSize:14.5}}>
+                  {frDate(c.date_debut)} → {frDate(c.date_fin)}
+                </span>
+                <span className="ig-muted" style={{display:'block',fontSize:12.5,marginTop:2}}>
+                  {c.poste || "poste non précisé"} · {c.unite || "unité ?"} · {c.salaire_net ? c.salaire_net + " € net" : "salaire ?"} · {c.heures_contrat ? c.heures_contrat + " h" : "heures ?"}
+                </span>
+                <span className="ig-muted" style={{display:'block',fontSize:11.5,marginTop:2}}>
+                  Ligne {c.ligne} du Sheet · réponse du {c.horodateur || "date inconnue"}
+                </span>
+                {incoherent(c) && (
+                  <span style={{display:'block',color:'var(--coral-d)',fontSize:12,fontWeight:700,marginTop:4}}>
+                    ⚠ La date de fin est antérieure à la date de début — à corriger dans le Sheet.
+                  </span>
+                )}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {choisi && (
+          <>
+            <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>Ce que ça changerait sur la fiche</div>
+            <div style={{border:'1.5px solid var(--line)',borderRadius:10,overflow:'hidden',marginBottom:14}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{background:'rgba(0,0,0,.04)'}}>
+                    <th style={{textAlign:'left',padding:'6px 10px'}}>Champ</th>
+                    <th style={{textAlign:'left',padding:'6px 10px'}}>Fiche actuelle</th>
+                    <th style={{textAlign:'left',padding:'6px 10px'}}>Ligne choisie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparaison.map((r) => {
+                    const differe = String(r.avant) !== String(r.apres);
+                    const applique = r.contrat ? avecContrat : true;
+                    return (
+                      <tr key={r.label} style={{borderTop:'1px solid var(--line)'}}>
+                        <td style={{padding:'6px 10px'}}>{r.label}{r.contrat && <span className="ig-muted" style={{fontSize:11}}> (contrat)</span>}</td>
+                        <td style={{padding:'6px 10px'}}>{r.avant}</td>
+                        <td style={{padding:'6px 10px',fontWeight:differe?700:400,color:differe?(applique?'var(--coral-d)':'var(--muted)'):'inherit'}}>
+                          {r.apres}{differe && !applique ? " (non repris)" : ""}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <label style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:14}}>
+              <input type="checkbox" checked={avecContrat} onChange={(e)=>setAvecContrat(e.target.checked)} style={{marginTop:3}} />
+              <span style={{fontSize:13.5}}>
+                <b>Reprendre aussi les dates, le salaire et les heures de ce contrat.</b>
+                <span className="ig-muted" style={{display:'block',fontSize:12.5,marginTop:2}}>
+                  Sans cette case, seules les infos personnelles (adresse, sécu, IBAN, téléphone, e-mail, poste) sont recopiées — la fiche garde ses dates et son salaire actuels. Ces champs partent en paie : ne cochez que si la ligne choisie est bien le contrat en cours.
+                </span>
+              </span>
+            </label>
+          </>
+        )}
+
+        <div style={{display:'flex',gap:10}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} disabled={!choisi || busy}
+            onClick={async ()=>{ setBusy(true); await onAppliquer(salarie, ligne, avecContrat); setBusy(false); }}>
+            {busy ? "Application…" : "Appliquer ce contrat"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   const [liste, setListe] = useState(null);
   const [ajout, setAjout] = useState(false);
@@ -4781,6 +4921,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   const [archiverModal, setArchiverModal] = useState(false);
   const [docDemande, setDocDemande] = useState(null); // { doc, salarie, etabJ } : document RH en cours de génération/envoi (voir DocumentRHModal)
   const [choixDocPour, setChoixDocPour] = useState(null); // salarié pour qui on choisit quel document générer (voir ChoixDocumentRHModal)
+  const [choixContrat, setChoixContrat] = useState(null); // { salarie, contrats } — de quel contrat du Sheet on parle (voir ChoixContratSheetModal)
   // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
   // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
   // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
@@ -4853,17 +4994,32 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   // ONBOARDING" en plus) que sur une fiche déjà confirmée dont un champ serait resté vide (ex:
   // Vito Riccardi — badge déjà levé via un rattrapage en masse, mais email jamais recopié,
   // sans bouton "Confirmer" pour s'en sortir puisqu'il n'était plus provisoire).
+  // Ne recopie plus jamais "la" ligne du Sheet devinée par le serveur : demande d'abord DE
+  // QUEL CONTRAT on parle. Un saisonnier a couramment plusieurs contrats la même année, dans
+  // le même établissement ou ailleurs, et la feuille n'est pas rangée par date : la
+  // "dernière ligne trouvée" pouvait donc être le contrat le PLUS ANCIEN (cas Benjamin
+  // Cespites, 29/10/2026 : fiche reliée au nouveau contrat mais gardant les dates et le
+  // salaire de l'ancien). Même avec un seul contrat, la fenêtre s'ouvre : on voit ce qui va
+  // changer avant de valider.
   async function confirmerOnboarding(s) {
-    const message = s.provisoire
-      ? `Confirmer que ${s.prenom || ""} ${s.nom || ""} a bien réellement onboardé (vraie réponse au Form) ? Le badge "PAS ONBOARDING" sera retiré, et ses infos personnelles seront complétées depuis sa ligne du Sheet si elle est retrouvée.`
-      : `Recopier les infos personnelles de ${s.prenom || ""} ${s.nom || ""} depuis sa ligne du Sheet (adresse, sécu, IBAN, email...) ?`;
-    if (!confirm(message)) return;
-    const r = await RhSheetSync.confirmerFiche(s.id);
+    const r = await RhSheetSync.lignesSheetPour(s.id);
+    if (!r.ok) { montrerErreur(`Impossible de lire le Sheet : ${r.erreur || "erreur inconnue"}`); return; }
+    if (!r.contrats || r.contrats.length === 0) {
+      montrerErreur(`Aucune ligne du Sheet ne correspond à ${s.prenom || ""} ${s.nom || ""} sur ${resto}. Vérifiez l'orthographe du nom dans le Sheet.`);
+      return;
+    }
+    setChoixContrat({ salarie: s, contrats: r.contrats });
+  }
+  // Applique le contrat choisi. "avecContrat" : recopier AUSSI dates, salaire et heures —
+  // jamais coché par défaut, ces champs-là partent en paie.
+  async function appliquerContratSheet(s, ligne, avecContrat) {
+    const r = await RhSheetSync.confirmerFiche(s.id, { ligne, avecContrat });
     if (r.ok) {
       setListe(liste.map((x) => (x.id === r.fiche.id ? r.fiche : x)));
-      montrerFlash(r.trouve
-        ? `Infos de ${s.prenom || ""} ${s.nom || ""} recopiées depuis le Sheet.`
-        : `Sa ligne n'a pas été retrouvée dans le Sheet — infos personnelles à compléter à la main si besoin.`);
+      setChoixContrat(null);
+      montrerFlash(avecContrat
+        ? `${s.prenom || ""} ${s.nom || ""} : infos et contrat de la ligne ${ligne} repris depuis le Sheet.`
+        : `${s.prenom || ""} ${s.nom || ""} : infos personnelles reprises (ligne ${ligne}). Dates, salaire et heures inchangés.`);
     } else montrerErreur(`La resynchronisation a échoué : ${r.erreur || "erreur inconnue"}`);
   }
   // Transfert vers un autre établissement (ex : salarié mal onboardé sur PABLO SAINT BARTH
@@ -5164,6 +5320,14 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
             </tbody>
           </table>
         </div>
+      )}
+      {choixContrat && (
+        <ChoixContratSheetModal
+          salarie={choixContrat.salarie}
+          contrats={choixContrat.contrats}
+          onAppliquer={appliquerContratSheet}
+          onClose={()=>setChoixContrat(null)}
+        />
       )}
       {ajout && <RhSalarieModal resto={resto} unite={unite} superviseur={superviseur} onSave={creer} onClose={()=>setAjout(false)} />}
       {edition && <RhSalarieModal resto={resto} unite={unite} salarie={edition} superviseur={superviseur} onSave={modifier} onClose={()=>setEdition(null)} />}
