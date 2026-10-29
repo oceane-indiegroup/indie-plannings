@@ -134,6 +134,38 @@ function normTxt(s) {
     .replace(/\s+/g, " ")
     .trim();
 }
+// Garde-fou sur les dates saisies. Une date de contrat hors 2015–2030 est forcément une
+// faute de frappe (« 0202 », « 2002 », une année à deux chiffres mal interprétée) : laissée
+// passer, elle part dans la base, dans le Sheet, puis dans un contrat généré par Make, et
+// fabrique au passage des saisons fantaisistes. La date de naissance a sa propre plage,
+// évidemment différente. Renvoie null si la valeur est acceptable, sinon le message à
+// afficher.
+const ANNEE_CONTRAT_MIN = 2015, ANNEE_CONTRAT_MAX = 2030;
+const CHAMPS_DATE_CONTRAT = new Set(["date_debut", "date_fin", "date_fin_periode_essai", "date_prolongation_fin"]);
+function erreurDate(cle, valeur) {
+  if (!valeur) return null; // une date vide est toujours permise (champ non renseigné)
+  const m = String(valeur).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return "Date incomplète ou mal formée.";
+  const annee = Number(m[1]);
+  if (CHAMPS_DATE_CONTRAT.has(cle)) {
+    if (annee < ANNEE_CONTRAT_MIN || annee > ANNEE_CONTRAT_MAX) {
+      return `Année ${annee} impossible pour une date de contrat : attendu entre ${ANNEE_CONTRAT_MIN} et ${ANNEE_CONTRAT_MAX}. Vérifiez la saisie.`;
+    }
+  }
+  if (cle === "date_naissance") {
+    const limite = new Date().getFullYear();
+    if (annee < 1900 || annee > limite) return `Année de naissance ${annee} impossible.`;
+  }
+  return null;
+}
+// Cohérence entre deux dates du même contrat : une fin avant le début est une saisie fausse,
+// même si chaque date prise séparément est plausible (vu sur la ligne 52 du Sheet, où une
+// fin au 31/03/2026 suivait un début au 22/10/2026).
+function erreurCoherenceDates(fiche) {
+  const d = fiche.date_debut, f = fiche.date_fin;
+  if (d && f && String(f) < String(d)) return "La date de fin de contrat est antérieure à la date de début.";
+  return null;
+}
 // Normalise un NOM ou un PRÉNOM pour la seule comparaison : en plus de normTxt (minuscules,
 // sans accents), tout ce qui n'est ni lettre ni chiffre devient un espace. Un salarié qui
 // tape « Jean-Baptiste » retrouve donc la fiche écrite « Jean Baptiste », « gomez-montes »
@@ -4437,13 +4469,22 @@ function RhSalarieModal({ resto, unite, salarie, superviseur, onSave, onClose })
     return (
       <div className="ig-field" key={c.cle}>
         <label>{c.label}</label>
-        <input type={c.type === "date" ? "date" : c.type === "number" ? "number" : "text"} value={valeur} onChange={(e)=>setF({ ...f, [c.cle]: c.type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value })} />
+        <input type={c.type === "date" ? "date" : c.type === "number" ? "number" : "text"}
+          {...(c.type === "date" && CHAMPS_DATE_CONTRAT.has(c.cle) ? { min: `${ANNEE_CONTRAT_MIN}-01-01`, max: `${ANNEE_CONTRAT_MAX}-12-31` } : {})}
+          value={valeur} onChange={(e)=>setF({ ...f, [c.cle]: c.type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value })} />
       </div>
     );
   }
 
   function valider() {
     if (!String(f.nom || "").trim() || !String(f.prenom || "").trim()) { setErr("Nom et prénom sont obligatoires."); return; }
+    for (const cle of Object.keys(f)) {
+      if (!cle.startsWith("date_")) continue;
+      const probleme = erreurDate(cle, f[cle]);
+      if (probleme) { setErr(probleme); return; }
+    }
+    const incoherence = erreurCoherenceDates(f);
+    if (incoherence) { setErr(incoherence); return; }
     const patch = { ...f };
     Object.keys(patch).forEach((k) => { if (patch[k] === "") patch[k] = null; });
     onSave(patch);
@@ -5112,6 +5153,20 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   async function sauverCellule(id, cle, valeur) {
     if (cle === 'nom' && typeof valeur === 'string') valeur = nettoyerNom(valeur);
     if (cle === 'prenom' && typeof valeur === 'string') valeur = nettoyerPrenom(valeur);
+    // Date refusée : on ne sauvegarde pas, et on remet la valeur d'avant dans la case pour
+    // que l'écran ne montre jamais une donnée que la base n'a pas.
+    const probleme = erreurDate(cle, valeur);
+    if (probleme) {
+      const avant = (liste || []).find((x) => x.id === id);
+      majCellule(id, cle, avant ? avant[cle] : null);
+      montrerErreur(probleme);
+      return;
+    }
+    if (cle === 'date_debut' || cle === 'date_fin') {
+      const fiche = (liste || []).find((x) => x.id === id);
+      const incoherence = erreurCoherenceDates({ ...(fiche || {}), [cle]: valeur });
+      if (incoherence) { montrerErreur(incoherence + " Corrigez l'une des deux."); }
+    }
     majCellule(id, cle, valeur);
     const maj = await RhSalaries.maj(id, { [cle]: valeur }, (erreurSync) => {
       montrerErreur(`Case enregistrée dans l'appli, mais la copie vers le Google Sheet a échoué (${erreurSync || "erreur inconnue"}). Le Sheet n'est pas à jour pour cette case — réessayez, ou corrigez directement dans le Sheet.`);
@@ -5306,13 +5361,13 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.telephone || ""} style={{width:135,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'telephone', e.target.value)} onBlur={()=>sauverCellule(s.id,'telephone', s.telephone)} /></td>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.email || ""} style={{width:270,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'email', e.target.value)} onBlur={()=>sauverCellule(s.id,'email', s.email)} /></td>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.poste || ""} style={{width:190,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'poste', e.target.value)} onBlur={()=>sauverCellule(s.id,'poste', s.poste)} /></td>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_debut || ""} style={{width:145,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'date_debut', e.target.value || null)} onBlur={()=>sauverCellule(s.id,'date_debut', s.date_debut)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" min={`${ANNEE_CONTRAT_MIN}-01-01`} max={`${ANNEE_CONTRAT_MAX}-12-31`} value={s.date_debut || ""} style={{width:145,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'date_debut', e.target.value || null)} onBlur={()=>sauverCellule(s.id,'date_debut', s.date_debut)} /></td>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="number" value={s.salaire_net ?? ""} style={{width:90,fontSize:15,fontWeight:800,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'salaire_net', e.target.value===""?null:Number(e.target.value))} onBlur={()=>sauverCellule(s.id,'salaire_net', s.salaire_net)} /></td>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_fin || ""} style={{width:145,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'date_fin', e.target.value || null)} onBlur={()=>sauverCellule(s.id,'date_fin', s.date_fin)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" min={`${ANNEE_CONTRAT_MIN}-01-01`} max={`${ANNEE_CONTRAT_MAX}-12-31`} value={s.date_fin || ""} style={{width:145,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'date_fin', e.target.value || null)} onBlur={()=>sauverCellule(s.id,'date_fin', s.date_fin)} /></td>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.loge || ""} style={{width:90,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'loge', e.target.value)} onBlur={()=>sauverCellule(s.id,'loge', s.loge)} /></td>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_prolongation_fin || ""} style={{width:125,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'date_prolongation_fin', e.target.value || null)} onBlur={()=>sauverCellule(s.id,'date_prolongation_fin', s.date_prolongation_fin)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" min={`${ANNEE_CONTRAT_MIN}-01-01`} max={`${ANNEE_CONTRAT_MAX}-12-31`} value={s.date_prolongation_fin || ""} style={{width:125,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'date_prolongation_fin', e.target.value || null)} onBlur={()=>sauverCellule(s.id,'date_prolongation_fin', s.date_prolongation_fin)} /></td>
                   <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" value={s.vehicule || ""} style={{width:70,textAlign:'center'}} onChange={(e)=>majCellule(s.id,'vehicule', e.target.value)} onBlur={()=>sauverCellule(s.id,'vehicule', s.vehicule)} /></td>
-                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" value={s.date_fin_periode_essai || ""} style={{width:150,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'date_fin_periode_essai', e.target.value || null)} onBlur={()=>sauverCellule(s.id,'date_fin_periode_essai', s.date_fin_periode_essai)} /></td>
+                  <td style={{padding:'4px 6px',textAlign:'center'}}><input className="ig-cell" type="date" min={`${ANNEE_CONTRAT_MIN}-01-01`} max={`${ANNEE_CONTRAT_MAX}-12-31`} value={s.date_fin_periode_essai || ""} style={{width:150,fontSize:14.5,fontWeight:700,color:'var(--ink)',textAlign:'center'}} onChange={(e)=>majCellule(s.id,'date_fin_periode_essai', e.target.value || null)} onBlur={()=>sauverCellule(s.id,'date_fin_periode_essai', s.date_fin_periode_essai)} /></td>
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
