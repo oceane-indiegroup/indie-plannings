@@ -5163,6 +5163,11 @@ function ChoixContratSheetModal({ salarie, contrats, onAppliquer, onClose }) {
                 <span className="ig-muted" style={{display:'block',fontSize:11.5,marginTop:2}}>
                   Ligne {c.ligne} du Sheet · réponse du {c.horodateur || "date inconnue"}
                 </span>
+                {c.parCode && (
+                  <span style={{display:'inline-block',marginTop:4,padding:'1px 7px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:10.5,letterSpacing:'.3px'}}>
+                    LIEN PERSONNEL — c'est bien cette personne
+                  </span>
+                )}
                 {incoherent(c) && (
                   <span style={{display:'block',color:'var(--coral-d)',fontSize:12,fontWeight:700,marginTop:4}}>
                     ⚠ La date de fin est antérieure à la date de début — à corriger dans le Sheet.
@@ -5341,7 +5346,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
     const r = await RhSheetSync.lignesSheetPour(s.id);
     if (!r.ok) { montrerErreur(`Impossible de lire le Sheet : ${r.erreur || "erreur inconnue"}`); return; }
     if (!r.contrats || r.contrats.length === 0) {
-      montrerErreur(`Aucune ligne du Sheet ne correspond à ${s.prenom || ""} ${s.nom || ""} sur ${resto}. Vérifiez l'orthographe du nom dans le Sheet.`);
+      montrerErreur(`Aucune ligne du Sheet ne correspond à ${s.prenom || ""} ${s.nom || ""} sur ${resto} : ni par son lien personnel, ni par son nom. Soit la personne n'a pas encore rempli le formulaire, soit son nom y est écrit tout autrement.`);
       return;
     }
     setChoixContrat({ salarie: s, contrats: r.contrats });

@@ -211,7 +211,8 @@ function candidatsSheet(
   grille: string[][],
   entetes: string[],
   fiche: { resto: string; nom: string; prenom: string },
-): { ligne: number; horodateur: string; unite: string; poste: string; date_debut: string; date_fin: string; salaire_net: string; heures_contrat: string; type_contrat: string }[] {
+  codeAttendu?: string,
+): { ligne: number; horodateur: string; unite: string; poste: string; date_debut: string; date_fin: string; salaire_net: string; heures_contrat: string; type_contrat: string; parCode: boolean }[] {
   const colIndex = colonneIndex(entetes);
   const val = (r: string[], cle: string): string => {
     const i = colIndex[cle];
@@ -224,10 +225,17 @@ function candidatsSheet(
   for (let i = 1; i < grille.length; i++) {
     const r = grille[i] || [];
     const resto = val(r, "resto"), nom = val(r, "nom"), prenom = val(r, "prenom");
-    if (!resto || !nom || !prenom) continue;
-    if (normaliser(resto) !== restoN) continue;
-    if (normaliser(nom) !== nomN || normaliser(prenom) !== prenomN) continue;
+    // Le code dossier l'emporte sur le nom : c'est le lien personnel envoyé à cette
+    // personne, donc la ligne lui appartient même si l'orthographe du directeur et celle
+    // du salarié diffèrent — ce qui est précisément le cas qu'on cherche à traiter.
+    const parCode = !!codeAttendu && val(r, "code_dossier").trim().toUpperCase() === codeAttendu.toUpperCase();
+    if (!parCode) {
+      if (!resto || !nom || !prenom) continue;
+      if (normaliser(resto) !== restoN) continue;
+      if (normaliser(nom) !== nomN || normaliser(prenom) !== prenomN) continue;
+    }
     out.push({
+      parCode,
       ligne: i + 1, // 1-indexé, comme sheet_ligne
       horodateur: val(r, "__horodateur") || (r[0] ?? "").toString().trim(),
       unite: val(r, "unite"),
@@ -239,7 +247,7 @@ function candidatsSheet(
       type_contrat: val(r, "type_contrat"),
     });
   }
-  out.sort((a, b) => horodateurVersNombre(b.horodateur) - horodateurVersNombre(a.horodateur));
+  out.sort((a, b) => (Number(b.parCode) - Number(a.parCode)) || (horodateurVersNombre(b.horodateur) - horodateurVersNombre(a.horodateur)));
   return out;
 }
 
@@ -1369,7 +1377,7 @@ Deno.serve(async (req: Request) => {
       const jeton = await jetonAcces();
       const grille = await lireFeuille(jeton);
       const entetes = grille[0] || [];
-      return json({ ok: true, contrats: candidatsSheet(grille, entetes, fs[0]) });
+      return json({ ok: true, contrats: candidatsSheet(grille, entetes, fs[0], await codeOnboarding(fs[0].id)) });
     }
 
     if (action === "confirmerFiche") {
@@ -1404,7 +1412,7 @@ Deno.serve(async (req: Request) => {
         // Ligne imposée par Océane (elle a choisi le contrat dans l'appli) : on l'utilise
         // telle quelle, après avoir vérifié qu'elle concerne bien cette personne — sinon une
         // ligne saisie par erreur recopierait les infos de quelqu'un d'autre sur la fiche.
-        const candidats = candidatsSheet(grille, entetes, fiche);
+        const candidats = candidatsSheet(grille, entetes, fiche, await codeOnboarding(fiche.id));
         let meilleureLigne = -1;
         if (ligneImposee) {
           const choisi = candidats.find((c) => c.ligne === ligneImposee);
