@@ -5374,8 +5374,19 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
     if (r.ok) {
       setListe(liste.map((x) => (x.id === r.fiche.id ? r.fiche : x)));
       setChoixContrat(null);
+      // Une fiche encore « provisoire » n'écrit jamais dans le Sheet (sinon elle y créerait
+      // une ligne quasi vide). Conséquence : tout ce que le directeur a saisi AVANT
+      // l'onboarding — dates, salaire, heures — n'était jamais remonté, et la ligne du Sheet
+      // gardait les valeurs du formulaire. On renvoie donc la fiche entière une fois qu'elle
+      // est confirmée, pour que les deux côtés disent enfin la même chose.
+      RhSheetSync.upsert({
+        resto: r.fiche.resto, unite: r.fiche.unite, nom: r.fiche.nom, prenom: r.fiche.prenom,
+        champs: r.fiche, ligneCible: r.fiche.sheet_ligne || undefined,
+      }).then((rs) => {
+        if (!rs?.ok) montrerErreur(`Fiche mise à jour, mais la recopie vers le Sheet a échoué (${rs?.erreur || "erreur inconnue"}). Le Sheet n'est pas à jour pour cette ligne.`);
+      });
       montrerFlash(avecContrat
-        ? `${s.prenom || ""} ${s.nom || ""} : infos et contrat de la ligne ${ligne} repris depuis le Sheet.`
+        ? `${s.prenom || ""} ${s.nom || ""} : infos et contrat de la ligne ${ligne} repris depuis le Sheet, et fiche renvoyée vers le Sheet.`
         : `${s.prenom || ""} ${s.nom || ""} : infos personnelles reprises (ligne ${ligne}). Dates, salaire et heures inchangés.`);
     } else montrerErreur(messageErreurSheet(r.erreur));
   }
