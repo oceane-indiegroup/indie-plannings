@@ -1989,10 +1989,24 @@ Deno.serve(async (req: Request) => {
 
       const data: { range: string; values: string[][] }[] = [];
       Object.keys(champs).forEach((cle) => {
+        if (cle === "code_dossier") return; // jamais piloté par l'appli : voir juste en dessous
         if (!(cle in colIndex)) return; // pas de colonne connue pour ce champ : on n'écrit rien
         const lettre = indexVersLettre(colIndex[cle]);
         data.push({ range: `'${SHEET_TAB}'!${lettre}${ligneCible}`, values: [[versDateSheet(cle, champs[cle])]] });
       });
+      // Marque la ligne avec le code dossier de la fiche si elle n'en a pas encore. Les
+      // lignes antérieures au lien personnel n'en portent pas : tant qu'elles en sont
+      // dépourvues, le rattachement repose sur le nom, qui peut changer ou être mal
+      // orthographié. En le posant à la première écriture, chaque ligne finit par porter une
+      // identité stable, insensible au tri comme aux corrections de nom.
+      // Un code DIFFÉRENT déjà présent n'est jamais écrasé : ce serait le signe que la ligne
+      // appartient à quelqu'un d'autre, et la vérification ci-dessus l'aurait déjà écartée.
+      if (codeFiche && codeCol !== undefined) {
+        const codeActuel = ((grille[ligneCible - 1] || [])[codeCol] || "").toString().trim();
+        if (!codeActuel) {
+          data.push({ range: `'${SHEET_TAB}'!${indexVersLettre(codeCol)}${ligneCible}`, values: [[codeFiche]] });
+        }
+      }
       // Toujours renseigner nom/prénom/établissement sur une ligne nouvellement créée.
       if (nouvelleLigne) {
         [["nom", nom], ["prenom", prenom], ["resto", resto]].forEach(([cle, val]) => {
