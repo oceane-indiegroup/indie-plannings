@@ -143,6 +143,10 @@ function normTxt(s) {
 const ANNEE_CONTRAT_MIN = 2015, ANNEE_CONTRAT_MAX = 2030;
 const CHAMPS_DATE_CONTRAT = new Set(["date_debut", "date_fin", "date_fin_periode_essai", "date_prolongation_fin"]);
 function erreurDate(cle, valeur) {
+  // Ne juger QUE les champs de date. Sans ce garde-fou, la règle s'appliquait à toutes les
+  // cases du registre : un salaire, un téléphone ou un poste déclenchait « Date incomplète
+  // ou mal formée » et la saisie était annulée (constaté le 02/11/2026).
+  if (!CHAMPS_DATE_CONTRAT.has(cle) && cle !== "date_naissance") return null;
   if (!valeur) return null; // une date vide est toujours permise (champ non renseigné)
   const m = String(valeur).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return "Date incomplète ou mal formée.";
