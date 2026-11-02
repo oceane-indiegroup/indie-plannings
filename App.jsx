@@ -4975,6 +4975,7 @@ function EnvoiOnboardingModal({ salarie, resto, config, onClose, onConfigManquan
     ? `Bonjour ${prenom},\n\nBienvenue chez Indie Group ! Pour préparer ton contrat à ${resto}, merci de remplir ton dossier d'embauche ici :\n${lien}\n\nCe lien t'est personnel, ne le transfère pas. Merci de ne pas modifier la case « Code dossier » en haut du formulaire.`
     : "";
   const numero = numeroWhatsApp(tel, indicatif);
+  const email = (salarie.email || "").trim();
   const dejaInternational = /^\s*(\+|00)/.test(tel || "");
 
   async function copier(txt) {
@@ -5031,16 +5032,29 @@ function EnvoiOnboardingModal({ salarie, resto, config, onClose, onConfigManquan
             <div style={{whiteSpace:'pre-wrap',fontSize:13,background:'rgba(0,0,0,.035)',border:'1px solid var(--line)',borderRadius:10,padding:'10px 12px',maxHeight:160,overflowY:'auto'}}>{message}</div>
 
             <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:14}}>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>copier(lien)}>{copie ? "Copié !" : "Copier le lien seul"}</button>
-              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>copier(message)}>Copier le message</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>copier(message)}>{copie ? "Copié !" : "Copier le message"}</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>copier(lien)}>Copier le lien seul</button>
             </div>
 
-            <div style={{display:'flex',gap:10,marginTop:16}}>
-              <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
-              <button className="ig-btn ig-btn-primary" style={{flex:1}} disabled={!numero}
+            {/* Trois chemins, parce que les directeurs travaillent sur ordinateur : WhatsApp
+                (application ou WhatsApp Web), e-mail, ou copier-coller là où ils veulent. */}
+            <div style={{display:'flex',gap:10,marginTop:16,flexWrap:'wrap'}}>
+              <button className="ig-btn ig-btn-ghost" style={{flex:'1 1 120px'}} onClick={onClose}>Fermer</button>
+              <button className="ig-btn ig-btn-ghost" style={{flex:'1 1 160px'}} disabled={!email}
+                title={email ? `Envoyer à ${email}` : "Aucune adresse e-mail sur la fiche"}
+                onClick={()=>{ window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("Ton dossier d'embauche — Indie Group")}&body=${encodeURIComponent(message)}`; }}>
+                ✉ Par e-mail
+              </button>
+              <button className="ig-btn ig-btn-primary" style={{flex:'1 1 160px'}} disabled={!numero}
                 onClick={()=>window.open(`https://wa.me/${numero}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer")}>
                 Ouvrir WhatsApp
               </button>
+            </div>
+            <div className="ig-muted" style={{fontSize:12,marginTop:10,lineHeight:1.5}}>
+              Sur ordinateur, WhatsApp s'ouvre dans le navigateur (WhatsApp Web) : il faut l'avoir
+              connecté une fois sur ce poste, en scannant le QR code depuis le téléphone. Sinon,
+              « Copier le message » fonctionne partout — WhatsApp sur le téléphone, SMS, e-mail.
+              {!email && " Aucune adresse e-mail n'est enregistrée sur cette fiche, d'où le bouton e-mail grisé."}
             </div>
           </>
         )}
