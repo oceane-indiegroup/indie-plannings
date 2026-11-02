@@ -550,10 +550,12 @@ const RhSheetSync = {
   // numéro mémorisé dans rh_salaries.sheet_ligne dès la première synchro réussie) -> écrit
   // directement dessus, sans recherche — évite qu'une recherche en échec silencieux (accent,
   // espace...) ne crée une nouvelle ligne quasi vide à chaque modification suivante.
-  async upsert({ resto, unite, nom, prenom, champs, ligneCible }) {
+  // "id" sert au serveur à recalculer le code dossier de la fiche, pour vérifier que la
+  // ligne visée dans le Sheet appartient bien à cette personne avant d'y écrire.
+  async upsert({ id, resto, unite, nom, prenom, champs, ligneCible }) {
     if (!resto || !nom || !prenom) return { ok: false, erreur: "champs_manquants" };
     const { data, error } = await supabase.functions.invoke("sheet-sync", {
-      body: { action: "upsertRow", resto, unite, nom, prenom, champs, ligneCible },
+      body: { action: "upsertRow", id, resto, unite, nom, prenom, champs, ligneCible },
     });
     if (error) {
       let detail = error.message;
@@ -793,7 +795,7 @@ const RhSalaries = {
       // Fire-and-forget (une fiche se crée même si le Sheet est indisponible), mais on
       // mémorise quand même la ligne dès qu'on la connaît, pour verrouiller les prochaines
       // synchros de cette fiche dessus (voir RhSheetSync.upsert).
-      RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data }).then((r) => {
+      RhSheetSync.upsert({ id: data.id, resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: data }).then((r) => {
         if (r?.ok && r.ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", data.id).then(() => {});
       });
     }
@@ -810,7 +812,7 @@ const RhSalaries = {
     // écrire dans le Sheet (même à sa première modification), sous peine d'y faire apparaître
     // la même ligne quasi vide, juste décalée de la création à la première édition.
     if (!data.provisoire) {
-      RhSheetSync.upsert({ resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch, ligneCible: data.sheet_ligne || undefined }).then((r) => {
+      RhSheetSync.upsert({ id: data.id, resto: data.resto, unite: data.unite, nom: data.nom, prenom: data.prenom, champs: patch, ligneCible: data.sheet_ligne || undefined }).then((r) => {
         if (r?.ok && r.ligne && r.ligne !== data.sheet_ligne) supabase.from("rh_salaries").update({ sheet_ligne: r.ligne }).eq("id", id).then(() => {});
         if (!r?.ok) { console.error("RhSalaries.maj (sync Sheet):", r?.erreur); if (onSyncEchec) onSyncEchec(r?.erreur); }
       });
@@ -5380,7 +5382,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
       // gardait les valeurs du formulaire. On renvoie donc la fiche entière une fois qu'elle
       // est confirmée, pour que les deux côtés disent enfin la même chose.
       RhSheetSync.upsert({
-        resto: r.fiche.resto, unite: r.fiche.unite, nom: r.fiche.nom, prenom: r.fiche.prenom,
+        id: r.fiche.id, resto: r.fiche.resto, unite: r.fiche.unite, nom: r.fiche.nom, prenom: r.fiche.prenom,
         champs: r.fiche, ligneCible: r.fiche.sheet_ligne || undefined,
       }).then((rs) => {
         if (!rs?.ok) montrerErreur(`Fiche mise à jour, mais la recopie vers le Sheet a échoué (${rs?.erreur || "erreur inconnue"}). Le Sheet n'est pas à jour pour cette ligne.`);

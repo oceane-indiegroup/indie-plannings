@@ -1950,20 +1950,40 @@ Deno.serve(async (req: Request) => {
       const colIndex = colonneIndex(entetes);
       if (!("nom" in colIndex) || !("prenom" in colIndex)) return json({ error: "colonnes_nom_prenom_introuvables" }, 500);
 
+      // Identité de la ligne : le numéro mémorisé ne suffit JAMAIS. Un tri, une insertion ou
+      // une suppression dans le Sheet décale toutes les lignes en dessous, et la fiche garde
+      // un numéro qui désigne désormais quelqu'un d'autre. Écrire dessus les yeux fermés,
+      // c'est écraser la fiche d'un collègue : c'est le mécanisme de l'incident du 28/10/2026,
+      // reproduit le 02/11/2026 (un salaire écrit sur la ligne d'une autre personne parce que
+      // le Sheet avait bougé d'une ligne entre-temps).
+      // On vérifie donc TOUJOURS, avant d'écrire, que la ligne visée appartient bien à cette
+      // personne — par son code dossier, sinon par nom + prénom + établissement. Sinon on la
+      // recherche ailleurs, et on signale au client que le numéro a changé.
+      const restoCol = colIndex["resto"];
+      const codeCol = colIndex["code_dossier"];
+      const codeFiche = corps.id ? await codeOnboarding(Number(corps.id)) : null;
+      const ligneAppartient = (i: number): boolean => {
+        const r = grille[i];
+        if (!r) return false;
+        if (codeFiche && codeCol !== undefined && (r[codeCol] || "").toString().trim().toUpperCase() === codeFiche.toUpperCase()) return true;
+        const memeNom = normaliser(r[colIndex["nom"]]) === normaliser(nom);
+        const memePrenom = normaliser(r[colIndex["prenom"]]) === normaliser(prenom);
+        const memeResto = restoCol === undefined || normaliser(r[restoCol] || "") === normaliser(resto);
+        return memeNom && memePrenom && memeResto;
+      };
+      const chercherLigne = (): number => {
+        for (let i = 1; i < grille.length; i++) if (ligneAppartient(i)) return i + 1; // +1 : grille 0-indexée, lignes Sheet à partir de 1
+        return -1;
+      };
+
       let ligneCible: number;
       let nouvelleLigne = false;
-      if (ligneFournie) {
+      let ligneCorrigee = false;
+      if (ligneFournie && ligneAppartient(Number(ligneFournie) - 1)) {
         ligneCible = Number(ligneFournie);
       } else {
-        const restoCol = colIndex["resto"];
-        ligneCible = -1;
-        for (let i = 1; i < grille.length; i++) {
-          const r = grille[i];
-          const memeNom = normaliser(r[colIndex["nom"]]) === normaliser(nom);
-          const memePrenom = normaliser(r[colIndex["prenom"]]) === normaliser(prenom);
-          const memeResto = restoCol === undefined || normaliser(r[restoCol] || "") === normaliser(resto);
-          if (memeNom && memePrenom && memeResto) { ligneCible = i + 1; break; } // +1 : la grille est 0-indexée, les lignes Sheet démarrent à 1
-        }
+        if (ligneFournie) ligneCorrigee = true; // le numéro mémorisé ne désigne plus cette personne
+        ligneCible = chercherLigne();
         if (ligneCible === -1) { ligneCible = grille.length + 1; nouvelleLigne = true; } // nouvelle ligne, juste après la dernière
       }
 
@@ -1994,7 +2014,7 @@ Deno.serve(async (req: Request) => {
           console.error("upsertRow formatage_echoue:", e);
         }
       }
-      return json({ ok: true, ligne: ligneCible });
+      return json({ ok: true, ligne: ligneCible, creee: nouvelleLigne, ligneCorrigee });
     }
 
     return json({ error: "action_inconnue" }, 400);
