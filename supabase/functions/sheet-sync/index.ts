@@ -131,8 +131,15 @@ const CHAMPS_SHEET: { cle: string; test: (h: string) => boolean }[] = [
   { cle: "resto", test: (h) => h.includes("etablissement dans lequel") },
   { cle: "unite", test: (h) => h.includes("unite de travail") },
   { cle: "civilite", test: (h) => h === "civilite" },
-  { cle: "nom", test: (h) => h === "nom" },
-  { cle: "prenom", test: (h) => h === "prenom" },
+  // Intitulés multilingues : le formulaire s'adresse à des saisonniers français, italiens,
+  // espagnols, portugais, colombiens… donc les questions s'appellent « NOM/ COGNOME/
+  // APELLIDO/LAST NAME » et « PRENOM/NOME/NOMBRE/FIRST NAME ». Les anciens tests exigeaient
+  // l'intitulé exact « nom » et « prenom » : ils ne reconnaissaient plus ces colonnes, et
+  // toute réponse au Form repartait en erreur « champs_manquants » sans jamais arriver dans
+  // l'appli (constaté le 02/11/2026). Les exclusions évitent de confondre avec « NOM DU
+  // POSTE » et « Nom et N° de la personne à contacter d'urgence ».
+  { cle: "nom", test: (h) => (h.startsWith("nom") || h.includes("last name") || h.includes("apellido") || h.includes("cognome")) && !h.includes("poste") && !h.includes("urgence") && !h.includes("etablissement") },
+  { cle: "prenom", test: (h) => h.startsWith("prenom") || h.includes("first name") || h.includes("nombre") },
   { cle: "poste", test: (h) => h.includes("nom du poste") },
   { cle: "date_naissance", test: (h) => h.includes("date de naissance") },
   { cle: "lieu_naissance", test: (h) => h.includes("lieu") && h.includes("naissance") },
