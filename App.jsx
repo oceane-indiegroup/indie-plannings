@@ -5249,6 +5249,15 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   const [envoiPour, setEnvoiPour] = useState(null);      // salarié à qui envoyer son lien d'onboarding
   const [reglageForm, setReglageForm] = useState(false); // réglage du Google Form (superviseur)
   const [configForm, setConfigForm] = useState(null);    // { base, entry } lu en base
+
+  // Relit le réglage du formulaire d'onboarding à chaque ouverture du registre : il est
+  // rangé en base (clé kv), pas dans l'écran, sinon il semblerait disparaître au moindre
+  // rechargement de la page.
+  useEffect(() => {
+    let on = true;
+    Store.get(kOnboardingForm).then((v) => { if (on && v && v.base && v.entry) setConfigForm(v); });
+    return () => { on = false; };
+  }, []);
   // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
   // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
   // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
@@ -6789,13 +6798,6 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     RhSalaries.compterParResto().then((c) => { if (on) setCompteursRH(c); });
     return () => { on = false; };
   }, [refreshKey]);
-
-  // Réglage du formulaire d'onboarding (adresse du Form + case du code dossier).
-  useEffect(() => {
-    let on = true;
-    Store.get(kOnboardingForm).then((v) => { if (on && v && v.base) setConfigForm(v); });
-    return () => { on = false; };
-  }, []);
 
   // Le bouton « Importer depuis le Sheet » a été retiré le 28/10/2026. Relire le Sheet
   // pour réécrire dans l'appli est ce qui a provoqué l'incident du 28/10 (fiches recopiées
