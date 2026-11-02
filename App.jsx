@@ -5123,6 +5123,8 @@ function ChoixContratSheetModal({ salarie, contrats, onAppliquer, onClose }) {
     return t;
   }
   const comparaison = choisi ? [
+    { label: "Nom", avant: salarie.nom || "—", apres: (choisi.nom || "").toUpperCase() || "—", contrat: false },
+    { label: "Prénom", avant: salarie.prenom || "—", apres: choisi.prenom || "—", contrat: false },
     { label: "Unité", avant: salarie.unite || "—", apres: choisi.unite || "—", contrat: true },
     { label: "Poste", avant: salarie.poste || "—", apres: choisi.poste || "—", contrat: false },
     { label: "Début de contrat", avant: frDate(salarie.date_debut), apres: frDate(choisi.date_debut), contrat: true },
@@ -5208,6 +5210,16 @@ function ChoixContratSheetModal({ salarie, contrats, onAppliquer, onClose }) {
               </table>
             </div>
 
+            {!salarie.provisoire && choisi.nom && normTxt(choisi.nom) !== normTxt(salarie.nom || "") && (
+              <div style={{border:'1.5px solid var(--coral-d)',borderRadius:10,padding:'10px 12px',marginBottom:14,fontSize:13}}>
+                <b style={{color:'var(--coral-d)'}}>Le nom va changer sur une fiche déjà confirmée.</b>
+                <div className="ig-muted" style={{fontSize:12.5,marginTop:3}}>
+                  Dans le planning, un salarié est reconnu par son nom et son prénom : si des
+                  horaires ont déjà été saisis pour « {salarie.prenom} {salarie.nom} », vérifiez-les
+                  après l'opération.
+                </div>
+              </div>
+            )}
             <label style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:14}}>
               <input type="checkbox" checked={avecContrat} onChange={(e)=>setAvecContrat(e.target.checked)} style={{marginTop:3}} />
               <span style={{fontSize:13.5}}>

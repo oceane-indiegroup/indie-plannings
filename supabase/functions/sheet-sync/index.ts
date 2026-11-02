@@ -212,7 +212,7 @@ function candidatsSheet(
   entetes: string[],
   fiche: { resto: string; nom: string; prenom: string },
   codeAttendu?: string,
-): { ligne: number; horodateur: string; unite: string; poste: string; date_debut: string; date_fin: string; salaire_net: string; heures_contrat: string; type_contrat: string; parCode: boolean }[] {
+): { ligne: number; horodateur: string; nom: string; prenom: string; unite: string; poste: string; date_debut: string; date_fin: string; salaire_net: string; heures_contrat: string; type_contrat: string; parCode: boolean }[] {
   const colIndex = colonneIndex(entetes);
   const val = (r: string[], cle: string): string => {
     const i = colIndex[cle];
@@ -238,6 +238,7 @@ function candidatsSheet(
       parCode,
       ligne: i + 1, // 1-indexé, comme sheet_ligne
       horodateur: val(r, "__horodateur") || (r[0] ?? "").toString().trim(),
+      nom, prenom,
       unite: val(r, "unite"),
       poste: val(r, "poste"),
       date_debut: val(r, "date_debut"),
@@ -1433,6 +1434,15 @@ Deno.serve(async (req: Request) => {
             const v = valeurPourLigne(nv, cle);
             if (v !== null) patch[cle] = cle === "date_naissance" ? versDateISO(v) : v;
           });
+          // Nom et prénom : c'est l'orthographe du SALARIÉ qui fait référence, pas celle
+          // saisie à la va-vite par le directeur au moment du prévisionnel. Sans ça, la
+          // fiche gardait « DOMMENGE » alors que l'intéressée écrit « DOMENGE VIEU »
+          // (constaté le 02/11/2026). salarie_id n'est volontairement pas recalculé : il
+          // sert de clé de rapprochement et le changer recréerait des doublons.
+          const nomSheet = valeurPourLigne(nv, "nom");
+          const prenomSheet = valeurPourLigne(nv, "prenom");
+          if (nomSheet) patch.nom = nettoyerNomBase(nomSheet);
+          if (prenomSheet) patch.prenom = nettoyerPrenomBase(prenomSheet);
           // Dates, salaire et heures : recopiés UNIQUEMENT si Océane l'a demandé explicitement
           // (case cochée dans l'appli). Sans ça, une fiche pouvait se retrouver reliée à la
           // ligne du NOUVEAU contrat tout en gardant les dates et le salaire de l'ANCIEN —
