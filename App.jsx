@@ -4855,25 +4855,92 @@ function messageErreurSheet(brut) {
 // WhatsApp : impossible de savoir qui répond pour qui, d'où le rapprochement par le nom et
 // les doublons. Désormais chaque fiche a SON lien, envoyé à UNE personne.
 
-// Met un numéro au format attendu par WhatsApp : chiffres uniquement, avec l'indicatif pays.
-// Un 06/07 français à 10 chiffres devient 33..., un numéro déjà en +590 (Saint-Barth) garde
-// le sien. Si rien n'est sûr, on renvoie null et l'écran demande de corriger le numéro à la
-// main plutôt que d'ouvrir une conversation avec un inconnu.
-function numeroWhatsApp(brut) {
+// Indicatifs pays. Les équipes sont très internationales (Italie, Espagne, Colombie,
+// Portugal, Brésil…) : un numéro étranger saisi sans indicatif n'est pas devinable, donc
+// l'écran fait choisir le pays plutôt que de supposer la France et d'envoyer le message à
+// un inconnu. Les plus fréquents chez Indie Group d'abord, le reste par ordre alphabétique.
+const INDICATIFS = [
+  { code: "33", nom: "France métropolitaine" },
+  { code: "590", nom: "Saint-Barthélemy / Saint-Martin / Guadeloupe" },
+  { code: "596", nom: "Martinique" },
+  { code: "262", nom: "La Réunion / Mayotte" },
+  { code: "39", nom: "Italie" },
+  { code: "34", nom: "Espagne" },
+  { code: "57", nom: "Colombie" },
+  { code: "351", nom: "Portugal" },
+  { code: "213", nom: "Algérie" },
+  { code: "49", nom: "Allemagne" },
+  { code: "54", nom: "Argentine" },
+  { code: "61", nom: "Australie" },
+  { code: "32", nom: "Belgique" },
+  { code: "55", nom: "Brésil" },
+  { code: "1", nom: "Canada / États-Unis" },
+  { code: "56", nom: "Chili" },
+  { code: "269", nom: "Comores" },
+  { code: "225", nom: "Côte d'Ivoire" },
+  { code: "593", nom: "Équateur" },
+  { code: "509", nom: "Haïti" },
+  { code: "353", nom: "Irlande" },
+  { code: "212", nom: "Maroc" },
+  { code: "230", nom: "Maurice" },
+  { code: "261", nom: "Madagascar" },
+  { code: "52", nom: "Mexique" },
+  { code: "31", nom: "Pays-Bas" },
+  { code: "51", nom: "Pérou" },
+  { code: "63", nom: "Philippines" },
+  { code: "48", nom: "Pologne" },
+  { code: "44", nom: "Royaume-Uni" },
+  { code: "40", nom: "Roumanie" },
+  { code: "221", nom: "Sénégal" },
+  { code: "41", nom: "Suisse" },
+  { code: "216", nom: "Tunisie" },
+  { code: "598", nom: "Uruguay" },
+  { code: "58", nom: "Venezuela" },
+];
+
+// Reconnaît l'indicatif d'un numéro déjà écrit en international (le plus long d'abord, pour
+// que "590" l'emporte sur "59" s'il existait).
+function indicatifDepuisNumero(chiffres) {
+  const tries = [...INDICATIFS].sort((a, b) => b.code.length - a.code.length);
+  const trouve = tries.find((i) => chiffres.startsWith(i.code));
+  return trouve ? trouve.code : null;
+}
+
+// Indicatif à présélectionner à l'ouverture : déduit du numéro s'il est déjà international,
+// sinon déduit du préfixe pour les numéros à 10 chiffres commençant par 0 (France et
+// outre-mer, où 0690 est Saint-Barth et non la métropole). Sinon : rien, et le pays doit
+// être choisi à la main.
+function indicatifParDefaut(brut) {
+  const t = (brut || "").toString().replace(/[^0-9+]/g, "");
+  if (!t) return "";
+  if (t.startsWith("+")) return indicatifDepuisNumero(t.slice(1)) || "";
+  if (t.startsWith("00")) return indicatifDepuisNumero(t.slice(2)) || "";
+  if (/^0[1-9]\d{8}$/.test(t)) {
+    const p = t.slice(0, 4);
+    if (["0690", "0691"].includes(p)) return "590";
+    if (["0696", "0697"].includes(p)) return "596";
+    if (["0692", "0693"].includes(p)) return "262";
+    return "33";
+  }
+  return "";
+}
+
+// Met un numéro au format attendu par WhatsApp : chiffres uniquement, indicatif pays inclus.
+// Un numéro déjà écrit en international est repris tel quel. Sinon l'indicatif choisi est
+// ajouté, après avoir retiré le 0 de départ — sauf en Italie, où il fait partie du numéro.
+// Renvoie null si rien de sûr n'en sort : l'écran demande alors de corriger plutôt que
+// d'ouvrir une conversation au hasard.
+function numeroWhatsApp(brut, indicatif) {
   let n = (brut || "").toString().replace(/[^0-9+]/g, "");
   if (!n) return null;
   if (n.startsWith("+")) n = n.slice(1);
   else if (n.startsWith("00")) n = n.slice(2);
-  else if (/^0[1-9]\d{8}$/.test(n)) {
-    // Un numéro tapé sans indicatif : les Antilles ont leurs propres indicatifs, et les
-    // traiter comme de la métropole enverrait le message à un inconnu. 0690/0691 couvre
-    // Saint-Barthélemy, Saint-Martin et la Guadeloupe.
-    const prefixe = n.slice(0, 4);
-    const pays = ["0690", "0691"].includes(prefixe) ? "590"
-      : ["0696", "0697"].includes(prefixe) ? "596"
-      : ["0692", "0693"].includes(prefixe) ? "262"
-      : "33";
-    n = pays + n.slice(1);
+  else if (indicatif) {
+    const national = indicatif === "39" ? n : n.replace(/^0+/, "");
+    if (!national) return null;
+    n = indicatif + national;
+  } else {
+    return null; // pays inconnu : on ne devine pas
   }
   return /^\d{8,15}$/.test(n) ? n : null;
 }
@@ -4888,6 +4955,7 @@ function lienOnboarding(config, code) {
 function EnvoiOnboardingModal({ salarie, resto, config, onClose, onConfigManquante }) {
   const [etat, setEtat] = useState({ chargement: true });
   const [tel, setTel] = useState(salarie.telephone || "");
+  const [indicatif, setIndicatif] = useState(indicatifParDefaut(salarie.telephone));
   const [copie, setCopie] = useState(false);
 
   useEffect(() => {
@@ -4896,7 +4964,7 @@ function EnvoiOnboardingModal({ salarie, resto, config, onClose, onConfigManquan
       if (!on) return;
       if (!r.ok) { setEtat({ chargement: false, erreur: r.erreur }); return; }
       setEtat({ chargement: false, code: r.code });
-      if (r.telephone && !salarie.telephone) setTel(r.telephone);
+      if (r.telephone && !salarie.telephone) { setTel(r.telephone); setIndicatif(indicatifParDefaut(r.telephone)); }
     });
     return () => { on = false; };
   }, [salarie.id]);
@@ -4906,7 +4974,8 @@ function EnvoiOnboardingModal({ salarie, resto, config, onClose, onConfigManquan
   const message = lien
     ? `Bonjour ${prenom},\n\nBienvenue chez Indie Group ! Pour préparer ton contrat à ${resto}, merci de remplir ton dossier d'embauche ici :\n${lien}\n\nCe lien t'est personnel, ne le transfère pas. Merci de ne pas modifier la case « Code dossier » en haut du formulaire.`
     : "";
-  const numero = numeroWhatsApp(tel);
+  const numero = numeroWhatsApp(tel, indicatif);
+  const dejaInternational = /^\s*(\+|00)/.test(tel || "");
 
   async function copier(txt) {
     try { await navigator.clipboard.writeText(txt); setCopie(true); setTimeout(()=>setCopie(false), 2000); }
@@ -4937,12 +5006,25 @@ function EnvoiOnboardingModal({ salarie, resto, config, onClose, onConfigManquan
 
         {lien && (
           <>
-            <div className="ig-field">
-              <label>Numéro WhatsApp du salarié</label>
-              <input value={tel} onChange={(e)=>setTel(e.target.value)} placeholder="+590 690 36 68 72" />
-              {!numero && tel && <div style={{color:'var(--coral-d)',fontSize:12.5,marginTop:4,fontWeight:600}}>Numéro incomplet : ajoutez l'indicatif pays (ex : +590 ou +33).</div>}
-              {numero && <div className="ig-muted" style={{fontSize:12.5,marginTop:4}}>WhatsApp sera ouvert sur le <b>+{numero}</b> — vérifiez l'indicatif avant d'envoyer.</div>}
-              {!tel && <div className="ig-muted" style={{fontSize:12.5,marginTop:4}}>Aucun numéro sur la fiche. Saisissez-le ici, ou copiez le lien pour l'envoyer autrement.</div>}
+            <div style={{display:'flex',gap:10,alignItems:'flex-end',flexWrap:'wrap'}}>
+              <div className="ig-field" style={{flex:'1 1 240px',marginBottom:0}}>
+                <label>Pays du numéro</label>
+                <select value={indicatif} onChange={(e)=>setIndicatif(e.target.value)} disabled={dejaInternational}>
+                  <option value="">— Choisir le pays —</option>
+                  {INDICATIFS.map((i)=>(<option key={i.code+i.nom} value={i.code}>+{i.code} · {i.nom}</option>))}
+                </select>
+              </div>
+              <div className="ig-field" style={{flex:'1 1 200px',marginBottom:0}}>
+                <label>Numéro WhatsApp</label>
+                <input value={tel} onChange={(e)=>{ setTel(e.target.value); setIndicatif(indicatifParDefaut(e.target.value) || indicatif); }} placeholder="690 36 68 72" />
+              </div>
+            </div>
+            <div style={{marginTop:6}}>
+              {dejaInternational && <div className="ig-muted" style={{fontSize:12.5}}>Numéro déjà écrit en international : l'indicatif est repris tel quel.</div>}
+              {numero && <div className="ig-muted" style={{fontSize:12.5}}>WhatsApp sera ouvert sur le <b>+{numero}</b> — vérifiez avant d'envoyer.</div>}
+              {!numero && tel && !indicatif && <div style={{color:'var(--coral-d)',fontSize:12.5,fontWeight:600}}>Choisissez le pays du numéro, ou saisissez-le en entier avec son indicatif (ex : +39 333 123 4567).</div>}
+              {!numero && tel && indicatif && <div style={{color:'var(--coral-d)',fontSize:12.5,fontWeight:600}}>Ce numéro ne semble pas complet. Vérifiez-le.</div>}
+              {!tel && <div className="ig-muted" style={{fontSize:12.5}}>Aucun numéro sur la fiche. Saisissez-le ici, ou copiez le lien pour l'envoyer autrement.</div>}
             </div>
 
             <div style={{fontWeight:700,fontSize:13,margin:'12px 0 6px'}}>Message qui sera envoyé</div>
