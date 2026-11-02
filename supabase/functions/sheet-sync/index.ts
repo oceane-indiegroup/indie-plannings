@@ -168,6 +168,9 @@ const CHAMPS_SHEET: { cle: string; test: (h: string) => boolean }[] = [
   { cle: "date_prolongation_fin", test: (h) => h.includes("prolongation") },
   { cle: "statut_payfit", test: (h) => h.includes("statut payfit") },
   { cle: "contact_urgence", test: (h) => h.includes("contacter") && h.includes("urgence") },
+  // Case préremplie par le lien personnel envoyé au salarié : c'est elle, et plus le nom,
+  // qui rattache une réponse du Form à la fiche créée par le directeur.
+  { cle: "code_dossier", test: (h) => h.includes("code dossier") },
 ];
 
 // Champs qui décrivent LE CONTRAT (par opposition aux infos personnelles, qui ne changent
@@ -231,6 +234,35 @@ function candidatsSheet(
   }
   out.sort((a, b) => horodateurVersNombre(b.horodateur) - horodateurVersNombre(a.horodateur));
   return out;
+}
+
+// ---- Code dossier : rattacher une réponse du Form à UNE fiche précise ----
+// Le directeur crée la fiche prévisionnelle (souvent avec une orthographe approximative),
+// l'appli lui donne un lien personnel contenant ce code, et la réponse du salarié revient
+// se poser sur CETTE fiche. Plus aucune comparaison de noms, donc plus de doublons ni de
+// fusion sur la mauvaise personne — et c'est l'orthographe du salarié qui fait référence.
+// Le code porte une signature courte calculée avec FORM_WEBHOOK_SECRET : sans elle, n'importe
+// qui pourrait deviner le code d'un collègue et écraser sa fiche en répondant au formulaire.
+async function signatureCode(id: number): Promise<string> {
+  const cle = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(FORM_WEBHOOK_SECRET || "indie"),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", cle, new TextEncoder().encode(`fiche:${id}`));
+  return Array.from(new Uint8Array(sig)).slice(0, 2).map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+async function codeOnboarding(id: number): Promise<string> {
+  return `IG-${id.toString(36).toUpperCase()}-${await signatureCode(id)}`;
+}
+// Renvoie l'id de fiche si le code est authentique, sinon null (code absent, mal recopié,
+// ou inventé). Dans ce cas l'appli retombe sur l'ancien rapprochement par le nom.
+async function ficheDepuisCode(code: string | null): Promise<number | null> {
+  if (!code) return null;
+  const m = code.trim().toUpperCase().match(/^IG-([0-9A-Z]+)-([0-9A-F]{4})$/);
+  if (!m) return null;
+  const id = parseInt(m[1], 36);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return (await signatureCode(id)) === m[2] ? id : null;
 }
 
 function indexVersLettre(i: number): string {
@@ -1294,6 +1326,25 @@ Deno.serve(async (req: Request) => {
     // choisisse DUQUEL on parle avant toute recopie. Un salarié saisonnier a couramment
     // plusieurs contrats sur la même année et parfois dans plusieurs établissements :
     // deviner à sa place, c'est mélanger un ancien contrat avec un nouveau. Lecture seule. ----
+    // ---- Code personnel d'une fiche, pour construire le lien d'onboarding à envoyer au
+    // salarié. Ouvert à tout compte RH, mais seulement sur une fiche de SON périmètre :
+    // c'est le directeur qui recrute et qui envoie le lien, pas seulement le superviseur. ----
+    if (action === "codeOnboarding") {
+      const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
+      if (!appelant) return json({ error: "non_authentifie" }, 401);
+      const { id } = corps;
+      if (!id) return json({ error: "champs_manquants" }, 400);
+      const fRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${id}&select=id,resto,unite,nom,prenom,telephone`, {
+        headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+      });
+      if (!fRes.ok) return json({ error: "lecture_echouee", detail: await fRes.text() }, 500);
+      const fs = await fRes.json();
+      if (fs.length === 0) return json({ error: "fiche_introuvable" }, 404);
+      const f = fs[0];
+      if (!(await autorise(appelant.id, f.resto, f.unite))) return json({ error: "acces_refuse" }, 403);
+      return json({ ok: true, code: await codeOnboarding(f.id), telephone: f.telephone || "", nom: f.nom, prenom: f.prenom });
+    }
+
     if (action === "lignesSheetPour") {
       const appelant = await utilisateurAuthentifie(req.headers.get("Authorization") || "");
       if (!appelant) return json({ error: "non_authentifie" }, 401);
@@ -1737,8 +1788,17 @@ Deno.serve(async (req: Request) => {
         `${SUPABASE_URL}/rest/v1/rh_salaries?resto=eq.${encodeURIComponent(resto)}&unite=eq.${uniteMaj}&provisoire=is.true&select=id,nom,prenom`,
         { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
       );
+      // Le code dossier prime sur tout : s'il est présent et authentique, on sait à quelle
+      // fiche appartient cette réponse, sans rien deviner.
       let correspondance: { id: number } | null = null;
-      if (provRes.ok) {
+      const idParCode = await ficheDepuisCode(valeurPour("code_dossier"));
+      if (idParCode !== null) {
+        const vRes = await fetch(`${SUPABASE_URL}/rest/v1/rh_salaries?id=eq.${idParCode}&select=id`, {
+          headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
+        });
+        if (vRes.ok && (await vRes.json()).length > 0) correspondance = { id: idParCode };
+      }
+      if (!correspondance && provRes.ok) {
         const candidats: { id: number; nom: string; prenom: string }[] = await provRes.json();
         const nomN = normaliser(nom), prenomN = normaliser(prenom);
         const scores = candidats

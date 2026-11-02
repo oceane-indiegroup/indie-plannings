@@ -577,6 +577,17 @@ const RhSheetSync = {
     if (data?.error) return { ok: false, erreur: data.error };
     return data;
   },
+  // Code personnel d'une fiche, pour fabriquer son lien d'onboarding.
+  async codeOnboarding(id) {
+    const { data, error } = await supabase.functions.invoke("sheet-sync", { body: { action: "codeOnboarding", id } });
+    if (error) {
+      let detail = error.message;
+      try { const j = await error.context.json(); detail = j.detail ? `${j.error} : ${j.detail}` : j.error; } catch {}
+      return { ok: false, erreur: detail };
+    }
+    if (data?.error) return { ok: false, erreur: data.error };
+    return data;
+  },
   // Tous les contrats du Sheet correspondant à une fiche (même personne, même établissement),
   // du plus récent au plus ancien. Sert à faire CHOISIR le contrat à Océane plutôt qu'à le
   // deviner : un saisonnier a souvent plusieurs contrats la même année. Réservé au superviseur.
@@ -1034,6 +1045,10 @@ const kShifts = (resto) => `shifts:${slugKey(resto)}`;
 const kPayfitMapping = (resto) => `payfit_mapping:${slugKey(resto)}`;
 // Établissements ajoutés dans l'app (au-delà de ceux du fichier) : [nom, ...]
 const kEtablissements = "etablissements";
+// Réglage du formulaire d'onboarding : adresse du Google Form et nom de la case préremplie
+// qui porte le code dossier. Rangé en base (pas dans le code) pour qu'Océane puisse le
+// changer elle-même si elle refait son formulaire, sans toucher au programme.
+const kOnboardingForm = "onboarding_form";
 // Validation du planning d'une semaine (booléen) : publie le planning aux salariés.
 const kValidation = (resto, sem) => `validation:${slugKey(resto)}:${sem}`;
 // Fiche juridique de chaque établissement (raison sociale, SIRET...) : nécessaire pour
@@ -4835,6 +4850,162 @@ function messageErreurSheet(brut) {
   return `La resynchronisation a échoué : ${t || "erreur inconnue"}`;
 }
 
+// ---------- Lien d'onboarding personnel + envoi WhatsApp nominatif ----------
+// Jusqu'ici le même lien de formulaire était envoyé à tout le monde, souvent dans un groupe
+// WhatsApp : impossible de savoir qui répond pour qui, d'où le rapprochement par le nom et
+// les doublons. Désormais chaque fiche a SON lien, envoyé à UNE personne.
+
+// Met un numéro au format attendu par WhatsApp : chiffres uniquement, avec l'indicatif pays.
+// Un 06/07 français à 10 chiffres devient 33..., un numéro déjà en +590 (Saint-Barth) garde
+// le sien. Si rien n'est sûr, on renvoie null et l'écran demande de corriger le numéro à la
+// main plutôt que d'ouvrir une conversation avec un inconnu.
+function numeroWhatsApp(brut) {
+  let n = (brut || "").toString().replace(/[^0-9+]/g, "");
+  if (!n) return null;
+  if (n.startsWith("+")) n = n.slice(1);
+  else if (n.startsWith("00")) n = n.slice(2);
+  else if (/^0[1-9]\d{8}$/.test(n)) {
+    // Un numéro tapé sans indicatif : les Antilles ont leurs propres indicatifs, et les
+    // traiter comme de la métropole enverrait le message à un inconnu. 0690/0691 couvre
+    // Saint-Barthélemy, Saint-Martin et la Guadeloupe.
+    const prefixe = n.slice(0, 4);
+    const pays = ["0690", "0691"].includes(prefixe) ? "590"
+      : ["0696", "0697"].includes(prefixe) ? "596"
+      : ["0692", "0693"].includes(prefixe) ? "262"
+      : "33";
+    n = pays + n.slice(1);
+  }
+  return /^\d{8,15}$/.test(n) ? n : null;
+}
+
+// Construit le lien du Form avec la case "code dossier" déjà remplie.
+function lienOnboarding(config, code) {
+  if (!config || !config.base || !config.entry) return null;
+  const sep = config.base.includes("?") ? "&" : "?";
+  return `${config.base}${sep}usp=pp_url&${config.entry}=${encodeURIComponent(code)}`;
+}
+
+function EnvoiOnboardingModal({ salarie, resto, config, onClose, onConfigManquante }) {
+  const [etat, setEtat] = useState({ chargement: true });
+  const [tel, setTel] = useState(salarie.telephone || "");
+  const [copie, setCopie] = useState(false);
+
+  useEffect(() => {
+    let on = true;
+    RhSheetSync.codeOnboarding(salarie.id).then((r) => {
+      if (!on) return;
+      if (!r.ok) { setEtat({ chargement: false, erreur: r.erreur }); return; }
+      setEtat({ chargement: false, code: r.code });
+      if (r.telephone && !salarie.telephone) setTel(r.telephone);
+    });
+    return () => { on = false; };
+  }, [salarie.id]);
+
+  const lien = etat.code ? lienOnboarding(config, etat.code) : null;
+  const prenom = (salarie.prenom || "").trim();
+  const message = lien
+    ? `Bonjour ${prenom},\n\nBienvenue chez Indie Group ! Pour préparer ton contrat à ${resto}, merci de remplir ton dossier d'embauche ici :\n${lien}\n\nCe lien t'est personnel, ne le transfère pas. Merci de ne pas modifier la case « Code dossier » en haut du formulaire.`
+    : "";
+  const numero = numeroWhatsApp(tel);
+
+  async function copier(txt) {
+    try { await navigator.clipboard.writeText(txt); setCopie(true); setTimeout(()=>setCopie(false), 2000); }
+    catch { setCopie(false); }
+  }
+
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:560}}>
+        <h3>Envoyer le dossier d'embauche</h3>
+        <div className="ig-muted" style={{marginBottom:14}}>
+          {salarie.prenom} {salarie.nom} — {resto}. Ce lien est propre à cette fiche : la réponse
+          reviendra se poser dessus, même si le nom a été mal orthographié ici.
+        </div>
+
+        {etat.chargement && <div className="ig-muted">Préparation du lien…</div>}
+        {etat.erreur && <div style={{color:'var(--coral-d)',fontWeight:600,fontSize:13}}>Impossible de préparer le lien : {etat.erreur}</div>}
+
+        {etat.code && !lien && (
+          <div style={{padding:12,border:'1.5px solid var(--coral-d)',borderRadius:10,marginBottom:14}}>
+            <div style={{fontWeight:700,fontSize:13.5,marginBottom:6,color:'var(--coral-d)'}}>Le formulaire d'onboarding n'est pas encore réglé.</div>
+            <div className="ig-muted" style={{fontSize:13}}>
+              Il faut indiquer une fois l'adresse du Google Form et la case du code dossier.
+            </div>
+            <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginTop:10}} onClick={onConfigManquante}>Régler maintenant</button>
+          </div>
+        )}
+
+        {lien && (
+          <>
+            <div className="ig-field">
+              <label>Numéro WhatsApp du salarié</label>
+              <input value={tel} onChange={(e)=>setTel(e.target.value)} placeholder="+590 690 36 68 72" />
+              {!numero && tel && <div style={{color:'var(--coral-d)',fontSize:12.5,marginTop:4,fontWeight:600}}>Numéro incomplet : ajoutez l'indicatif pays (ex : +590 ou +33).</div>}
+              {numero && <div className="ig-muted" style={{fontSize:12.5,marginTop:4}}>WhatsApp sera ouvert sur le <b>+{numero}</b> — vérifiez l'indicatif avant d'envoyer.</div>}
+              {!tel && <div className="ig-muted" style={{fontSize:12.5,marginTop:4}}>Aucun numéro sur la fiche. Saisissez-le ici, ou copiez le lien pour l'envoyer autrement.</div>}
+            </div>
+
+            <div style={{fontWeight:700,fontSize:13,margin:'12px 0 6px'}}>Message qui sera envoyé</div>
+            <div style={{whiteSpace:'pre-wrap',fontSize:13,background:'rgba(0,0,0,.035)',border:'1px solid var(--line)',borderRadius:10,padding:'10px 12px',maxHeight:160,overflowY:'auto'}}>{message}</div>
+
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:14}}>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>copier(lien)}>{copie ? "Copié !" : "Copier le lien seul"}</button>
+              <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>copier(message)}>Copier le message</button>
+            </div>
+
+            <div style={{display:'flex',gap:10,marginTop:16}}>
+              <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Fermer</button>
+              <button className="ig-btn ig-btn-primary" style={{flex:1}} disabled={!numero}
+                onClick={()=>window.open(`https://wa.me/${numero}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer")}>
+                Ouvrir WhatsApp
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Réglage unique du formulaire : Océane colle le « lien prérempli » que Google lui donne,
+// et l'appli en extrait l'adresse du Form et le nom de la case. Aucun code à modifier.
+function ReglageOnboardingModal({ config, onEnregistrer, onClose }) {
+  const [colle, setColle] = useState("");
+  const [err, setErr] = useState("");
+  function valider() {
+    const t = colle.trim();
+    if (!t) { setErr("Collez le lien prérempli donné par Google Forms."); return; }
+    const entry = (t.match(/[?&](entry\.\d+)=/) || [])[1];
+    if (!entry) { setErr("Ce lien ne contient pas de case préremplie (il doit comporter « entry. » suivi d'un numéro). Reprenez « Obtenir le lien prérempli » dans votre formulaire."); return; }
+    const base = t.split("?")[0];
+    if (!/^https:\/\/docs\.google\.com\/forms\/|^https:\/\/forms\.gle\//.test(base)) { setErr("Ce n'est pas une adresse de Google Forms."); return; }
+    onEnregistrer({ base, entry });
+  }
+  return (
+    <div className="ig-overlay" onClick={onClose}>
+      <div className="ig-modal" onClick={(e)=>e.stopPropagation()} style={{maxWidth:620}}>
+        <h3>Réglage du formulaire d'onboarding</h3>
+        <div className="ig-muted" style={{marginBottom:12,fontSize:13.5}}>
+          À faire une seule fois. Dans votre Google Form : ajoutez une question courte intitulée
+          « Code dossier — ne rien modifier », puis, dans le menu ⋮, choisissez « Obtenir le lien
+          prérempli », tapez n'importe quoi dans cette case, validez, et collez ci-dessous le lien
+          que Google vous donne.
+        </div>
+        <div className="ig-field">
+          <label>Lien prérempli</label>
+          <textarea rows={3} value={colle} onChange={(e)=>{ setColle(e.target.value); setErr(""); }} placeholder="https://docs.google.com/forms/d/e/.../viewform?usp=pp_url&entry.1847392=test" style={{width:'100%',fontFamily:'inherit',fontSize:13}} />
+        </div>
+        {config && config.entry && <div className="ig-muted" style={{fontSize:12.5}}>Réglage actuel : case {config.entry}</div>}
+        {err && <div style={{color:'var(--coral-d)',fontSize:13,fontWeight:600,marginTop:8}}>{err}</div>}
+        <div style={{display:'flex',gap:10,marginTop:16}}>
+          <button className="ig-btn ig-btn-ghost" style={{flex:1}} onClick={onClose}>Annuler</button>
+          <button className="ig-btn ig-btn-primary" style={{flex:1}} onClick={valider}>Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------- Fenêtre « De quel contrat parle-t-on ? » (superviseur) ----------
 // Affiche TOUTES les lignes du Sheet trouvées pour cette personne dans cet établissement,
 // de la plus récente à la plus ancienne, et met en face ce que contient la fiche aujourd'hui.
@@ -4979,6 +5150,9 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   const [docDemande, setDocDemande] = useState(null); // { doc, salarie, etabJ } : document RH en cours de génération/envoi (voir DocumentRHModal)
   const [choixDocPour, setChoixDocPour] = useState(null); // salarié pour qui on choisit quel document générer (voir ChoixDocumentRHModal)
   const [choixContrat, setChoixContrat] = useState(null); // { salarie, contrats } — de quel contrat du Sheet on parle (voir ChoixContratSheetModal)
+  const [envoiPour, setEnvoiPour] = useState(null);      // salarié à qui envoyer son lien d'onboarding
+  const [reglageForm, setReglageForm] = useState(false); // réglage du Google Form (superviseur)
+  const [configForm, setConfigForm] = useState(null);    // { base, entry } lu en base
   // Position de chaque fiche dans la liste (actif vs fin de contrat), figée au chargement :
   // sert au tri ci-dessous. Sans ça, taper une date de fin de contrat faisait sauter la ligne
   // tout en bas INSTANTANÉMENT (elle change de groupe dès que la case n'est plus vide), ce qui
@@ -5281,6 +5455,11 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
       )}
       <div className="ig-noprint" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <button className="ig-btn ig-btn-ink" onClick={()=>setAjout(true)}>+ Nouveau salarié</button>
+        {superviseur && (
+          <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setReglageForm(true)} title="Adresse du Google Form et case du code dossier">
+            ⚙ Formulaire d'onboarding{configForm && configForm.entry ? "" : " (à régler)"}
+          </button>
+        )}
         <div style={{position:'relative'}}>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setMenuCouleurOuvert(!menuCouleurOuvert)} style={{color: (filtreCouleurs || triCouleur) ? 'var(--coral-d)' : 'var(--ink)'}}>
             Couleur <span style={{fontSize:10}}>▾</span>
@@ -5371,6 +5550,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
                   <td style={{padding:'4px 6px',display:'flex',gap:4,alignItems:'center'}}>
                     <SelecteurCouleurLigne valeur={s.couleur} onChoisir={(c)=>sauverCellule(s.id,'couleur', c)} />
                     <button className="ig-btn ig-btn-ghost ig-btn-icon" onClick={()=>setEdition(s)} title="Fiche complète">📋</button>
+                    <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>setEnvoiPour(s)} title="Envoyer à cette personne son lien d'onboarding personnel (WhatsApp)">📲 Dossier</button>
                     {superviseur && (
                       <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>confirmerOnboarding(s)} title={s.provisoire ? "Confirmer que cette personne a réellement rempli le vrai Form" : "Recopier ses infos personnelles depuis le Sheet"}>
                         {s.provisoire ? "✓ Confirmer" : "🔄 Resync Sheet"}
@@ -5391,6 +5571,22 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
             </tbody>
           </table>
         </div>
+      )}
+      {envoiPour && (
+        <EnvoiOnboardingModal
+          salarie={envoiPour}
+          resto={resto}
+          config={configForm}
+          onClose={()=>setEnvoiPour(null)}
+          onConfigManquante={()=>{ setEnvoiPour(null); setReglageForm(true); }}
+        />
+      )}
+      {reglageForm && (
+        <ReglageOnboardingModal
+          config={configForm}
+          onClose={()=>setReglageForm(false)}
+          onEnregistrer={(cfg)=>{ setConfigForm(cfg); Store.set(kOnboardingForm, cfg); setReglageForm(false); montrerFlash("Formulaire d'onboarding réglé."); }}
+        />
       )}
       {choixContrat && (
         <ChoixContratSheetModal
@@ -6497,6 +6693,13 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
     RhSalaries.compterParResto().then((c) => { if (on) setCompteursRH(c); });
     return () => { on = false; };
   }, [refreshKey]);
+
+  // Réglage du formulaire d'onboarding (adresse du Form + case du code dossier).
+  useEffect(() => {
+    let on = true;
+    Store.get(kOnboardingForm).then((v) => { if (on && v && v.base) setConfigForm(v); });
+    return () => { on = false; };
+  }, []);
 
   // Le bouton « Importer depuis le Sheet » a été retiré le 28/10/2026. Relire le Sheet
   // pour réécrire dans l'appli est ce qui a provoqué l'incident du 28/10 (fiches recopiées
