@@ -58,8 +58,10 @@ dans l'écran Mes tâches d'Océane ? » (voir la section Pilotage du BACKLOG).
 
 - Appli React/Vite, presque tout dans `App.jsx` (~6 600 lignes). Base Supabase.
   Fonctions serveur : `supabase/functions/sheet-sync/index.ts` et `supabase/functions/rh-admin/index.ts`.
-- Mise en ligne : Vercel publie automatiquement la branche `main` sur
-  indie-plannings-seven.vercel.app.
+- Mise en ligne : Vercel publie automatiquement la branche `main`. Deux adresses pointent
+  sur l'appli : **indie-rh.vercel.app** (la bonne, celle qu'on donne) et
+  indie-plannings-seven.vercel.app (l'ancienne, gardée vivante car des salariés l'ont reçue
+  par WhatsApp — ne pas la supprimer).
 - Les fonctions serveur ne se mettent PAS à jour toutes seules : Océane doit les
   redéployer dans Supabase (copier-coller du code dans Edge Functions).
 - Règle permanente : à chaque modification de `sheet-sync/index.ts` ou

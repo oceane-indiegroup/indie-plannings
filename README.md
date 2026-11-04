@@ -72,7 +72,7 @@ Menu **Project Settings → API** (ou **Data API**), notez :
 4. Dans **Environment Variables**, ajoutez les 2 clés de l'étape 4 :
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-5. **Deploy**. Vous obtenez une adresse type `https://indie-plannings.vercel.app`.
+5. **Deploy**. Vous obtenez une adresse type `https://indie-rh.vercel.app`.
 
 C'est en ligne. Partagez l'adresse à vos équipes.
 
