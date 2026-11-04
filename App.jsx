@@ -5782,6 +5782,22 @@ function AccesRHModal({ restaurants, onClose }) {
   }
   useEffect(() => { charger(); }, []);
 
+  // Regroupe les lignes d'accès par personne : une seule entrée par adresse, avec tous ses
+  // périmètres. Trie les superviseurs en tête, puis par email.
+  const personnes = React.useMemo(() => {
+    const parUser = new Map();
+    (liste || []).forEach((a) => {
+      if (!parUser.has(a.user_id)) {
+        parUser.set(a.user_id, { user_id: a.user_id, email: a.email, superviseur: false, roles: new Set(), acces: [] });
+      }
+      const p = parUser.get(a.user_id);
+      if (a.superviseur) p.superviseur = true;
+      else { p.roles.add(a.role || "directeur"); p.acces.push(a); }
+    });
+    return [...parUser.values()].sort((x, y) =>
+      (Number(y.superviseur) - Number(x.superviseur)) || x.email.localeCompare(y.email));
+  }, [liste]);
+
   async function creer() {
     if (busy) return;
     if (!email.trim()) { setErreur("Renseignez l'email."); return; }
@@ -5816,41 +5832,59 @@ function AccesRHModal({ restaurants, onClose }) {
     <div className="ig-overlay" onClick={onClose}>
       <div className="ig-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:560}}>
         <h3>Accès RH</h3>
-        <div className="ig-muted" style={{marginBottom:14}}>Un compte par directeur/chef, cloisonné par établissement et par unité (Salle/Cuisine).</div>
+        <div className="ig-muted" style={{marginBottom:14}}>Un compte par personne, avec autant d'accès que d'établissements. Un accès « manager » ne donne que le Planning et les Extras.</div>
 
-        <div style={{maxHeight:220,overflowY:'auto',border:'1px solid var(--line)',borderRadius:10,marginBottom:16}}>
+        {/* Un accès = une ligne (établissement + unité), mais une PERSONNE peut en avoir
+            quinze : son adresse apparaissait alors quinze fois, et on ne voyait plus qui
+            avait quoi. On regroupe donc par personne — un seul compte, un seul mot de passe,
+            et dessous la liste de ses périmètres. */}
+        <div style={{maxHeight:260,overflowY:'auto',border:'1px solid var(--line)',borderRadius:10,marginBottom:16}}>
           {liste === null ? (
             <div style={{padding:14}} className="ig-muted">Chargement…</div>
           ) : liste.length === 0 ? (
             <div style={{padding:14}} className="ig-muted">Aucun accès créé pour le moment.</div>
           ) : (
-            <table style={{width:'100%',fontSize:12.5,borderCollapse:'collapse'}}>
-              <tbody>
-                {liste.map((a) => (
-                  <React.Fragment key={a.id}>
-                    <tr style={{borderBottom: editionMdp===a.user_id ? 'none' : '1px solid var(--line)'}}>
-                      <td style={{padding:'8px 10px'}}>{a.email}{a.superviseur && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:9,letterSpacing:'.4px'}}>SUPERVISEUR</span>}{!a.superviseur && a.role === "manager" && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'#3D5A98',color:'#fff',fontSize:9,letterSpacing:'.4px'}} title="Planning et Extras seulement">MANAGER</span>}</td>
-                      <td style={{padding:'8px 10px'}}>{a.resto}</td>
-                      <td style={{padding:'8px 10px'}}>{a.unite === "SALLE" ? "Salle" : a.unite === "CUISINE" ? "Cuisine" : "Tous"}</td>
-                      <td style={{padding:'8px 10px',textAlign:'right',whiteSpace:'nowrap'}}>
-                        <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setEditionMdp(editionMdp===a.user_id ? null : a.user_id); setNouveauMdp(""); setErreur(""); }}>Mot de passe</button>
-                        {!a.superviseur && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>supprimer(a)} style={{marginLeft:6}}>Retirer</button>}
-                      </td>
-                    </tr>
-                    {editionMdp === a.user_id && (
-                      <tr style={{borderBottom:'1px solid var(--line)'}}>
-                        <td colSpan={4} style={{padding:'0 10px 10px'}}>
-                          <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                            <input type="password" value={nouveauMdp} autoFocus onChange={(e)=>setNouveauMdp(e.target.value)} placeholder="Nouveau mot de passe (6 caractères min.)" style={{flex:1}} />
-                            <button className="ig-btn ig-btn-primary ig-btn-sm" onClick={()=>validerMdp(a)} disabled={busy}>{busy ? "…" : "Valider"}</button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
+            personnes.map((p, i) => (
+              <div key={p.user_id} style={{padding:'10px 12px', borderTop: i === 0 ? 'none' : '1px solid var(--line)'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                  <span style={{fontWeight:700,fontSize:13}}>{p.email}</span>
+                  {p.superviseur && <span style={{padding:'1px 6px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:9,letterSpacing:'.4px'}}>SUPERVISEUR</span>}
+                  {!p.superviseur && p.roles.has("manager") && (
+                    <span style={{padding:'1px 6px',borderRadius:20,background:'#3D5A98',color:'#fff',fontSize:9,letterSpacing:'.4px'}} title="Planning et Extras seulement">
+                      {p.roles.size > 1 ? "MANAGER (selon l'établissement)" : "MANAGER"}
+                    </span>
+                  )}
+                  <span className="ig-muted" style={{fontSize:11.5}}>
+                    {p.acces.length} accès
+                  </span>
+                  <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginLeft:'auto'}}
+                    onClick={()=>{ setEditionMdp(editionMdp===p.user_id ? null : p.user_id); setNouveauMdp(""); }}>
+                    Mot de passe
+                  </button>
+                </div>
+
+                {editionMdp === p.user_id && (
+                  <div style={{display:'flex',gap:8,alignItems:'center',marginTop:8}}>
+                    <input type="password" value={nouveauMdp} autoFocus onChange={(e)=>setNouveauMdp(e.target.value)} placeholder="Nouveau mot de passe (6 caractères minimum)" style={{flex:1}} />
+                    <button className="ig-btn ig-btn-primary ig-btn-sm" onClick={()=>validerMdp(p.acces[0])} disabled={busy}>{busy ? "…" : "Enregistrer"}</button>
+                  </div>
+                )}
+
+                {!p.superviseur && (
+                  <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:8}}>
+                    {p.acces.map((a) => (
+                      <span key={a.id} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 8px',borderRadius:8,border:'1px solid var(--line)',fontSize:12}}>
+                        <span>{a.resto} · {a.unite === "SALLE" ? "Salle" : a.unite === "CUISINE" ? "Cuisine" : "Tous"}</span>
+                        {a.role === "manager" && <span style={{color:'#3D5A98',fontWeight:700,fontSize:10}}>manager</span>}
+                        <button onClick={()=>supprimer(a)} title="Retirer cet accès"
+                          style={{background:'none',border:'none',cursor:'pointer',color:'var(--coral-d)',fontSize:14,lineHeight:1,padding:0}}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {p.superviseur && <div className="ig-muted" style={{fontSize:12,marginTop:6}}>Tous les établissements, toutes les unités.</div>}
+              </div>
+            ))
           )}
         </div>
 
@@ -6816,7 +6850,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   // les outils lui sont fermés — ici à l'écran, et aussi dans la base (policies RLS et vue
   // rh_equipe_planning, voir docs/sql/2026-11-04-role-manager.sql), car masquer une colonne
   // à l'affichage n'empêche pas de la lire autrement.
-  const estManager = !estSuperviseur && acces.length > 0 && acces.every((a) => a.role === "manager");
+
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
   // Un compte directeur/chef peut avoir accès à plusieurs établissements (ex : Pablo Saint
   // Barth ET Pablo) : dans ce cas il choisit lequel ouvrir, au lieu de toujours atterrir sur
@@ -6824,6 +6858,14 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   const plusieursScopes = scopes.length > 1;
   const [restoActif, setRestoActif] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].resto);
   const [uniteActive, setUniteActive] = useState(estSuperviseur || plusieursScopes ? null : scopes[0].unite);
+  // Le rôle s'applique PAR ÉTABLISSEMENT : la même personne peut être directrice ici et
+  // manager ailleurs. On regarde donc l'accès correspondant à l'établissement et à l'unité
+  // ouverts, pas l'ensemble de ses droits — sinon un seul accès « directeur » quelque part
+  // lui aurait rouvert le Registre partout à l'écran (la base, elle, l'aurait refusé, mais
+  // l'écran aurait affiché un registre vide, incompréhensible).
+  const estManager = !estSuperviseur && scopes.some(
+    (a) => a.resto === restoActif && (a.unite === uniteActive || a.unite === "TOUS") && a.role === "manager",
+  );
   const [gestionAcces, setGestionAcces] = useState(false);
   const [formatBusy, setFormatBusy] = useState(false);
   const [formatMsg, setFormatMsg] = useState("");
