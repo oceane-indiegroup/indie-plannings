@@ -760,7 +760,7 @@ async function appelerRhAdmin(action, corps) {
 }
 const RhAdmin = {
   lister: () => appelerRhAdmin("lister"),
-  creer: ({ email, motDePasse, resto, unite }) => appelerRhAdmin("creer", { email, motDePasse, resto, unite }),
+  creer: ({ email, motDePasse, resto, unite, role }) => appelerRhAdmin("creer", { email, motDePasse, resto, unite, role }),
   supprimer: (id) => appelerRhAdmin("supprimer", { id }),
   changerMotDePasse: ({ user_id, motDePasse }) => appelerRhAdmin("changerMotDePasse", { user_id, motDePasse }),
   // Envoi d'un email (ex : promesse d'embauche, en pièce jointe PDF) via l'adresse d'envoi
@@ -776,6 +776,16 @@ const RhAdmin = {
 };
 
 const RhSalaries = {
+  // Équipe du Planning : lue dans la VUE rh_equipe_planning, qui n'expose que le nom, le
+  // prénom, le poste, l'unité, les heures de contrat et les dates. Ni salaire, ni IBAN, ni
+  // sécu, ni coordonnées. Le Planning n'a jamais eu besoin de ces colonnes : les lire quand
+  // même, c'était les exposer à tout compte pouvant ouvrir cet écran — un manager, demain.
+  // Voir docs/sql/2026-11-04-role-manager.sql.
+  async listPlanning(resto) {
+    const { data, error } = await supabase.from("rh_equipe_planning").select("*").eq("resto", resto).order("nom", { ascending: true });
+    if (error) { console.error("RhSalaries.listPlanning:", error.message); return []; }
+    return data || [];
+  },
   async list(resto, unite) {
     let q = supabase.from("rh_salaries").select("*").eq("resto", resto);
     if (unite) q = q.eq("unite", unite);
@@ -2508,7 +2518,7 @@ function ManagerView({ resto, onBack, superviseur }) {
   useEffect(() => {
     let on = true;
     function chargerRhTeam() {
-      RhSalaries.list(resto).then((lignes) => {
+      RhSalaries.listPlanning(resto).then((lignes) => {
         if (!on) return;
         if (lignes.length === 0) { setRhTeam([]); return; }
         // La saison synchronisée dans le planning doit être l'année en cours (contrats actifs),
@@ -4391,7 +4401,7 @@ function RHLoginForm({ onOk, onCancel }) {
     setBusy(true);
     const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: motDePasse });
     if (error) { setBusy(false); setErreur("Email ou mot de passe incorrect."); return; }
-    const { data: acces, error: errAcces } = await supabase.from("rh_acces").select("resto, unite, superviseur").eq("user_id", data.user.id);
+    const { data: acces, error: errAcces } = await supabase.from("rh_acces").select("resto, unite, superviseur, role").eq("user_id", data.user.id);
     setBusy(false);
     if (errAcces || !acces || acces.length === 0) {
       setErreur("Ce compte n'a pas encore d'accès RH configuré. Contactez Océane.");
@@ -5762,6 +5772,7 @@ function AccesRHModal({ restaurants, onClose }) {
   const [motDePasse, setMotDePasse] = useState("");
   const [resto, setResto] = useState(restaurants[0] || "");
   const [unite, setUnite] = useState("SALLE");
+  const [role, setRole] = useState("directeur"); // "directeur" (tout son périmètre) | "manager" (Planning + Extras seulement)
   const [editionMdp, setEditionMdp] = useState(null); // user_id du compte en cours d'édition, ou null
   const [nouveauMdp, setNouveauMdp] = useState("");
 
@@ -5775,10 +5786,10 @@ function AccesRHModal({ restaurants, onClose }) {
     if (busy) return;
     if (!email.trim()) { setErreur("Renseignez l'email."); return; }
     setBusy(true); setErreur(""); setFlash("");
-    const r = await RhAdmin.creer({ email: email.trim(), motDePasse, resto, unite });
+    const r = await RhAdmin.creer({ email: email.trim(), motDePasse, resto, unite, role });
     setBusy(false);
     if (!r.ok) { setErreur(r.erreur || "Échec de la création."); return; }
-    setFlash(`Accès créé pour ${email.trim()} (${resto} · ${unite === "SALLE" ? "Salle" : "Cuisine"}).`);
+    setFlash(`Accès ${role === "manager" ? "manager" : "directeur"} créé pour ${email.trim()} (${resto} · ${unite === "SALLE" ? "Salle" : "Cuisine"}).`);
     setEmail(""); setMotDePasse("");
     charger();
   }
@@ -5818,7 +5829,7 @@ function AccesRHModal({ restaurants, onClose }) {
                 {liste.map((a) => (
                   <React.Fragment key={a.id}>
                     <tr style={{borderBottom: editionMdp===a.user_id ? 'none' : '1px solid var(--line)'}}>
-                      <td style={{padding:'8px 10px'}}>{a.email}{a.superviseur && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:9,letterSpacing:'.4px'}}>SUPERVISEUR</span>}</td>
+                      <td style={{padding:'8px 10px'}}>{a.email}{a.superviseur && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'var(--ink)',color:'var(--sand)',fontSize:9,letterSpacing:'.4px'}}>SUPERVISEUR</span>}{!a.superviseur && a.role === "manager" && <span style={{marginLeft:6,padding:'1px 6px',borderRadius:20,background:'#3D5A98',color:'#fff',fontSize:9,letterSpacing:'.4px'}} title="Planning et Extras seulement">MANAGER</span>}</td>
                       <td style={{padding:'8px 10px'}}>{a.resto}</td>
                       <td style={{padding:'8px 10px'}}>{a.unite === "SALLE" ? "Salle" : a.unite === "CUISINE" ? "Cuisine" : "Tous"}</td>
                       <td style={{padding:'8px 10px',textAlign:'right',whiteSpace:'nowrap'}}>
@@ -5866,6 +5877,18 @@ function AccesRHModal({ restaurants, onClose }) {
               <option value="CUISINE">Cuisine</option>
             </select>
           </div>
+          <div className="ig-field" style={{margin:0}}>
+            <label>Type d'accès</label>
+            <select value={role} onChange={(e)=>setRole(e.target.value)}>
+              <option value="directeur">Directeur / chef — tout son périmètre</option>
+              <option value="manager">Manager — Planning et Extras seulement</option>
+            </select>
+          </div>
+        </div>
+        <div className="ig-muted" style={{fontSize:12.5,marginTop:8,lineHeight:1.5}}>
+          {role === "manager"
+            ? "Le manager ne voit que le Planning et les Extras de son établissement et de son unité. Le Registre embauche lui est fermé, donc il n'a accès ni aux salaires, ni aux IBAN, ni aux numéros de sécurité sociale. Attention : les montants des extras (taux horaire, prime) restent visibles pour lui."
+            : "Le directeur ou chef accède au Registre embauche de son périmètre, salaires compris, ainsi qu'au Planning, aux Extras et aux repos hebdo."}
         </div>
         {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:8,fontWeight:600}}>{erreur}</div>}
         {flash && <div style={{color:'var(--sea)',fontSize:13,marginTop:8,fontWeight:600}}>{flash}</div>}
@@ -6788,6 +6811,12 @@ function PrimesRH({ resto, restaurants, superviseur }) {
 
 function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconnexion }) {
   const estSuperviseur = acces.some((a) => a.superviseur);
+  // Manager : compte nominatif limité au Planning et aux Extras de son établissement et de
+  // son unité. Le Registre (donc les salaires), les repos hebdo, les primes, les arrivées et
+  // les outils lui sont fermés — ici à l'écran, et aussi dans la base (policies RLS et vue
+  // rh_equipe_planning, voir docs/sql/2026-11-04-role-manager.sql), car masquer une colonne
+  // à l'affichage n'empêche pas de la lire autrement.
+  const estManager = !estSuperviseur && acces.length > 0 && acces.every((a) => a.role === "manager");
   const scopes = acces.filter((a) => !a.superviseur); // [{resto, unite}]
   // Un compte directeur/chef peut avoir accès à plusieurs établissements (ex : Pablo Saint
   // Barth ET Pablo) : dans ce cas il choisit lequel ouvrir, au lieu de toujours atterrir sur
@@ -6810,7 +6839,12 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   // est la première ; d'autres sections viendront s'ajouter à côté par la suite.
   const [sousSection, setSousSection] = useState(null);
   // emoji / c (couleur d'accent) / t (teinte de fond) / desc : habillage des tuiles de section.
-  const SOUS_SECTIONS_RH = [
+  // Un manager ne voit que le Planning et les Extras : les autres tuiles ne sont même pas
+  // construites, pour qu'aucune ne puisse être atteinte par erreur.
+  const SOUS_SECTIONS_RH = estManager ? [
+    { cle: "planning", label: "Planning", emoji: "📅", c: "#3D5A98", t: "#E6EBF6", desc: "Les horaires de la semaine et la feuille d'émargement." },
+    { cle: "extras", label: "Extras", emoji: "✨", c: "#C8871A", t: "#FBF0DC", desc: "Les extras du mois et leurs contrats." },
+  ] : [
     { cle: "registre", label: "Registre embauche", emoji: "📋", c: "#2E7D86", t: "#E4F1F2", desc: "Les salariés onboardés, leurs contrats et leurs infos." },
     { cle: "planning", label: "Planning", emoji: "📅", c: "#3D5A98", t: "#E6EBF6", desc: "Les horaires de la semaine et l'émargement." },
     // Arrivées du staff à Saint-Barth (la directrice va chercher chacun à l'aéroport/au port).
@@ -7014,6 +7048,8 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
             ))}
           </div>
         </div>
+      ) : (estManager && sousSection !== "planning" && sousSection !== "extras") ? (
+        <div className="ig-muted">Cette section n'est pas accessible avec votre accès.</div>
       ) : sousSection === "registre" ? (
         <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} restaurants={restaurants} />
       ) : sousSection === "repos_hebdo" ? (

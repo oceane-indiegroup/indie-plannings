@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
 
     // ---- Liste des accès RH existants ----
     if (action === "lister") {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/rh_acces?select=id,user_id,resto,unite,superviseur,created_at&order=created_at.asc`, {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rh_acces?select=id,user_id,resto,unite,superviseur,role,created_at&order=created_at.asc`, {
         headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
       });
       if (!res.ok) return json({ error: "lecture_impossible" }, 500);
@@ -196,9 +196,12 @@ Deno.serve(async (req) => {
 
     // ---- Création d'un accès (compte + droit sur un établissement/unité) ----
     if (action === "creer") {
-      const { email, motDePasse, resto, unite } = corps;
+      const { email, motDePasse, resto, unite, role } = corps;
       if (!email || !resto || !unite) return json({ error: "champs_manquants" }, 400);
       if (!["SALLE", "CUISINE", "TOUS"].includes(unite)) return json({ error: "unite_invalide" }, 400);
+      // "manager" : accès limité au Planning et aux Extras de son périmètre. Le cloisonnement
+      // réel est posé par les policies RLS et la vue rh_equipe_planning, pas par l'écran.
+      const roleFinal = role === "manager" ? "manager" : "directeur";
 
       let userId: string | null = null;
 
@@ -227,13 +230,13 @@ Deno.serve(async (req) => {
           apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json",
           Prefer: "resolution=merge-duplicates",
         },
-        body: JSON.stringify({ user_id: userId, resto, unite, superviseur: false }),
+        body: JSON.stringify({ user_id: userId, resto, unite, superviseur: false, role: roleFinal }),
       });
       if (!resAcces.ok) {
         const detail = await resAcces.text();
         return json({ error: "droit_non_enregistre", detail }, 500);
       }
-      return json({ ok: true, email, resto, unite });
+      return json({ ok: true, email, resto, unite, role: roleFinal });
     }
 
     // ---- Changement du mot de passe d'un compte existant ----
