@@ -1079,29 +1079,59 @@ const kEtablissementsJuridique = "etablissements_juridique";
 const kArrivee = (resto, id) => `arrivee:${slugKey(resto)}:${slugKey(id)}`;
 const PREFIXE_ARRIVEE = "arrivee:";
 const ETABLISSEMENTS_SBH = ["PABLO SAINT BARTH", "CREAM SAINT BARTH"];
+// La tuile « Arrivées » de l'Espace RH, dont le libellé suit l'établissement : à Saint-Barth
+// on va chercher les gens à l'aéroport ou au port, ailleurs ils viennent en voiture ou en bus.
+function TUILE_ARRIVEES(resto) {
+  const sbh = estEtablissementSBH(resto);
+  return {
+    cle: "arrivees", label: "Arrivées", emoji: sbh ? "🌴" : "🚗", c: "#1E9E6A", t: "#E2F5EC",
+    desc: sbh ? "Qui arrive, quand, à l'aéroport ou au port." : "Qui arrive, quand, en voiture ou en bus.",
+    ...(sbh ? { badge: "Saint-Barth" } : {}),
+  };
+}
 function estEtablissementSBH(resto) {
   const r = normTxt(resto);
   if (!r) return false;
   return ETABLISSEMENTS_SBH.some((e) => normTxt(e) === r) || r.includes("cream") || /\b(saint|st)[ -]barth|\bsbh\b/.test(r);
 }
-const LIEUX_ARRIVEE = [
+// Saint-Barth est une île : on y arrive par l'aéroport ou par le port, et la direction
+// vient chercher chacun. Ailleurs (Mègève, Saint-Tropez, Paris…), la question n'est pas
+// "où" mais "comment" : le salarié vient en voiture ou en bus, et le numéro de vol n'a
+// aucun sens. Deux jeux d'options, donc, choisis selon l'établissement.
+const LIEUX_ARRIVEE_SBH = [
   { v: "AEROPORT", label: "Aéroport", emoji: "✈️" },
   { v: "PORT", label: "Port", emoji: "⛴️" },
 ];
+const LIEUX_ARRIVEE_CONTINENT = [
+  { v: "VOITURE", label: "Voiture", emoji: "🚗" },
+  { v: "BUS", label: "Bus", emoji: "🚌" },
+];
+const LIEUX_ARRIVEE = [...LIEUX_ARRIVEE_SBH, ...LIEUX_ARRIVEE_CONTINENT];
+function lieuxArrivee(resto) {
+  return estEtablissementSBH(resto) ? LIEUX_ARRIVEE_SBH : LIEUX_ARRIVEE_CONTINENT;
+}
 const LOCOMOTIONS = [
   { v: "SCOOTER", label: "Scooter", emoji: "🛵" },
   { v: "VOITURE", label: "Voiture", emoji: "🚗" },
   { v: "QUAD", label: "Quad", emoji: "🏍️" },
   { v: "AUCUN", label: "Rien de réservé", emoji: "❌" },
 ];
+// À Saint-Barth, les deux établissements de l'île sont vus ensemble (un seul trajet pour
+// aller chercher les gens). Partout ailleurs, chaque établissement est seul.
+function etablissementsArrivees(resto) {
+  return estEtablissementSBH(resto) ? ETABLISSEMENTS_SBH : [resto];
+}
 const Arrivees = {
   async load(resto, id) { return Store.get(kArrivee(resto, id)); },
   async save(resto, id, data) { await Store.set(kArrivee(resto, id), { ...data, resto, id, maj: new Date().toISOString() }); },
   async remove(resto, id) { return Store.remove(kArrivee(resto, id)); },
-  // Toutes les réponses de tous les établissements de SBH (la directrice récupère tout le monde).
-  async listSBH() {
+  // Les réponses des établissements concernés. À Saint-Barth, la directrice récupère tout le
+  // monde : les deux établissements de l'île sont regroupés. Ailleurs, chaque établissement
+  // ne voit que ses propres arrivées.
+  async listPour(restos) {
+    const vises = (restos || []).map((r) => normTxt(r));
     const lignes = await Store.listByPrefix(PREFIXE_ARRIVEE);
-    return lignes.map((l) => l.value).filter((v) => v && estEtablissementSBH(v.resto));
+    return lignes.map((l) => l.value).filter((v) => v && vises.includes(normTxt(v.resto)));
   },
 };
 function cleMois(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
@@ -3693,7 +3723,9 @@ function ChoixBoutons({ options, valeur, onChoisir }) {
 const ARRIVEE_VIDE = { tel: "", date: "", heure: "", lieu: "", vol: "", provenance: "", locomotion: "", bagages: "", remarque: "" };
 
 // Formulaire d'arrivée (utilisé par le salarié, et par le manager pour saisir à sa place).
-function ArriveeForm({ initial, onSave, onCancel, enregistrement }) {
+function ArriveeForm({ initial, onSave, onCancel, enregistrement, resto }) {
+  const sbh = estEtablissementSBH(resto);
+  const options = lieuxArrivee(resto);
   const [f, setF] = useState(() => ({ ...ARRIVEE_VIDE, ...(initial || {}) }));
   const [err, setErr] = useState("");
   const maj = (champ) => (e) => setF({ ...f, [champ]: e && e.target ? e.target.value : e });
@@ -3703,7 +3735,7 @@ function ArriveeForm({ initial, onSave, onCancel, enregistrement }) {
     if (!f.tel.trim()) manque.push("téléphone");
     if (!f.date) manque.push("date");
     if (!f.heure) manque.push("heure");
-    if (!f.lieu) manque.push("lieu d'arrivée");
+    if (!f.lieu) manque.push(sbh ? "lieu d'arrivée" : "mode d'arrivée");
     if (!f.locomotion) manque.push("moyen de locomotion");
     if (manque.length) { setErr("Merci de renseigner : " + manque.join(", ") + "."); return; }
     // Évite les dates saisies par erreur (ex : 01/01 laissé par défaut sur certains téléphones).
@@ -3732,17 +3764,20 @@ function ArriveeForm({ initial, onSave, onCancel, enregistrement }) {
         </div>
       </div>
       <div className="ig-field">
-        <label>J'arrive au *</label>
-        <ChoixBoutons options={LIEUX_ARRIVEE} valeur={f.lieu} onChoisir={maj("lieu")} />
+        <label>{sbh ? "J'arrive au *" : "J'arrive en *"}</label>
+        <ChoixBoutons options={options} valeur={f.lieu} onChoisir={maj("lieu")} />
       </div>
       <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
-        <div className="ig-field" style={{flex:'1 1 180px'}}>
-          <label>{f.lieu === "PORT" ? "Compagnie du ferry" : "N° de vol / compagnie"}</label>
-          <input value={f.vol} onChange={maj("vol")} placeholder={f.lieu === "PORT" ? "ex : Voyager, Edge…" : "ex : TX 1234, Winair…"} />
-        </div>
+        {/* Numéro de vol : seulement à Saint-Barth. Ailleurs, on arrive en voiture ou en bus. */}
+        {sbh && (
+          <div className="ig-field" style={{flex:'1 1 180px'}}>
+            <label>{f.lieu === "PORT" ? "Compagnie du ferry" : "N° de vol / compagnie"}</label>
+            <input value={f.vol} onChange={maj("vol")} placeholder={f.lieu === "PORT" ? "ex : Voyager, Edge…" : "ex : TX 1234, Winair…"} />
+          </div>
+        )}
         <div className="ig-field" style={{flex:'1 1 180px'}}>
           <label>En provenance de</label>
-          <input value={f.provenance} onChange={maj("provenance")} placeholder="ex : Saint-Martin, Guadeloupe…" />
+          <input value={f.provenance} onChange={maj("provenance")} placeholder={sbh ? "ex : Saint-Martin, Guadeloupe…" : "ex : Lyon, Marseille…"} />
         </div>
       </div>
       <div className="ig-field">
@@ -3780,8 +3815,10 @@ function ArriveeResume({ a }) {
   );
 }
 
-// Carte "Mon arrivée à Saint-Barth" dans l'espace salarié.
+// Carte "Mon arrivée" dans l'espace salarié. Le module existe pour tous les établissements
+// depuis le 04/11/2026 ; seul le vocabulaire change selon qu'on arrive sur une île ou non.
 function MonArriveeSBH({ resto, emp }) {
+  const sbh = estEtablissementSBH(resto);
   const id = idSalarie(emp);
   const [arrivee, setArrivee] = useState(undefined); // undefined = chargement, null = pas encore répondu
   const [edition, setEdition] = useState(false);
@@ -3812,20 +3849,22 @@ function MonArriveeSBH({ resto, emp }) {
 
   return (
     <div className="ig-card" style={{padding:'18px 20px',marginBottom:18,border: aRepondu ? '1.5px solid var(--line)' : '1.5px solid var(--sea)'}}>
-      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:18,fontWeight:600,marginBottom:6}}>🏝️ Mon arrivée à Saint-Barth</div>
+      <div style={{fontFamily:"'Inter',system-ui,sans-serif",fontSize:18,fontWeight:600,marginBottom:6}}>{sbh ? "🏝️ Mon arrivée à Saint-Barth" : "🧳 Mon arrivée"}</div>
       {aRepondu && !edition ? (
         <>
           <div className="ig-status-line" style={{background:'#EAF3F3',marginBottom:12}}>
             <span className="ig-stamp" style={{borderColor:'var(--sea)'}}><Icon.Check width={15} height={15}/> Arrivée transmise à la direction</span>
           </div>
           <ArriveeResume a={arrivee} />
-          <div className="ig-muted" style={{marginTop:12,fontSize:13}}>Un changement de vol ou d'horaire ? Mettez à jour ici, la direction verra la modification.</div>
+          <div className="ig-muted" style={{marginTop:12,fontSize:13}}>{sbh ? "Un changement de vol ou d'horaire ? Mettez à jour ici, la direction verra la modification." : "Un changement d'horaire ? Mettez à jour ici, la direction verra la modification."}</div>
           <button className="ig-btn ig-btn-ghost ig-btn-sm" style={{marginTop:10}} onClick={() => setEdition(true)}>Modifier mon arrivée</button>
         </>
       ) : (
         <>
-          <div className="ig-muted" style={{marginBottom:6}}>La direction vient chercher chacun à son arrivée. Indiquez quand et où vous arrivez pour qu'elle puisse organiser les trajets.</div>
-          <ArriveeForm initial={arrivee} onSave={enregistrer} onCancel={aRepondu ? () => setEdition(false) : null} enregistrement={enregistrement} />
+          <div className="ig-muted" style={{marginBottom:6}}>{sbh
+            ? "La direction vient chercher chacun à son arrivée. Indiquez quand et où vous arrivez pour qu'elle puisse organiser les trajets."
+            : "Indiquez quand et comment vous arrivez, pour que la direction puisse organiser votre accueil."}</div>
+          <ArriveeForm resto={resto} initial={arrivee} onSave={enregistrer} onCancel={aRepondu ? () => setEdition(false) : null} enregistrement={enregistrement} />
           {erreur && <div style={{color:'var(--coral-d)',fontSize:13,marginTop:12,fontWeight:600}}>{erreur}</div>}
         </>
       )}
@@ -3839,7 +3878,7 @@ function EspaceSalarieAccueil({ onChoisir, onBack }) {
   // que l'onboarding) — pas de module interne, contrairement aux tuiles "arrivee"/"presence".
   const tuiles = [
     { id: "onboarding", emoji: "📝", titre: "Onboarding", texte: "Je remplis mon dossier d'embauche.", couleur: "var(--ink)", lien: LIEN_FORM_ONBOARDING },
-    { id: "arrivee", emoji: "🏝️", titre: "Je prépare mon arrivée", texte: "Saint-Barth : date, heure, aéroport ou port, locomotion.", couleur: "var(--sea)" },
+    { id: "arrivee", emoji: "🧳", titre: "Je prépare mon arrivée", texte: "Date, heure, comment j'arrive, locomotion et bagages.", couleur: "var(--sea)" },
     { id: "presence", emoji: "✅", titre: "Je valide ma présence", texte: "Émargement : je confirme mes jours et je signe ma semaine.", couleur: "var(--coral)" },
     { id: "notes_frais", emoji: "🧾", titre: "Notes de frais", texte: "Je transmets mes notes de frais.", couleur: "#C8871A", lien: LIEN_FORM_NOTES_FRAIS },
   ];
@@ -3868,11 +3907,14 @@ function EspaceSalarieAccueil({ onChoisir, onBack }) {
   );
 }
 
-// Identification pour le module Arrivée : nom + établissement de Saint-Barth. Pas de
-// recherche dans l'effectif : les salariés de la saison (souvent onboardés via l'Espace RH)
-// n'y figurent pas toujours ; la direction les retrouve par nom.
+// Identification pour le module Arrivée : nom + établissement. Pas de recherche dans
+// l'effectif : les salariés de la saison (souvent onboardés via l'Espace RH) n'y figurent
+// pas toujours ; la direction les retrouve par nom.
+// Depuis le 04/11/2026, TOUS les établissements sont proposés et non plus seulement ceux de
+// Saint-Barth : un saisonnier qui monte à Mègève ou descend à Saint-Tropez annonce lui aussi
+// son arrivée.
 function ArriveeIdentify({ restaurants, onOk, onBack }) {
-  const etabs = restaurants.filter(estEtablissementSBH);
+  const etabs = restaurants;
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
   const [resto, setResto] = useState(etabs.length === 1 ? etabs[0] : "");
@@ -3886,9 +3928,9 @@ function ArriveeIdentify({ restaurants, onOk, onBack }) {
   return (
     <div className="ig-hero" style={{maxWidth:440}}>
       <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack} style={{marginBottom:20}}><Icon.Back/> Espace salarié</button>
-      <div className="ig-ic" style={{background:'var(--sea)',color:'#fff',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16,fontSize:22}}>🏝️</div>
+      <div className="ig-ic" style={{background:'var(--sea)',color:'#fff',width:46,height:46,borderRadius:12,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16,fontSize:22}}>🧳</div>
       <h1 className="ig-display" style={{fontFamily:"'Inter', system-ui, sans-serif",fontWeight:700,letterSpacing:'-.4px',fontSize:32,marginBottom:8}}>Je prépare mon arrivée</h1>
-      <p style={{marginBottom:20}}>Indiquez votre prénom, votre nom et l'établissement où vous allez travailler à Saint-Barth.</p>
+      <p style={{marginBottom:20}}>Indiquez votre prénom, votre nom et l'établissement où vous allez travailler.</p>
       <div className="ig-field"><label>Prénom</label><input value={prenom} autoFocus onChange={(e)=>{ setPrenom(e.target.value); setErr(false); }} onKeyDown={onKey} placeholder="Votre prénom" /></div>
       <div className="ig-field"><label>Nom</label><input value={nom} onChange={(e)=>{ setNom(e.target.value); setErr(false); }} onKeyDown={onKey} placeholder="Votre nom" /></div>
       <div className="ig-field">
@@ -3911,7 +3953,7 @@ function ArriveeSeuleView({ resto, emp, onBack }) {
       <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:14}}>
         <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={onBack}><Icon.Back/> Retour</button>
         <div>
-          <div className="ig-eyebrow" style={{margin:0}}>Arrivée à Saint-Barth · {resto}</div>
+          <div className="ig-eyebrow" style={{margin:0}}>{estEtablissementSBH(resto) ? "Arrivée à Saint-Barth" : "Mon arrivée"} · {resto}</div>
           <h2 className="ig-section-title">{emp.p} {emp.n}</h2>
         </div>
       </div>
@@ -3942,14 +3984,17 @@ function recapWhatsApp(iso, liste) {
   return `🏝️ Arrivées SBH — ${titre}\n${lignes.join("\n")}`;
 }
 
-// Section « Arrivées » de l'Espace RH : Pablo Saint Barth et Cream sont FUSIONNÉS ici (un
-// seul et même staff à loger/récupérer sur l'île) — l'équipe de référence (pour « sans
-// réponse ») regroupe donc les fiches RH des DEUX établissements, salle et cuisine confondues.
+// Section « Arrivées » de l'Espace RH. À Saint-Barth, Pablo et Cream sont FUSIONNÉS ici (un
+// seul et même staff à loger/récupérer sur l'île) : l'équipe de référence (pour « sans
+// réponse ») regroupe les fiches RH des DEUX établissements, salle et cuisine confondues.
+// Ailleurs, chaque établissement ne voit que sa propre équipe.
 function ArriveesRH({ resto, superviseur }) {
   const [team, setTeam] = useState([]);
   useEffect(() => {
     let on = true;
-    Promise.all(ETABLISSEMENTS_SBH.map((r) => RhSalaries.list(r))).then((listes) => {
+    // listPlanning (vue rh_equipe_planning) et non list : un manager n'a pas accès à
+    // rh_salaries, et il doit pourtant voir les arrivées de son équipe.
+    Promise.all(etablissementsArrivees(resto).map((r) => RhSalaries.listPlanning(r))).then((listes) => {
       if (!on) return;
       const lignes = listes.flat();
       // Même choix de saison que le planning : l'année en cours, sinon la dernière année
@@ -3964,20 +4009,22 @@ function ArriveesRH({ resto, superviseur }) {
     });
     return () => { on = false; };
   }, [resto]);
-  return <ArriveesSBH resto={resto} team={team} superviseur={superviseur} />;
+  return <ArriveesVue resto={resto} team={team} superviseur={superviseur} />;
 }
 
-// Vue direction : toutes les arrivées de Saint-Barth (tous établissements SBH confondus),
-// par jour et par heure, + les salariés de l'établissement qui n'ont pas encore répondu.
-function ArriveesSBH({ resto, team, superviseur }) {
+// Vue direction : les arrivées de l'établissement (à Saint-Barth, des deux établissements de
+// l'île confondus), par jour et par heure, + les salariés qui n'ont pas encore répondu.
+function ArriveesVue({ resto, team, superviseur }) {
+  const sbh = estEtablissementSBH(resto);
+  const etabs = etablissementsArrivees(resto);
   const [liste, setListe] = useState(null);
   const [periode, setPeriode] = useState("avenir"); // avenir | tout
   const [saisie, setSaisie] = useState(null); // salarié pour qui le manager saisit l'arrivée
   const [enregistrement, setEnregistrement] = useState(false);
   const [flash, setFlash] = useState("");
 
-  function recharger() { Arrivees.listSBH().then(setListe); }
-  useEffect(() => { recharger(); }, []);
+  function recharger() { Arrivees.listPour(etabs).then(setListe); }
+  useEffect(() => { recharger(); }, [resto]);
   function montrerFlash(m) { setFlash(m); setTimeout(() => setFlash(""), 3500); }
 
   const aujourdHui = dateISOLocale(new Date());
@@ -4023,8 +4070,11 @@ function ArriveesSBH({ resto, team, superviseur }) {
 
   if (liste === null) return <div className="ig-card" style={{padding:20}}><div className="ig-muted">Chargement des arrivées…</div></div>;
 
-  const totalAeroport = filtrees.filter((a) => a.lieu === "AEROPORT").length;
-  const totalPort = filtrees.filter((a) => a.lieu === "PORT").length;
+  // Les deux compteurs du bandeau suivent les deux choix proposés à l'établissement :
+  // aéroport/port sur l'île, voiture/bus sur le continent.
+  const [lieuA, lieuB] = lieuxArrivee(resto);
+  const totalA = filtrees.filter((a) => a.lieu === lieuA.v).length;
+  const totalB = filtrees.filter((a) => a.lieu === lieuB.v).length;
   const demain = dateISOLocale(ajouterJours(new Date(), 1));
   function etiquetteJour(iso) {
     if (!iso) return null;
@@ -4037,7 +4087,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
   async function partagerLien() {
     const url = lienEspaceSalarie();
     if (navigator.share) {
-      try { await navigator.share({ title: "Indie Group · Espace salarié", text: "🌴 Merci de renseigner ton arrivée à Saint-Barth (tuile « Je prépare mon arrivée ») :", url }); return; }
+      try { await navigator.share({ title: "Indie Group · Espace salarié", text: (sbh ? "🌴 Merci de renseigner ton arrivée à Saint-Barth" : "🚗 Merci de renseigner ton arrivée") + " (tuile « Je prépare mon arrivée ») :", url }); return; }
       catch { /* partage annulé : on retombe sur la copie */ }
     }
     montrerFlash((await copierTexte(url)) ? "Lien copié : collez-le dans WhatsApp." : "Copie impossible sur cet appareil.");
@@ -4048,11 +4098,11 @@ function ArriveesSBH({ resto, team, superviseur }) {
       {flash && <div className="ig-arr-toast">{flash}</div>}
 
       <div className="ig-arr-hero">
-        <div className="ig-arr-hero-ti">🌴 Arrivées <span>{ETABLISSEMENTS_SBH.join(" & ")}</span></div>
-        <p className="ig-arr-hero-txt">Toutes les arrivées déclarées par le staff : jour, heure, lieu (aéroport ou port), vol, moyen de locomotion et bagages. Appelez ou écrivez à chacun en un clic.</p>
+        <div className="ig-arr-hero-ti">{sbh ? "🌴" : "🚗"} Arrivées <span>{etabs.join(" & ")}</span></div>
+        <p className="ig-arr-hero-txt">Toutes les arrivées déclarées par le staff : jour, heure, {sbh ? "lieu (aéroport ou port), vol, " : "mode d'arrivée (voiture ou bus), "}moyen de locomotion et bagages. Appelez ou écrivez à chacun en un clic.</p>
         <div className="ig-arr-stats">
-          <div className="ig-arr-stat" style={{"--c":"#3D5A98"}}><b>{totalAeroport}</b><span>✈️ à l'aéroport</span></div>
-          <div className="ig-arr-stat" style={{"--c":"#2E7D86"}}><b>{totalPort}</b><span>⛴️ au port</span></div>
+          <div className="ig-arr-stat" style={{"--c":"#3D5A98"}}><b>{totalA}</b><span>{lieuA.emoji} {sbh ? "à l'aéroport" : "en voiture"}</span></div>
+          <div className="ig-arr-stat" style={{"--c":"#2E7D86"}}><b>{totalB}</b><span>{lieuB.emoji} {sbh ? "au port" : "en bus"}</span></div>
           <a className="ig-arr-stat" href="#ig-arr-attente" style={{"--c": sansReponse.length ? "#C8871A" : "#1E9E6A"}}><b>{sansReponse.length}</b><span>{sansReponse.length ? "⏳ n'ont pas répondu" : "✅ Tous ont répondu"}</span></a>
         </div>
       </div>
@@ -4130,7 +4180,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
         </summary>
         {sansReponse.length > 0 && (
           <>
-            <div className="ig-muted" style={{fontSize:13,margin:'4px 0 10px'}}>Salariés du registre d'embauche de {ETABLISSEMENTS_SBH.join(" et ")} qui n'ont pas encore déclaré leur arrivée. Relancez-les avec le lien, ou touchez « Saisir » pour remplir leur arrivée à leur place.</div>
+            <div className="ig-muted" style={{fontSize:13,margin:'4px 0 10px'}}>Salariés du registre d'embauche de {etabs.join(" et ")} qui n'ont pas encore déclaré leur arrivée. Relancez-les avec le lien, ou touchez « Saisir » pour remplir leur arrivée à leur place.</div>
             {sansReponse.map((e) => (
               <div key={idSalarie(e)} className="ig-arr-att-row">
                 <div><b>{e.p} {e.n}</b><div className="ig-muted" style={{fontSize:12}}>{[e.po, e.r].filter(Boolean).join(" · ")}</div></div>
@@ -4145,7 +4195,7 @@ function ArriveesSBH({ resto, team, superviseur }) {
         <div className="ig-overlay" onClick={() => setSaisie(null)}>
           <div className="ig-modal" style={{maxWidth:560}} onClick={(e) => e.stopPropagation()}>
             <h3>Arrivée de {saisie.p} {saisie.n}</h3>
-            <ArriveeForm onSave={(d) => enregistrerPour(saisie, d)} onCancel={() => setSaisie(null)} enregistrement={enregistrement} />
+            <ArriveeForm resto={saisie && saisie.r ? saisie.r : resto} onSave={(d) => enregistrerPour(saisie, d)} onCancel={() => setSaisie(null)} enregistrement={enregistrement} />
           </div>
         </div>
       )}
@@ -6881,16 +6931,19 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
   // est la première ; d'autres sections viendront s'ajouter à côté par la suite.
   const [sousSection, setSousSection] = useState(null);
   // emoji / c (couleur d'accent) / t (teinte de fond) / desc : habillage des tuiles de section.
-  // Un manager ne voit que le Planning et les Extras : les autres tuiles ne sont même pas
+  // Un manager ne voit que le Planning, les Extras et les Arrivées : les autres tuiles ne sont même pas
   // construites, pour qu'aucune ne puisse être atteinte par erreur.
   const SOUS_SECTIONS_RH = estManager ? [
     { cle: "planning", label: "Planning", emoji: "📅", c: "#3D5A98", t: "#E6EBF6", desc: "Les horaires de la semaine et la feuille d'émargement." },
     { cle: "extras", label: "Extras", emoji: "✨", c: "#C8871A", t: "#FBF0DC", desc: "Les extras du mois et leurs contrats." },
+    // Les arrivées : le manager va chercher les gens sur le terrain, il en a besoin. Aucune
+    // donnée de salaire n'y figure.
+    TUILE_ARRIVEES(restoActif),
   ] : [
     { cle: "registre", label: "Registre embauche", emoji: "📋", c: "#2E7D86", t: "#E4F1F2", desc: "Les salariés onboardés, leurs contrats et leurs infos." },
     { cle: "planning", label: "Planning", emoji: "📅", c: "#3D5A98", t: "#E6EBF6", desc: "Les horaires de la semaine et l'émargement." },
-    // Arrivées du staff à Saint-Barth (la directrice va chercher chacun à l'aéroport/au port).
-    ...(estEtablissementSBH(restoActif) ? [{ cle: "arrivees", label: "Arrivées", emoji: "🌴", c: "#1E9E6A", t: "#E2F5EC", desc: "Qui arrive, quand, à l'aéroport ou au port.", badge: "Saint-Barth" }] : []),
+    // Arrivées du staff : partout, car partout quelqu'un va chercher les gens ou les attend.
+    TUILE_ARRIVEES(restoActif),
     { cle: "extras", label: "Extras", emoji: "✨", c: "#C8871A", t: "#FBF0DC", desc: "Les extras du mois et leurs contrats." },
     { cle: "repos_hebdo", label: "Repos hebdo non pris", emoji: "🛌", c: "#8A5CB8", t: "#F0E8F8", desc: "Les jours de repos non pris à régulariser." },
     // Primes/régularisations à transmettre pour la paie — réservé au superviseur (jamais
@@ -7090,7 +7143,7 @@ function EspaceRH({ acces, restaurants, onAjouterEtablissement, onBack, onDeconn
             ))}
           </div>
         </div>
-      ) : (estManager && sousSection !== "planning" && sousSection !== "extras") ? (
+      ) : (estManager && !["planning", "extras", "arrivees"].includes(sousSection)) ? (
         <div className="ig-muted">Cette section n'est pas accessible avec votre accès.</div>
       ) : sousSection === "registre" ? (
         <ListeSalariesRH key={refreshKey} resto={restoActif} unite={uniteActive} superviseur={estSuperviseur} restaurants={restaurants} />
