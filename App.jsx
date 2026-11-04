@@ -4710,6 +4710,21 @@ const RH_PALETTE_COULEURS = [
   { valeur: "#EAE0F3", label: "Violet clair" },
   { valeur: "#E8DDC9", label: "Beige" },
 ];
+// Le vert sert à marquer les salariés actifs : par défaut, ils remontent donc en tête de
+// liste, sans rien avoir à régler. Chacun peut choisir une autre couleur (ou aucune) dans
+// le menu Couleur ; ce choix est retenu sur son appareil et vaut pour les fois suivantes.
+const RH_COULEUR_ACTIF = "#D9F0DC";
+const CLE_TRI_COULEUR = "ig.registre.tri-couleur";
+function triCouleurInitial() {
+  try {
+    var v = window.localStorage.getItem(CLE_TRI_COULEUR);
+    if (v === null) return RH_COULEUR_ACTIF;   // jamais réglé : le vert en premier
+    return v || null;                          // "" = l'utilisateur a volontairement enlevé le tri
+  } catch { return RH_COULEUR_ACTIF; }         // navigateur qui refuse le stockage : on garde le vert
+}
+function retenirTriCouleur(v) {
+  try { window.localStorage.setItem(CLE_TRI_COULEUR, v || ""); } catch { /* sans mémoire, tant pis */ }
+}
 function PastilleCouleur({ valeur, taille = 20, onClick, titre }) {
   return (
     <button onClick={onClick} title={titre} type="button"
@@ -4832,7 +4847,7 @@ function MenuCouleur({ filtreCouleurs, triCouleur, toutesLesCouleurs, onFiltrer,
     <>
       <div style={{position:'fixed',inset:0,zIndex:40}} onClick={onFermer} />
       <div className="ig-card" style={{position:'absolute',top:'100%',right:0,marginTop:4,zIndex:41,width:220,padding:10,fontWeight:400,textTransform:'none',letterSpacing:0,fontSize:13,background:'var(--white)'}} onClick={(e)=>e.stopPropagation()}>
-        <div className="ig-muted" style={{fontSize:11,marginBottom:6}}>Trier : cette couleur en premier</div>
+        <div className="ig-muted" style={{fontSize:11,marginBottom:6}}>Toujours afficher cette couleur en premier<br/><span style={{opacity:.75}}>Retenu pour les prochaines fois. Le vert est choisi par défaut.</span></div>
         <div style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
           {RH_PALETTE_COULEURS.filter((p) => p.valeur).map((p) => (
             <span key={p.valeur} style={{opacity: triCouleur === p.valeur ? 1 : .4, outline: triCouleur === p.valeur ? '2px solid var(--ink)' : 'none', borderRadius:6}}>
@@ -5336,7 +5351,7 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   const [triColonne, setTriColonne] = useState(null);
   const [triSens, setTriSens] = useState('asc');
   const [filtreCouleurs, setFiltreCouleurs] = useState(null); // Set des couleurs affichées, null = toutes
-  const [triCouleur, setTriCouleur] = useState(null); // couleur à faire remonter en premier dans la liste
+  const [triCouleur, setTriCouleur] = useState(triCouleurInitial); // couleur remontée en tête (vert = actifs, par défaut)
   const [menuCouleurOuvert, setMenuCouleurOuvert] = useState(false);
   const [saisonActive, setSaisonActive] = useState(null);
   const [selection, setSelection] = useState(new Set());
@@ -5595,11 +5610,6 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
     });
   }
   function comparer(a, b) {
-    if (triCouleur) {
-      const ca = (a.couleur || "") === triCouleur ? 0 : 1;
-      const cb = (b.couleur || "") === triCouleur ? 0 : 1;
-      if (ca !== cb) return ca - cb;
-    }
     if (!triColonne) return `${a.nom || ""} ${a.prenom || ""}`.localeCompare(`${b.nom || ""} ${b.prenom || ""}`);
     const cmp = rhValeurBrute(a, triColonne).localeCompare(rhValeurBrute(b, triColonne), "fr", { numeric: true });
     return triSens === "desc" ? -cmp : cmp;
@@ -5608,19 +5618,24 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
   if (saisonActive && !saisons.includes(saisonActive)) saisons.push(saisonActive);
   const listeSaison = liste.filter((s) => s.saison === saisonActive);
   const filtres_ = listeSaison.filter(passeFiltres);
-  // Les salariés en fin de contrat (date de fin renseignée) passent en fin de liste,
-  // surlignés, pour que l'effectif actif reste visible en premier. Se base sur l'état au
-  // dernier chargement (ordreDateFin), pas sur la valeur en cours de saisie : sinon la ligne
-  // saute de groupe à l'instant même où on tape la date, empêchant de la finir tranquillement.
-  // Le tri par couleur, quand il est actif, prend le pas sur le groupement "fin de contrat
-  // en bas" ci-dessous : sinon une ligne coloriée pour remonter en premier reste bloquée
-  // dans son groupe (actif / fin de contrat) et ne remonte jamais réellement en tête.
-  const listeAffichee = triCouleur
-    ? [...filtres_].sort(comparer)
-    : [
-        ...filtres_.filter((s) => !ordreDateFin.current.get(s.id)).sort(comparer),
-        ...filtres_.filter((s) => !!ordreDateFin.current.get(s.id)).sort(comparer),
-      ];
+  // Ordre d'affichage, dans cet ordre de priorité :
+  //   1. la couleur mise en avant (le vert = les actifs) remonte en tête ;
+  //   2. les salariés en fin de contrat (date de fin renseignée) descendent en bas, surlignés ;
+  //   3. le tri de colonne choisi, sinon l'ordre alphabétique.
+  // Le point 2 se base sur l'état au dernier chargement (ordreDateFin) et non sur la valeur
+  // en cours de saisie : sinon la ligne saute de groupe à l'instant même où on tape la date,
+  // et on ne peut pas finir de la remplir tranquillement.
+  const listeAffichee = [...filtres_].sort((a, b) => {
+    if (triCouleur) {
+      const ca = (a.couleur || "") === triCouleur ? 0 : 1;
+      const cb = (b.couleur || "") === triCouleur ? 0 : 1;
+      if (ca !== cb) return ca - cb;
+    }
+    const fa = ordreDateFin.current.get(a.id) ? 1 : 0;
+    const fb = ordreDateFin.current.get(b.id) ? 1 : 0;
+    if (fa !== fb) return fa - fb;
+    return comparer(a, b);
+  });
 
   function entete(c, largeur) {
     const options = Array.from(new Set(listeSaison.map((s) => rhValeurBrute(s, c.cle))))
@@ -5684,12 +5699,14 @@ function ListeSalariesRH({ resto, unite, superviseur, restaurants }) {
               triCouleur={triCouleur}
               toutesLesCouleurs={Array.from(new Set(listeSaison.map((x) => x.couleur || "")))}
               onFiltrer={setFiltreCouleurs}
-              onTrier={setTriCouleur}
+              onTrier={(v)=>{ setTriCouleur(v); retenirTriCouleur(v); }}
               onFermer={()=>setMenuCouleurOuvert(false)}
             />
           )}
         </div>
-        {(filtresActifs || triCouleur) && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); setTriCouleur(null); }}>✕ Réinitialiser les filtres</button>}
+        {/* Volontairement : ce bouton remet les FILTRES à zéro, pas le tri par couleur —
+            sinon on perdrait « les actifs en premier » d'un clic, sans s'en rendre compte. */}
+        {filtresActifs && <button className="ig-btn ig-btn-ghost ig-btn-sm" onClick={()=>{ setFiltresValeurs({}); setFiltreCouleurs(null); }}>✕ Réinitialiser les filtres</button>}
         {selection.size > 0 && (
           <div style={{marginLeft:'auto',display:'flex',gap:8}}>
             {superviseur && (
