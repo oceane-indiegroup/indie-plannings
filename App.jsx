@@ -1110,12 +1110,20 @@ const LIEUX_ARRIVEE = [...LIEUX_ARRIVEE_SBH, ...LIEUX_ARRIVEE_CONTINENT];
 function lieuxArrivee(resto) {
   return estEtablissementSBH(resto) ? LIEUX_ARRIVEE_SBH : LIEUX_ARRIVEE_CONTINENT;
 }
+// Le quad est un véhicule d'île : il n'est proposé qu'à Saint-Barth. Ailleurs, c'est la
+// trottinette qui prend sa place. Les deux restent dans la liste commune pour que les
+// arrivées déjà enregistrées continuent de s'afficher correctement.
 const LOCOMOTIONS = [
   { v: "SCOOTER", label: "Scooter", emoji: "🛵" },
   { v: "VOITURE", label: "Voiture", emoji: "🚗" },
   { v: "QUAD", label: "Quad", emoji: "🏍️" },
+  { v: "TROTTINETTE", label: "Trottinette", emoji: "🛴" },
   { v: "AUCUN", label: "Rien de réservé", emoji: "❌" },
 ];
+function locomotions(resto) {
+  const exclu = estEtablissementSBH(resto) ? "TROTTINETTE" : "QUAD";
+  return LOCOMOTIONS.filter((l) => l.v !== exclu);
+}
 // À Saint-Barth, les deux établissements de l'île sont vus ensemble (un seul trajet pour
 // aller chercher les gens). Partout ailleurs, chaque établissement est seul.
 function etablissementsArrivees(resto) {
@@ -3782,7 +3790,7 @@ function ArriveeForm({ initial, onSave, onCancel, enregistrement, resto }) {
       </div>
       <div className="ig-field">
         <label>Moyen de locomotion réservé sur place *</label>
-        <ChoixBoutons options={LOCOMOTIONS} valeur={f.locomotion} onChoisir={maj("locomotion")} />
+        <ChoixBoutons options={locomotions(resto)} valeur={f.locomotion} onChoisir={maj("locomotion")} />
       </div>
       <div className="ig-field" style={{maxWidth:200}}>
         <label>Nombre de bagages</label>
@@ -4126,14 +4134,14 @@ function ArriveesVue({ resto, team, superviseur }) {
 
       {parJour.map(([iso, jour]) => {
         const et = etiquetteJour(iso);
-        const nbA = jour.filter((a) => a.lieu === "AEROPORT").length;
-        const nbP = jour.filter((a) => a.lieu === "PORT").length;
+        const nbA = jour.filter((a) => a.lieu === lieuA.v).length;
+        const nbP = jour.filter((a) => a.lieu === lieuB.v).length;
         return (
           <section key={iso} className={"ig-arr-jour" + (iso && iso < aujourdHui ? " passe" : "")}>
             <div className="ig-arr-jour-hd">
               {et && <span className="ig-arr-badge" style={{background: et.c}}>{et.txt}</span>}
               <div className="ig-arr-jour-ti">{iso ? fmtJourLong(iso) + (iso.slice(0, 4) !== aujourdHui.slice(0, 4) ? ` ${iso.slice(0, 4)}` : "") : "Date non renseignée"}</div>
-              <div className="ig-arr-jour-ct">{jour.length} arrivée{jour.length > 1 ? "s" : ""}{nbA ? ` · ✈️ ${nbA} aéroport` : ""}{nbP ? ` · ⛴️ ${nbP} port` : ""}</div>
+              <div className="ig-arr-jour-ct">{jour.length} arrivée{jour.length > 1 ? "s" : ""}{nbA ? ` · ${lieuA.emoji} ${nbA} ${sbh ? "aéroport" : "voiture"}` : ""}{nbP ? ` · ${lieuB.emoji} ${nbP} ${sbh ? "port" : "bus"}` : ""}</div>
             </div>
             {jour.map((a) => {
               const telNum = (a.tel || "").replace(/[^\d+]/g, "");
@@ -4147,9 +4155,9 @@ function ArriveesVue({ resto, team, superviseur }) {
                   <div className="ig-arr-nom">{a.prenom} {a.nom}</div>
                   <div className="ig-arr-poste">{[a.poste, a.resto].filter(Boolean).join(" · ")}</div>
                   <dl className="ig-arr-det">
-                    <dt>{port ? "⛴️ Ferry" : "🛫 Vol"}</dt><dd>{a.vol || <i>non précisé</i>}</dd>
+                    {sbh && <><dt>{port ? "⛴️ Ferry" : "🛫 Vol"}</dt><dd>{a.vol || <i>non précisé</i>}</dd></>}
                     <dt>📍 En provenance de</dt><dd>{a.provenance || <i>non précisé</i>}</dd>
-                    <dt>🚦 Sur place</dt><dd>{a.locomotion === "AUCUN" ? "Rien de réservé (à prévoir ?)" : `${libelleLocomotion(a.locomotion)} réservé${a.locomotion === "VOITURE" ? "e" : ""}`}</dd>
+                    <dt>🚦 Sur place</dt><dd>{a.locomotion === "AUCUN" ? "Rien de réservé (à prévoir ?)" : `${libelleLocomotion(a.locomotion)} réservé${["VOITURE", "TROTTINETTE"].includes(a.locomotion) ? "e" : ""}`}</dd>
                     <dt>🧳 Bagages</dt><dd>{a.bagages !== "" && a.bagages != null ? a.bagages : <i>non précisé</i>}</dd>
                     <dt>📱 Téléphone</dt><dd>{a.tel || <i>non précisé</i>}</dd>
                   </dl>
