@@ -11,8 +11,10 @@ const MODE_SALARIE = typeof window !== "undefined" && window.location.pathname.r
 // Toujours le domaine de production (public) — voir vite.config.js — sinon l'adresse courante.
 const DOMAINE_PRODUCTION = typeof __DOMAINE_PRODUCTION__ !== "undefined" ? __DOMAINE_PRODUCTION__ : "";
 const lienEspaceSalarie = () => (DOMAINE_PRODUCTION ? `https://${DOMAINE_PRODUCTION}` : window.location.origin) + CHEMIN_SALARIE;
-// Formulaire Google d'onboarding (dossier d'embauche) proposé dans l'espace salarié.
-// Vide = la tuile s'affiche comme « bientôt disponible ».
+// Formulaire Google d'onboarding (dossier d'embauche). Il n'est plus proposé en libre
+// service dans l'espace salarié : chaque salarié reçoit SON lien, préparé depuis le registre
+// (bouton « Envoyer le dossier »), avec son code dossier déjà rempli. Adresse gardée ici pour
+// mémoire et pour régler la configuration d'envoi.
 const LIEN_FORM_ONBOARDING = "https://forms.gle/pe762zytEaBqZgYF8";
 // Formulaire Google de notes de frais, même principe que l'onboarding ci-dessus.
 const LIEN_FORM_NOTES_FRAIS = "https://forms.gle/tZAjvtowcGE59UX19";
@@ -3885,7 +3887,10 @@ function EspaceSalarieAccueil({ onChoisir, onBack }) {
   // "lien" : tuile qui ouvre simplement un Google Form dans un nouvel onglet (même principe
   // que l'onboarding) — pas de module interne, contrairement aux tuiles "arrivee"/"presence".
   const tuiles = [
-    { id: "onboarding", emoji: "📝", titre: "Onboarding", texte: "Je remplis mon dossier d'embauche.", couleur: "var(--ink)", lien: LIEN_FORM_ONBOARDING },
+    // Plus de tuile « Onboarding » ici : le dossier d'embauche part désormais en lien
+    // NOMINATIF (un lien par salarié, envoyé par WhatsApp depuis le registre). Un lien
+    // générique ouvert à tous ramènerait des fiches sans code dossier, impossibles à
+    // rattacher au bon salarié.
     { id: "arrivee", emoji: "🧳", titre: "Je prépare mon arrivée", texte: "Date, heure, comment j'arrive, locomotion et bagages.", couleur: "var(--sea)" },
     { id: "presence", emoji: "✅", titre: "Je valide ma présence", texte: "Émargement : je confirme mes jours et je signe ma semaine.", couleur: "var(--coral)" },
     { id: "notes_frais", emoji: "🧾", titre: "Notes de frais", texte: "Je transmets mes notes de frais.", couleur: "#C8871A", lien: LIEN_FORM_NOTES_FRAIS },
@@ -5045,8 +5050,10 @@ function EnvoiOnboardingModal({ salarie, resto, config, onClose, onConfigManquan
 
   const lien = etat.code ? lienOnboarding(config, etat.code) : null;
   const prenom = (salarie.prenom || "").trim();
+  // Deux liens dans le même message : le dossier d'embauche (personnel, à usage unique) et
+  // l'espace salarié (le même pour tout le monde, à garder), où il prépare son arrivée.
   const message = lien
-    ? `Bonjour ${prenom},\n\nBienvenue chez Indie Group ! Pour préparer ton contrat à ${resto}, merci de remplir ton dossier d'embauche ici :\n${lien}\n\nCe lien t'est personnel, ne le transfère pas. Merci de ne pas modifier la case « Code dossier » en haut du formulaire.`
+    ? `Bonjour ${prenom},\n\nBienvenue chez Indie Group ! Pour préparer ton contrat à ${resto}, merci de remplir ton dossier d'embauche ici :\n${lien}\n\nCe lien t'est personnel, ne le transfère pas. Merci de ne pas modifier la case « Code dossier » en haut du formulaire.\n\n👉 Et voici ton espace salarié, à garder précieusement :\n${lienEspaceSalarie()}\n\nC'est là que tout se passera pendant la saison : valider ta présence et tes heures, envoyer tes notes de frais. Si tu es logé(e) par la maison, pense aussi à remplir « Je prépare mon arrivée » pour qu'on sache quand et comment tu arrives.\n\nÀ très vite !`
     : "";
   const numero = numeroWhatsApp(tel, indicatif);
   const email = (salarie.email || "").trim();
