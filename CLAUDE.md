@@ -72,6 +72,11 @@ dans l'écran Mes tâches d'Océane ? » (voir la section Pilotage du BACKLOG).
   `npx esbuild App.jsx --bundle --jsx=automatic --external:react --external:react-dom --external:xlsx --external:html2pdf.js --external:@fontsource/* --external:@supabase/* --outfile=/tmp/check.js`
 - Vérifier `sheet-sync` :
   `npx esbuild supabase/functions/sheet-sync/index.ts --bundle --platform=neutral --target=es2022 --outfile=/tmp/check-sync.js --external:*`
+- Sauvegarde : la base est exportée chaque nuit vers le Drive d'Océane (dossier
+  « Sauvegardes Indie App »), par un script Apps Script de son compte Google — voir
+  `docs/sauvegarde/`. Elle ne fait que LIRE la base. En cas de données perdues ou écrasées,
+  la procédure de remise en place est dans `docs/sauvegarde/RESTAURER.md` : y penser AVANT
+  de proposer une réparation manuelle. Supabase (formule gratuite) ne sauvegarde rien.
 - Les conversations cloud n'ont pas accès au site ni à Supabase en direct : pour vérifier
   en vrai, demander à Océane des captures d'écran.
 - Leçons apprises :

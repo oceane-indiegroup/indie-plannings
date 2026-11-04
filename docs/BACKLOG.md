@@ -24,6 +24,11 @@ Les cases marquées **(Océane)** sont des actions à faire par Océane elle-mê
 - [ ] Valider le principe de l'écran « Mes tâches » (voir proposition plus bas)
 
 ## 🔧 Technique & infra
+- [x] **Sauvegarde quotidienne de la base vers le Drive** — faite et vérifiée le 04/11/2026
+      (18 701 lignes, chiffre identique à la base). Script Apps Script dans le compte Google
+      d'Océane, dossier Drive « Sauvegardes Indie App », chaque nuit vers 4 h, 30 jours
+      glissants + le 1er de chaque mois. Code et procédure de restauration : `docs/sauvegarde/`.
+- [ ] Ajouter le stockage `rh-documents` à la sauvegarde le jour où on y mettra des fichiers (vide aujourd'hui)
 - [ ] Redéployer `sheet-sync` (voir priorité 3) **(Océane)**
 - [ ] Vérifier que le SQL de la contrainte unique `rh_salaries (resto, salarie_id, saison, date_debut)` est bien en place (il a été exécuté le 28/10)
 - [ ] Faire le ménage : fichier `packagelock.json` en double de `package-lock.json`
