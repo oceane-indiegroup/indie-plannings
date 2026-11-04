@@ -188,8 +188,12 @@ Deno.serve(async (req) => {
         });
         if (r.ok) { const u = await r.json(); emails[id as string] = u?.email || "(email introuvable)"; }
       }
-      const resultat = lignes.map((l: { id: number; user_id: string; resto: string; unite: string; superviseur: boolean }) => ({
+      // "role" doit être renvoyé, sinon l'appli ne peut pas distinguer un manager d'un
+      // directeur dans la liste des accès (badge MANAGER absent) : la colonne était bien
+      // lue en base, mais oubliée ici à la sortie.
+      const resultat = lignes.map((l: { id: number; user_id: string; resto: string; unite: string; superviseur: boolean; role: string }) => ({
         id: l.id, user_id: l.user_id, email: emails[l.user_id] || "(compte supprimé)", resto: l.resto, unite: l.unite, superviseur: l.superviseur,
+        role: l.role || "directeur",
       }));
       return json({ ok: true, acces: resultat });
     }
